@@ -9,6 +9,7 @@ from typing import Any, Dict, List, Optional, Sequence, Set, Tuple, Union
 
 from .bpe_model import BPEModel
 from .byte_codec import ByteFallbackEngine
+from .chat_template import BUILTIN_TEMPLATES, ChatTemplateEngine
 from .indentation_compressor import IndentationCompressor
 from .pre_tokenizer import Normalizer, RegexPreTokenizer
 from .security_shield import SecurityShield
@@ -67,6 +68,7 @@ class CustomTokenizer:
         normalizer: Normalizer,
         pre_tokenizer: RegexPreTokenizer,
         model: UnigramModel,
+        chat_template: Optional[str] = None,
     ):
         self.normalizer = normalizer
         self.pre_tokenizer = pre_tokenizer
@@ -76,6 +78,14 @@ class CustomTokenizer:
         self._cross_word_model_id: Optional[int] = id(self.model)
         self._specials_pipe_form: Optional[bool] = None
         self._specials_model_id: Optional[int] = None
+        #: Optional Jinja2 chat template string. Set to a built-in template
+        #: name (e.g. ``"chatml"``), a raw Jinja2 string, or ``None``.
+        #: Used by :meth:`apply_chat_template` when no override is passed.
+        self.chat_template: Optional[str] = (
+            BUILTIN_TEMPLATES[chat_template]
+            if chat_template in BUILTIN_TEMPLATES
+            else chat_template
+        )
 
     @property
     def vocab_size(self) -> int:
@@ -348,6 +358,118 @@ class CustomTokenizer:
 
         model = trainer.train(chunks, verbose=verbose)
         return cls(normalizer=normalizer, pre_tokenizer=pre_tokenizer, model=model)
+
+    # ------------------------------------------------------------------
+    # Chat template API
+    # ------------------------------------------------------------------
+
+    def apply_chat_template(
+        self,
+        conversation: List[Dict[str, Any]],
+        tokenize: bool = True,
+        add_generation_prompt: bool = False,
+        chat_template: Optional[str] = None,
+    ) -> Union[str, List[int]]:
+        """Format a list of chat messages using a Jinja2 template and optionally
+        tokenize the result.
+
+        The method signature mirrors
+        ``transformers.PreTrainedTokenizerBase.apply_chat_template`` so that
+        code written for HuggingFace tokenizers can be ported with minimal
+        changes.
+
+        Template resolution order
+        -------------------------
+        1. The *chat_template* argument (if provided).
+        2. ``self.chat_template`` (set on the instance or persisted via
+           :meth:`save` / :meth:`load`).
+        3. ``ValueError`` — no template available.
+
+        A template value may be either:
+
+        * A raw Jinja2 source string (containing ``{%`` or ``{{``), **or**
+        * The name of a pre-bundled template: one of
+          ``"chatml"``, ``"llama3"``, ``"mistral"``, ``"zephyr"``.
+
+        Parameters
+        ----------
+        conversation:
+            A list of message dicts.  Each dict must have the keys
+            ``"role"`` (e.g. ``"user"``, ``"assistant"``, ``"system"``) and
+            ``"content"`` (the message text).  Additional keys are forwarded
+            to the template as-is.
+        tokenize:
+            * ``True`` (default) — return a ``List[int]`` of token IDs.
+            * ``False`` — return the rendered string without tokenizing.
+        add_generation_prompt:
+            When ``True``, append the model's turn-opening markup so the
+            model can begin generating immediately after the prompt.
+        chat_template:
+            Override the instance-level template for this call only.  Accepts
+            a built-in template name or a raw Jinja2 string.
+
+        Returns
+        -------
+        Union[str, List[int]]
+            The rendered chat string (``tokenize=False``) or a list of integer
+            token IDs (``tokenize=True``).
+
+        Raises
+        ------
+        ImportError
+            If ``jinja2`` is not installed.
+        ValueError
+            If no chat template is configured and none is passed as an argument.
+        ValueError
+            If *conversation* is empty or a message is missing a required key.
+        """
+        # --- Resolve the template source string ---
+        resolved_template_str: Optional[str] = None
+        if chat_template is not None:
+            resolved_template_str = (
+                BUILTIN_TEMPLATES[chat_template]
+                if chat_template in BUILTIN_TEMPLATES
+                else chat_template
+            )
+        elif self.chat_template is not None:
+            resolved_template_str = (
+                BUILTIN_TEMPLATES[self.chat_template]
+                if self.chat_template in BUILTIN_TEMPLATES
+                else self.chat_template
+            )
+
+        if resolved_template_str is None:
+            raise ValueError(
+                "No chat template is set.  Either pass ``chat_template`` as an "
+                "argument, set ``tokenizer.chat_template``, or load a tokenizer "
+                "that was saved with a chat_template.  "
+                f"Built-in templates: {list(BUILTIN_TEMPLATES)}"
+            )
+
+        # --- Resolve BOS/EOS tokens from the model's special-token list ---
+        bos_token = ""
+        eos_token = ""
+        for tok in self.model.special_tokens:
+            tok_lower = tok.lower()
+            if "bos" in tok_lower or tok in ("<s>", "<|begin_of_text|>"):
+                bos_token = tok
+            if "eos" in tok_lower or tok in ("</s>", "<|end_of_text|>", "<|im_end|>"):
+                eos_token = tok
+
+        # --- Render the template ---
+        engine = ChatTemplateEngine(resolved_template_str)
+        rendered = engine.render(
+            conversation,
+            add_generation_prompt=add_generation_prompt,
+            bos_token=bos_token,
+            eos_token=eos_token,
+        )
+
+        if not tokenize:
+            return rendered
+
+        # --- Tokenize with all special tokens permitted ---
+        return self.encode_to_ids(rendered, allowed_special="all")
 
     def encode(
         self,
@@ -771,6 +893,9 @@ class CustomTokenizer:
             },
         }
 
+        if self.chat_template is not None:
+            config["chat_template"] = self.chat_template
+
         with open(dir_path / "tokenizer.json", "w", encoding="utf-8") as f:
             json.dump(config, f, ensure_ascii=False, indent=2)
 
@@ -819,7 +944,9 @@ class CustomTokenizer:
             preset=pre_tokenizer_config.get("preset"),
         )
 
-        return cls(normalizer=normalizer, pre_tokenizer=pre_tokenizer, model=model)
+        tokenizer = cls(normalizer=normalizer, pre_tokenizer=pre_tokenizer, model=model)
+        tokenizer.chat_template = config.get("chat_template", None)
+        return tokenizer
 
     def export_to_huggingface(self, directory: Union[str, Path]) -> None:
         """
