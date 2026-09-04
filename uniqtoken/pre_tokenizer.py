@@ -286,97 +286,97 @@ def _get_cached_regex(pattern: str) -> re.Pattern[str]:
     return re.compile(pattern)
 
 
-_ZWJ = "\u200d"
-
 try:
     import regex as _regex
 
-    _PICTOGRAPHIC_RE = _regex.compile(r"\p{Extended_Pictographic}")
+    # Extended grapheme clusters (UAX #29) with current-Unicode data, mirroring
+    # the Rust engine's unicode-segmentation crate.
+    _X_RE = _regex.compile(r"\X")
+    _MARK_RE = _regex.compile(r"\p{M}")
 except ImportError:  # pragma: no cover
-    # ponytail: fallback covers only the ranges the emoji pre-token pattern
-    # uses, so ZWJ joins outside them diverge from the Rust engine (which has
-    # the full UAX #29 property). `regex` is the upgrade path / parity contract.
-    _PICTOGRAPHIC_RE = None
-
-# Regional Indicator symbols (U+1F1E6..U+1F1FF): GB12/GB13 pair flags.
-_REGIONAL_INDICATOR_START = "\U0001f1e6"
-_REGIONAL_INDICATOR_END = "\U0001f1ff"
+    # ponytail: without the `regex` package the fallbacks below use
+    # interpreter-Unicode `unicodedata`, which can misclassify marks added in
+    # newer Unicode versions (e.g. U+0897 on older CPythons) and drift from
+    # the Rust engine. `regex` is the parity contract / upgrade path.
+    _X_RE = None
+    _MARK_RE = None
 
 
-def _starts_inside_grapheme(ch: str) -> bool:
-    """Issue #41: True when a chunk starting with `ch` continues a grapheme."""
-    return ch == _ZWJ or unicodedata.category(ch).startswith("M")
+def _grapheme_boundaries(text: str) -> set:
+    """Offsets of extended-grapheme-cluster boundaries in `text`."""
+    if _X_RE is not None:
+        return {m.start() for m in _X_RE.finditer(text)} | {len(text)}
+    # Fallback without `regex`: every codepoint boundary (no cluster snapping).
+    return set(range(len(text) + 1))
 
 
-def _is_orphan_prefix(s: str) -> bool:
-    """True when `s` is only combining marks/ZWJ with no base yet.
+def _is_mark(ch: str) -> bool:
+    r"""True for Unicode combining marks (\p{M}); current-Unicode aware."""
+    if _MARK_RE is not None:
+        return _MARK_RE.match(ch) is not None
+    return unicodedata.category(ch).startswith("M")
 
-    Mirrors the native engine's leading-orphan fusion, which fires for
-    ``\\p{M}``-leading spans only: a ZWJ-only prefix is already a complete
-    cluster, so it must not swallow the next chunk.
+
+def _snap_spans_to_graphemes(text: str, spans: List[Tuple[int, int]]) -> List[Tuple[int, int]]:
+    """Port of `pipeline.rs::snap_spans_to_graphemes` (UAX #29 snapping).
+
+    Offsets are Python string indices (chars); the Rust original uses bytes,
+    which is equivalent since every boundary, span, and advance here shares
+    the same unit. Mirroring the reference keeps Python/rust pre-tokenization
+    identical even on pathological inputs.
     """
-    return (
-        bool(s)
-        and any(unicodedata.category(c).startswith("M") for c in s)
-        and all(c == _ZWJ or unicodedata.category(c).startswith("M") for c in s)
-    )
-
-
-def _is_pictographic(ch: str) -> bool:
-    """GB11: a ZWJ continues its cluster only before an Extended_Pictographic."""
-    if not ch:
-        return False
-    if _PICTOGRAPHIC_RE is not None:
-        return _PICTOGRAPHIC_RE.match(ch) is not None
-    cp = ord(ch)
-    return 0x1F300 <= cp <= 0x1FAFF or 0x2600 <= cp <= 0x26FF or 0x2700 <= cp <= 0x27BF
-
-
-def _is_regional_indicator(ch: str) -> bool:
-    return _REGIONAL_INDICATOR_START <= ch <= _REGIONAL_INDICATOR_END
-
-
-def _trailing_regional_indicators(s: str) -> int:
-    """GB12/13: flags pair up; a cluster break falls after every 2nd RI."""
-    count = 0
-    for c in reversed(s):
-        if not _is_regional_indicator(c):
-            break
-        count += 1
-    return count
-
-
-def _is_virama_linker(ch: str) -> bool:
-    """Issue #41 (UAX #29 GB9c): virama/linkers join Consonant×Consonant.
-
-    GB9c needs InCB=Consonant on BOTH sides, so Khmer coeng (U+17D2) is
-    deliberately NOT a linker here: it has InCB=Linker, but Khmer consonants
-    are not InCB=Consonant and the native engine breaks after it. The rule
-    stays approximate for exotic linker/Extend runs; the native engine's
-    grapheme segmentation is exact.
-    """
-    if not ch or ch == _ZWJ:
-        return False
-    try:
-        return "VIRAMA" in unicodedata.name(ch)
-    except ValueError:
-        return False
-
-
-def _virama_link_across_extends(pending: str, first: str) -> bool:
-    """GB9c tail check: Consonant [Extend|Linker]* Linker × Consonant.
-
-    Skips trailing ZWJ runs in `pending` (InCB=Extend) before requiring the
-    virama linker, so e.g. Devanagari `क + ् + ZWJ + ष` stays one cluster like
-    the native engine. Combining marks are NOT skipped: the virama itself is a
-    mark and must be found (e.g. `क + ् + ष`).
-    """
-    if not first or unicodedata.category(first) != "Lo":
-        return False
-    i = len(pending)
-    while i > 0 and pending[i - 1] == _ZWJ:
-        i -= 1
-    return i > 0 and _is_virama_linker(pending[i - 1])
+    if not spans:
+        return []
+    boundaries = _grapheme_boundaries(text)
+    out: List[Tuple[int, int]] = []
+    i = 0
+    n = len(spans)
+    while i < n:
+        s, e = spans[i]
+        if s not in boundaries:
+            if out:
+                last_s, last_e = out[-1]
+                if e > last_e:
+                    last_e = e
+                while last_e not in boundaries and last_e < len(text):
+                    last_e += 1
+                while i + 1 < n and spans[i + 1][0] < last_e:
+                    i += 1
+                    if spans[i][1] > last_e:
+                        last_e = spans[i][1]
+                        while last_e not in boundaries and last_e < len(text):
+                            last_e += 1
+                out[-1] = (last_s, last_e)
+                i += 1
+                continue
+        while e not in boundaries and e < len(text):
+            e += 1
+        while i + 1 < n and spans[i + 1][0] < e:
+            i += 1
+            if spans[i][1] > e:
+                e = spans[i][1]
+                while e not in boundaries and e < len(text):
+                    e += 1
+        # Degenerate leading orphan (text starts with \p{M}): fuse forward,
+        # absorbing every span under the growing cluster end (matches Rust).
+        if not out and s < e:
+            if _is_mark(text[s]) and i + 1 < n:
+                e = spans[i + 1][1]
+                while e not in boundaries and e < len(text):
+                    e += 1
+                j = i + 1
+                while j + 1 < n and spans[j + 1][0] < e:
+                    j += 1
+                    if spans[j][1] > e:
+                        e = spans[j][1]
+                        while e not in boundaries and e < len(text):
+                            e += 1
+                i = j + 1
+                out.append((s, e))
+                continue
+        out.append((s, e))
+        i += 1
+    return out
 
 
 class RegexPreTokenizer:
@@ -505,59 +505,22 @@ class RegexPreTokenizer:
             raise ValueError("alignment length must match normalized text length")
 
         # Issue #41: snap regex boundaries to extended grapheme clusters so no
-        # boundary falls before a combining mark (\p{M}) or inside a ZWJ sequence.
-        pending_text: Optional[str] = None
-        pending_start = 0
-        pending_end = 0
-        pending_raw: Tuple[int, int] = (0, 0)
-
-        def _flush() -> Optional[PreToken]:
-            if pending_text is None:
-                return None
-            return PreToken(text=pending_text, start=pending_start, end=pending_end, raw_span=pending_raw)
-
-        for match in self.regex.finditer(text):
-            start, end = match.span()
+        # boundary falls before a combining mark (\p{M}) or inside a ZWJ/virama
+        # sequence. This is a faithful port of the native Rust snapping, so the
+        # Python fallback matches the Rust engine chunk-for-chunk.
+        spans = [m.span() for m in self.regex.finditer(text)]
+        for s, e in _snap_spans_to_graphemes(text, spans):
             if alignment is None:
-                raw_span = (start, end)
+                raw_span = (s, e)
             else:
-                source_spans = [
-                    entry if isinstance(entry, tuple) else (entry, entry + 1) for entry in alignment[start:end]
-                ]
+                source_spans = [entry if isinstance(entry, tuple) else (entry, entry + 1) for entry in alignment[s:e]]
                 if not source_spans:
                     continue
                 raw_span = (
                     min(span[0] for span in source_spans),
                     max(span[1] for span in source_spans),
                 )
-            cur_text = match.group(0)
-            if pending_text is None:
-                pending_text, pending_start, pending_end, pending_raw = cur_text, start, end, raw_span
-                continue
-            first = cur_text[:1]
-            # GB9c: Consonant + Virama × Consonant stays one grapheme.
-            virama_link = _virama_link_across_extends(pending_text, first)
-            if (
-                (bool(first) and _starts_inside_grapheme(first))
-                # GB11: ZWJ joins only pictographic×pictographic (e.g. emoji,
-                # not plain letters).
-                or (pending_text.endswith(_ZWJ) and _is_pictographic(pending_text[-2:-1]) and _is_pictographic(first))
-                or _is_orphan_prefix(pending_text)
-                or virama_link
-                # GB12/13: keep regional-indicator flag pairs together.
-                or (_is_regional_indicator(first) and _trailing_regional_indicators(pending_text) % 2 == 1)
-            ):
-                pending_text += cur_text
-                pending_end = end
-                pending_raw = (pending_raw[0], raw_span[1])
-            else:
-                tok = _flush()
-                assert tok is not None
-                yield tok
-                pending_text, pending_start, pending_end, pending_raw = cur_text, start, end, raw_span
-        tok = _flush()
-        if tok is not None:
-            yield tok
+            yield PreToken(text=text[s:e], start=s, end=e, raw_span=raw_span)
 
     @property
     def _native_pretok_parity(self) -> bool:
