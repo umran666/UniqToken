@@ -6,6 +6,7 @@ use crate::pipeline::is_combining_mark;
 use ahash::AHashMap;
 #[cfg(feature = "python")]
 use pyo3::prelude::*;
+use unicode_segmentation::UnicodeSegmentation;
 use std::collections::{HashMap, HashSet};
 
 fn detect_script(token: &str) -> &'static str {
@@ -70,12 +71,12 @@ pub fn rust_mine_ngrams(
         if chunk.starts_with("<|") && chunk.ends_with("|>") {
             continue;
         }
-        let chars: Vec<char> = chunk.chars().collect();
-        let clen = chars.len();
+        let clusters: Vec<&str> = chunk.graphemes(true).collect();
+        let clen = clusters.len();
         let max_len = max_ngram_for_chunk(&chunk, max_ngram_length);
         for start in 0..clen {
             // Issue #41: skip n-grams starting with an orphan combining mark.
-            if is_combining_mark(chars[start]) {
+            if is_combining_mark(clusters[start].chars().next().unwrap()) {
                 continue;
             }
             let mut end_limit = clen + 1;
@@ -84,7 +85,7 @@ pub fn rust_mine_ngrams(
                 end_limit = ml;
             }
             for end in (start + 1)..end_limit {
-                let piece: String = chars[start..end].iter().collect();
+                let piece: String = clusters[start..end].concat();
                 *ngram_counts.entry(piece).or_insert(0) += freq;
             }
         }

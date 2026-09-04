@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import math
-import unicodedata
+import regex as _regex
 from collections import Counter, deque
 from dataclasses import dataclass
 from typing import Deque, Dict, Iterable, List, Optional, Set, Tuple
+
+_MARK_RE = _regex.compile(r"\p{M}")
 
 # Module-level Rust core alias, preferring the repo's own crate name. Kept in
 # one place so inner functions never `import caliper_core` (a stale
@@ -126,8 +128,8 @@ class SeedVocabularyBuilder:
 
     @staticmethod
     def _is_combining_mark(char: str) -> bool:
-        """Issue #41: True for combining marks (Mn/Mc/Me)."""
-        return unicodedata.category(char).startswith("M")
+        """Issue #41: True for combining marks (Mn/Mc/Me), current-Unicode aware."""
+        return _MARK_RE.match(char) is not None
 
     def collect_base_alphabet(self, chunk_counts: Counter[str]) -> List[SeedToken]:
         char_counts: Counter[str] = Counter()

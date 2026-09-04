@@ -35,7 +35,9 @@ classifiers = [
     "Topic :: Text Processing :: Linguistic"
 ]
 requires-python = ">=3.9"
-dependencies = []
+dependencies = [
+    "regex>=2023.0.0",
+]
 
 [project.optional-dependencies]
 progress = [
@@ -54,7 +56,6 @@ test = [
     "coverage>=7.0.0",
     "ruff>=0.4.0",
     "mypy>=1.8.0",
-    "regex>=2023.0.0",
     "sentencepiece>=0.1.99",
 ]
 tiktoken = [

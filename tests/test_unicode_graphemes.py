@@ -6,7 +6,7 @@ import unicodedata
 import unittest
 from collections import Counter
 
-from uniqtoken.pre_tokenizer import RegexPreTokenizer
+from uniqtoken.pre_tokenizer import RegexPreTokenizer, _is_mark
 from uniqtoken.seed_builder import SeedVocabularyBuilder
 
 try:
@@ -117,6 +117,29 @@ class GraphemeBoundaryTests(unittest.TestCase):
                 msg=f"ngram orphan: {token!r}",
             )
 
+    def test_seed_builder_no_partial_cluster_suffix(self) -> None:
+        """mine_ngrams must emit complete grapheme clusters only — no suffix
+        ending inside a virama-linked cluster like 'स्' (SA+VIRAMA without KA)."""
+        # स्क = SA + VIRAMA + KA is a single extended grapheme cluster (GB9c).
+        # Codepoint slicing could emit 'स' or 'स्' as partial clusters.
+        builder = SeedVocabularyBuilder(target_vocab_size=500, min_frequency=1)
+        chunks = Counter(["\u0938\u094d\u0915"])  # स्क
+        ngrams = builder.mine_ngrams(chunks)
+        self.assertIn("\u0938\u094d\u0915", ngrams, msg="full cluster स्क must be emitted")
+        self.assertNotIn("\u0938", ngrams, msg="partial prefix 'स' must not be emitted")
+        self.assertNotIn("\u0938\u094d", ngrams, msg="partial suffix 'स्' must not be emitted")
+
+    def test_unicode_version_gap_parity(self) -> None:
+        """U+0897 (NKO LETTER JA) is Mn in Unicode 16.0 but unassigned in 13.0
+        (Python 3.9). With regex as a required dependency, both Python and Rust
+        classify it as a combining mark, so n-grams starting with it are skipped."""
+        self.assertTrue(_is_mark("\u0897"), msg="U+0897 must be classified as Mn")
+        builder = SeedVocabularyBuilder(target_vocab_size=500, min_frequency=1)
+        chunks = Counter(["\u0897a"])  # U+0897 followed by a base
+        ngrams = builder.mine_ngrams(chunks)
+        for token in ngrams:
+            self.assertFalse(token.startswith("\u0897"), msg=f"n-gram starts with U+0897: {token!r}")
+
 
 @unittest.skipUnless(HAS_RUST, "uniqtoken_core native extension not available")
 class RustGraphemeParityTests(unittest.TestCase):
@@ -141,6 +164,20 @@ class RustGraphemeParityTests(unittest.TestCase):
             py_chunks = [t.text for t in self.pre.pre_tokenize_with_offsets(text)]
             rust_chunks = _core.rust_pre_tokenize(text)  # type: ignore[union-attr]
             self.assertEqual(py_chunks, rust_chunks, msg=f"Python/Rust divergence on {text!r}")
+
+    def test_rust_mine_ngrams_parity(self) -> None:
+        """Rust rust_mine_ngrams must skip n-grams starting with U+0897 just like
+        the Python fallback — both use the same current-Unicode data."""
+        assert _core is not None
+        self.assertTrue(_is_mark("\u0897"))
+        chunks = {"\u0897a": 1}
+        builder = SeedVocabularyBuilder(target_vocab_size=500, min_frequency=1)
+        py_ngrams = builder.mine_ngrams(Counter(chunks))
+        rust_ngrams = _core.rust_mine_ngrams(chunks, 16, set())  # type: ignore[union-attr]
+        for token in py_ngrams:
+            self.assertFalse(token.startswith("\u0897"), msg=f"python ngram starts with U+0897: {token!r}")
+        for token in rust_ngrams:
+            self.assertFalse(token.startswith("\u0897"), msg=f"rust ngram starts with U+0897: {token!r}")
 
 
 if __name__ == "__main__":
