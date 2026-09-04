@@ -131,6 +131,15 @@ class GraphemeBoundaryTests(unittest.TestCase):
         try:
             _sb.caliper_core = None
             builder = SeedVocabularyBuilder(target_vocab_size=500, min_frequency=1)
+            # 'स्क' is SA (\u0938) + VIRAMA (\u094d) + KA (\u0915).
+            # It forms an indivisible conjunct cluster. Neither the base consonant
+            # nor the consonant+virama prefix should be emitted as separate tokens.
+            conjunct_chunks = Counter({"\u0938\u094d\u0915": 1})
+            ngrams_conjunct = builder.mine_ngrams(conjunct_chunks)
+            self.assertIn("\u0938\u094d\u0915", ngrams_conjunct)
+            self.assertNotIn("\u0938", ngrams_conjunct)
+            self.assertNotIn("\u0938\u094d", ngrams_conjunct)
+
             chunks = Counter({"स्क": 1, "नमस्ते": 1, "การศึกษา": 1, "hello": 1, "123": 1})
             ngrams = builder.mine_ngrams(chunks)
             for token in ngrams:
@@ -140,6 +149,13 @@ class GraphemeBoundaryTests(unittest.TestCase):
                 )
         finally:
             _sb.caliper_core = _original_core
+
+    def test_unicode_version_gap_mark(self) -> None:
+        """Ensure Unicode 14+ combining marks (e.g. U+0897) are recognized via regex \\p{M}."""
+        from uniqtoken.pre_tokenizer import _is_mark
+
+        # U+0897 is ARABIC PEPET (Mn), added in Unicode 14.0
+        self.assertTrue(_is_mark("\u0897"), "U+0897 must be recognized as combining mark")
 
 
 @unittest.skipUnless(HAS_RUST, "uniqtoken_core native extension not available")
