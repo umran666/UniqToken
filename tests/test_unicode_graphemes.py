@@ -34,6 +34,26 @@ SENTENCES = [
     "नमस्ते การศึกษา hello 123",
 ]
 
+# Review follow-ups (PR #60): Python/Rust parity on grapheme edge cases.
+_ZWJ = "\u200D"
+_KA, _VIRAMA, _SSA = "\u0915", "\u094D", "\u0937"  # क ् ष
+_RI_IN, _RI_N = "\U0001F1EE", "\U0001F1F3"  # regional indicators I, N
+_MAN = "\U0001F468"  # man emoji
+_KHMER_COENG_TEXT = "\u1797\u17B6\u17D2\u179A\u17C1\u17A2\u1784"  # ភាស្រៀង
+PARITY_CASES = [
+    ("conjunct intact", _KA + _VIRAMA + _SSA, [_KA + _VIRAMA + _SSA]),
+    ("virama + ZWJ + consonant", _KA + _VIRAMA + _ZWJ + _SSA, [_KA + _VIRAMA + _ZWJ + _SSA]),
+    # GB11: ZWJ only joins Extended_Pictographic on both sides, not letters.
+    ("ZWJ between letters", "a" + _ZWJ + "b", ["a" + _ZWJ, "b"]),
+    ("ZWJ before picto at start", _ZWJ + _MAN, [_ZWJ, _MAN]),
+    # GB12/13: regional indicators pair into flags; odd tail stays separate.
+    ("flag pair", _RI_IN + _RI_N, [_RI_IN + _RI_N]),
+    ("two flags", _RI_IN + _RI_N + _RI_IN + _RI_N, [_RI_IN + _RI_N, _RI_IN + _RI_N]),
+    ("odd flag tail", _RI_IN + _RI_N + _RI_IN, [_RI_IN + _RI_N, _RI_IN]),
+    # GB9c needs InCB=Consonant on both sides; Khmer coeng does not qualify.
+    ("khmer coeng splits", _KHMER_COENG_TEXT, ["\u1797\u17B6\u17D2", "\u179A\u17C1", "\u17A2\u1784"]),
+]
+
 
 def _starts_with_combining(token: str) -> bool:
     return bool(token) and unicodedata.category(token[0]) in ("Mn", "Mc", "Me")
@@ -75,6 +95,13 @@ class GraphemeBoundaryTests(unittest.TestCase):
         )
         self.assertIn("hello", [t.text for t in self.pre.pre_tokenize_with_offsets("hello")])
 
+    def test_grapheme_edge_cases(self) -> None:
+        """Fixed Python/Rust divergences (PR #60 review follow-ups)."""
+        for name, text, expected in PARITY_CASES:
+            chunks = [t.text for t in self.pre.pre_tokenize_with_offsets(text)]
+            self.assertEqual(chunks, expected, msg=f"{name}: got {chunks!r}")
+            self.assertEqual("".join(chunks), text, msg=f"{name}: tiling broken")
+
     def test_seed_builder_never_emits_standalone_combining_mark(self) -> None:
         builder = SeedVocabularyBuilder(target_vocab_size=500, min_frequency=1)
         chunks = Counter(INDIC_WORDS + THAI_WORDS + ["hello", "123"])
@@ -110,7 +137,7 @@ class RustGraphemeParityTests(unittest.TestCase):
 
     def test_python_rust_parity(self) -> None:
         assert _core is not None
-        for text in INDIC_WORDS + THAI_WORDS + SENTENCES:
+        for text in INDIC_WORDS + THAI_WORDS + SENTENCES + [c[1] for c in PARITY_CASES]:
             py_chunks = [t.text for t in self.pre.pre_tokenize_with_offsets(text)]
             rust_chunks = _core.rust_pre_tokenize(text)  # type: ignore[union-attr]
             self.assertEqual(py_chunks, rust_chunks, msg=f"Python/Rust divergence on {text!r}")

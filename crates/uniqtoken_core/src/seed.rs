@@ -2,6 +2,7 @@
 //! Seed n-gram mining for vocabulary construction (Python bindings only).
 
 use crate::error::CoreResult;
+use crate::pipeline::is_combining_mark;
 use ahash::AHashMap;
 #[cfg(feature = "python")]
 use pyo3::prelude::*;
@@ -50,17 +51,6 @@ fn max_ngram_for_chunk(chunk: &str, default_max: usize) -> usize {
     } else {
         default_max
     }
-}
-
-// Issue #41: never emit a standalone combining mark (\p{M}) without its base.
-fn is_combining_mark(ch: char) -> bool {
-    use unicode_general_category::{GeneralCategory, get_general_category};
-    matches!(
-        get_general_category(ch),
-        GeneralCategory::NonspacingMark
-            | GeneralCategory::SpacingMark
-            | GeneralCategory::EnclosingMark
-    )
 }
 
 #[cfg(feature = "python")]

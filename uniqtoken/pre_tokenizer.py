@@ -288,6 +288,20 @@ def _get_cached_regex(pattern: str) -> re.Pattern[str]:
 
 _ZWJ = "\u200d"
 
+try:
+    import regex as _regex
+
+    _PICTOGRAPHIC_RE = _regex.compile(r"\p{Extended_Pictographic}")
+except ImportError:  # pragma: no cover
+    # ponytail: fallback covers only the ranges the emoji pre-token pattern
+    # uses, so ZWJ joins outside them diverge from the Rust engine (which has
+    # the full UAX #29 property). `regex` is the upgrade path / parity contract.
+    _PICTOGRAPHIC_RE = None
+
+# Regional Indicator symbols (U+1F1E6..U+1F1FF): GB12/GB13 pair flags.
+_REGIONAL_INDICATOR_START = "\U0001f1e6"
+_REGIONAL_INDICATOR_END = "\U0001f1ff"
+
 
 def _starts_inside_grapheme(ch: str) -> bool:
     """Issue #41: True when a chunk starting with `ch` continues a grapheme."""
@@ -295,20 +309,74 @@ def _starts_inside_grapheme(ch: str) -> bool:
 
 
 def _is_orphan_prefix(s: str) -> bool:
-    """True when `s` is only combining marks/ZWJ with no base yet."""
-    return bool(s) and all(c == _ZWJ or unicodedata.category(c).startswith("M") for c in s)
+    """True when `s` is only combining marks/ZWJ with no base yet.
+
+    Mirrors the native engine's leading-orphan fusion, which fires for
+    ``\\p{M}``-leading spans only: a ZWJ-only prefix is already a complete
+    cluster, so it must not swallow the next chunk.
+    """
+    return (
+        bool(s)
+        and any(unicodedata.category(c).startswith("M") for c in s)
+        and all(c == _ZWJ or unicodedata.category(c).startswith("M") for c in s)
+    )
+
+
+def _is_pictographic(ch: str) -> bool:
+    """GB11: a ZWJ continues its cluster only before an Extended_Pictographic."""
+    if not ch:
+        return False
+    if _PICTOGRAPHIC_RE is not None:
+        return _PICTOGRAPHIC_RE.match(ch) is not None
+    cp = ord(ch)
+    return 0x1F300 <= cp <= 0x1FAFF or 0x2600 <= cp <= 0x26FF or 0x2700 <= cp <= 0x27BF
+
+
+def _is_regional_indicator(ch: str) -> bool:
+    return _REGIONAL_INDICATOR_START <= ch <= _REGIONAL_INDICATOR_END
+
+
+def _trailing_regional_indicators(s: str) -> int:
+    """GB12/13: flags pair up; a cluster break falls after every 2nd RI."""
+    count = 0
+    for c in reversed(s):
+        if not _is_regional_indicator(c):
+            break
+        count += 1
+    return count
 
 
 def _is_virama_linker(ch: str) -> bool:
-    """Issue #41 (UAX #29 GB9c): virama/linkers join Consonant×Consonant."""
+    """Issue #41 (UAX #29 GB9c): virama/linkers join Consonant×Consonant.
+
+    GB9c needs InCB=Consonant on BOTH sides, so Khmer coeng (U+17D2) is
+    deliberately NOT a linker here: it has InCB=Linker, but Khmer consonants
+    are not InCB=Consonant and the native engine breaks after it. The rule
+    stays approximate for exotic linker/Extend runs; the native engine's
+    grapheme segmentation is exact.
+    """
     if not ch or ch == _ZWJ:
         return False
-    if ch == "\u17d2":  # KHMER SIGN COENG (InCB=Linker, name lacks VIRAMA)
-        return True
     try:
         return "VIRAMA" in unicodedata.name(ch)
     except ValueError:
         return False
+
+
+def _virama_link_across_extends(pending: str, first: str) -> bool:
+    """GB9c tail check: Consonant [Extend|Linker]* Linker × Consonant.
+
+    Skips trailing ZWJ runs in `pending` (InCB=Extend) before requiring the
+    virama linker, so e.g. Devanagari `क + ् + ZWJ + ष` stays one cluster like
+    the native engine. Combining marks are NOT skipped: the virama itself is a
+    mark and must be found (e.g. `क + ् + ष`).
+    """
+    if not first or unicodedata.category(first) != "Lo":
+        return False
+    i = len(pending)
+    while i > 0 and pending[i - 1] == _ZWJ:
+        i -= 1
+    return i > 0 and _is_virama_linker(pending[i - 1])
 
 
 class RegexPreTokenizer:
@@ -468,17 +536,20 @@ class RegexPreTokenizer:
                 continue
             first = cur_text[:1]
             # GB9c: Consonant + Virama × Consonant stays one grapheme.
-            virama_link = (
-                bool(pending_text)
-                and _is_virama_linker(pending_text[-1])
-                and bool(first)
-                and unicodedata.category(first) == "Lo"
-            )
+            virama_link = _virama_link_across_extends(pending_text, first)
             if (
                 (bool(first) and _starts_inside_grapheme(first))
-                or pending_text.endswith(_ZWJ)
+                # GB11: ZWJ joins only pictographic×pictographic (e.g. emoji,
+                # not plain letters).
+                or (
+                    pending_text.endswith(_ZWJ)
+                    and _is_pictographic(pending_text[-2:-1])
+                    and _is_pictographic(first)
+                )
                 or _is_orphan_prefix(pending_text)
                 or virama_link
+                # GB12/13: keep regional-indicator flag pairs together.
+                or (_is_regional_indicator(first) and _trailing_regional_indicators(pending_text) % 2 == 1)
             ):
                 pending_text += cur_text
                 pending_end = end

@@ -89,7 +89,7 @@ pub fn rust_pre_tokenize(text: &str) -> Vec<String> {
 /// forward to the next grapheme boundary and merge overlapped matches so no
 /// emitted chunk starts inside a cluster.
 #[cfg(feature = "python")]
-fn is_combining_mark(ch: char) -> bool {
+pub(crate) fn is_combining_mark(ch: char) -> bool {
     use unicode_general_category::{GeneralCategory, get_general_category};
     matches!(
         get_general_category(ch),
