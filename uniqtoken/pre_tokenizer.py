@@ -541,11 +541,7 @@ class RegexPreTokenizer:
                 (bool(first) and _starts_inside_grapheme(first))
                 # GB11: ZWJ joins only pictographic×pictographic (e.g. emoji,
                 # not plain letters).
-                or (
-                    pending_text.endswith(_ZWJ)
-                    and _is_pictographic(pending_text[-2:-1])
-                    and _is_pictographic(first)
-                )
+                or (pending_text.endswith(_ZWJ) and _is_pictographic(pending_text[-2:-1]) and _is_pictographic(first))
                 or _is_orphan_prefix(pending_text)
                 or virama_link
                 # GB12/13: keep regional-indicator flag pairs together.

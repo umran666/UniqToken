@@ -35,11 +35,11 @@ SENTENCES = [
 ]
 
 # Review follow-ups (PR #60): Python/Rust parity on grapheme edge cases.
-_ZWJ = "\u200D"
-_KA, _VIRAMA, _SSA = "\u0915", "\u094D", "\u0937"  # क ् ष
-_RI_IN, _RI_N = "\U0001F1EE", "\U0001F1F3"  # regional indicators I, N
-_MAN = "\U0001F468"  # man emoji
-_KHMER_COENG_TEXT = "\u1797\u17B6\u17D2\u179A\u17C1\u17A2\u1784"  # ភាស្រៀង
+_ZWJ = "\u200d"
+_KA, _VIRAMA, _SSA = "\u0915", "\u094d", "\u0937"  # क ् ष
+_RI_IN, _RI_N = "\U0001f1ee", "\U0001f1f3"  # regional indicators I, N
+_MAN = "\U0001f468"  # man emoji
+_KHMER_COENG_TEXT = "\u1797\u17b6\u17d2\u179a\u17c1\u17a2\u1784"  # ភាស្រៀង
 PARITY_CASES = [
     ("conjunct intact", _KA + _VIRAMA + _SSA, [_KA + _VIRAMA + _SSA]),
     ("virama + ZWJ + consonant", _KA + _VIRAMA + _ZWJ + _SSA, [_KA + _VIRAMA + _ZWJ + _SSA]),
@@ -51,7 +51,7 @@ PARITY_CASES = [
     ("two flags", _RI_IN + _RI_N + _RI_IN + _RI_N, [_RI_IN + _RI_N, _RI_IN + _RI_N]),
     ("odd flag tail", _RI_IN + _RI_N + _RI_IN, [_RI_IN + _RI_N, _RI_IN]),
     # GB9c needs InCB=Consonant on both sides; Khmer coeng does not qualify.
-    ("khmer coeng splits", _KHMER_COENG_TEXT, ["\u1797\u17B6\u17D2", "\u179A\u17C1", "\u17A2\u1784"]),
+    ("khmer coeng splits", _KHMER_COENG_TEXT, ["\u1797\u17b6\u17d2", "\u179a\u17c1", "\u17a2\u1784"]),
 ]
 
 
