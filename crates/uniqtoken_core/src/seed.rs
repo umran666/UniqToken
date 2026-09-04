@@ -6,8 +6,8 @@ use crate::pipeline::is_combining_mark;
 use ahash::AHashMap;
 #[cfg(feature = "python")]
 use pyo3::prelude::*;
-use unicode_segmentation::UnicodeSegmentation;
 use std::collections::{HashMap, HashSet};
+use unicode_segmentation::UnicodeSegmentation;
 
 fn detect_script(token: &str) -> &'static str {
     for ch in token.chars() {

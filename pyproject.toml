@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "uniqtoken"
 version = "1.0.0"
-description = "Zero-dependency, high-precision Byte-Fallback Unigram and Multimodal Tokenizer with dual-offset tracking and subword regularization."
+description = "High-precision Byte-Fallback Unigram and Multimodal Tokenizer with dual-offset tracking and subword regularization."
 readme = "README.md"
 license = { file = "LICENSE" }
 authors = [
@@ -59,7 +59,7 @@ test = [
     "sentencepiece>=0.1.99",
 ]
 tiktoken = [
-    "regex>=2023.0.0"
+    "tiktoken>=0.7.0"
 ]
 bench = [
     "numpy>=1.23",

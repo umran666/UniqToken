@@ -8,7 +8,7 @@
     <strong>Script-Aware, Entropy-Guided Multilingual Subword Tokenizer</strong>
   </p>
   <p align="center">
-    Zero-dependency pure Python — with byte-fallback, exact character-span tracking, and reproducible downstream LM benchmark tooling.
+    Byte-Fallback Python with exact character-span tracking and reproducible downstream LM benchmark tooling.
   </p>
 </p>
 
@@ -18,7 +18,7 @@
   <img src="https://img.shields.io/badge/python-3.9%20%7C%203.10%20%7C%203.11%20%7C%203.12-blue.svg" alt="Python">
   <img src="https://img.shields.io/badge/rust-1.75+-orange.svg" alt="Rust">
   <img src="https://img.shields.io/badge/version-1.0.0-blue.svg" alt="Version">
-  <img src="https://img.shields.io/badge/dependencies-zero-brightgreen.svg" alt="Dependencies">
+  <img src="https://img.shields.io/badge/dependencies-regex-brightgreen.svg" alt="Dependencies">
 </p>
 
 ---
