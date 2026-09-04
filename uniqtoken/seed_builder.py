@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import unicodedata
 from collections import Counter, deque
 from dataclasses import dataclass
 from typing import Deque, Dict, Iterable, List, Optional, Set, Tuple
@@ -123,10 +124,18 @@ class SeedVocabularyBuilder:
             )
         return tokens
 
+    @staticmethod
+    def _is_combining_mark(char: str) -> bool:
+        """Issue #41: True for combining marks (Mn/Mc/Me)."""
+        return unicodedata.category(char).startswith("M")
+
     def collect_base_alphabet(self, chunk_counts: Counter[str]) -> List[SeedToken]:
         char_counts: Counter[str] = Counter()
         for chunk, count in chunk_counts.items():
             for char in chunk:
+                # Issue #41: never emit a standalone combining mark without its base.
+                if self._is_combining_mark(char):
+                    continue
                 char_counts[char] += count
 
         # Deterministic sorting: frequency descending, then unicode codepoint ascending
@@ -227,6 +236,9 @@ class SeedVocabularyBuilder:
             chunk_len = len(chunk)
             max_len = self._get_max_ngram_for_chunk(chunk, default_max)
             for start in range(chunk_len):
+                # Issue #41: never start an n-gram with an orphan combining mark.
+                if self._is_combining_mark(chunk[start]):
+                    continue
                 end_limit = min(chunk_len + 1, start + max_len + 1)
                 for end in range(start + 1, end_limit):
                     ngram_counts[chunk[start:end]] += chunk_freq
@@ -245,6 +257,9 @@ class SeedVocabularyBuilder:
             chunk_len = len(chunk)
             max_len = self._get_max_ngram_for_chunk(chunk, default_max)
             for start in range(chunk_len):
+                # Issue #41: never start an n-gram with an orphan combining mark.
+                if self._is_combining_mark(chunk[start]):
+                    continue
                 end_limit = min(chunk_len + 1, start + max_len + 1)
                 l_char = chunk[start - 1] if start > 0 else "^"
                 for end in range(start + 1, end_limit):
@@ -282,6 +297,9 @@ class SeedVocabularyBuilder:
             if token in protected_tokens:
                 continue
             if count < self.min_frequency:
+                continue
+            # Issue #41: belt-and-braces — drop orphan combining-mark candidates.
+            if token and self._is_combining_mark(token[0]):
                 continue
             if (
                 self.min_boundary_entropy is not None

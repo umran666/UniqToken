@@ -47,6 +47,17 @@ fn max_ngram_for_chunk(chunk: &str, default_max: usize) -> usize {
     }
 }
 
+// Issue #41: never emit a standalone combining mark (\p{M}) without its base.
+fn is_combining_mark(ch: char) -> bool {
+    use unicode_general_category::{GeneralCategory, get_general_category};
+    matches!(
+        get_general_category(ch),
+        GeneralCategory::NonspacingMark
+            | GeneralCategory::SpacingMark
+            | GeneralCategory::EnclosingMark
+    )
+}
+
 #[pyfunction]
 #[pyo3(signature = (chunk_counts, max_ngram_length, special_tokens=None))]
 pub fn rust_mine_ngrams(
@@ -67,6 +78,10 @@ pub fn rust_mine_ngrams(
         let clen = chars.len();
         let max_len = max_ngram_for_chunk(&chunk, max_ngram_length);
         for start in 0..clen {
+            // Issue #41: skip n-grams starting with an orphan combining mark.
+            if is_combining_mark(chars[start]) {
+                continue;
+            }
             let mut end_limit = clen + 1;
             let ml = start + max_len + 1;
             if ml < end_limit {

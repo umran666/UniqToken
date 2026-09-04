@@ -7,8 +7,10 @@ use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use rayon::prelude::*;
 use regex::Regex;
+use std::collections::HashSet;
 use std::sync::OnceLock;
 use unicode_normalization::UnicodeNormalization;
+use unicode_segmentation::UnicodeSegmentation;
 
 static PRETOK_REGEX: OnceLock<Regex> = OnceLock::new();
 static PRETOK_FULL_REGEX: OnceLock<Regex> = OnceLock::new();
@@ -64,7 +66,112 @@ pub(crate) fn get_full_pretok_regex() -> &'static Regex {
 #[pyfunction]
 pub fn rust_pre_tokenize(text: &str) -> Vec<String> {
     let re = get_full_pretok_regex();
-    re.find_iter(text).map(|m| m.as_str().to_string()).collect()
+    snapped_pretokens(text, re)
+}
+
+/// Issue #41: UAX #29 extended grapheme cluster snapping.
+///
+/// The pre-tokenizer regex matches on raw codepoints, so a boundary can fall
+/// inside a grapheme (e.g. before a Devanagari virama U+094D or a Thai vowel
+/// sign). Such a split emits orphan combining marks. Snap every match end
+/// forward to the next grapheme boundary and merge overlapped matches so no
+/// emitted chunk starts inside a cluster.
+fn is_combining_mark(ch: char) -> bool {
+    use unicode_general_category::{GeneralCategory, get_general_category};
+    matches!(
+        get_general_category(ch),
+        GeneralCategory::NonspacingMark
+            | GeneralCategory::SpacingMark
+            | GeneralCategory::EnclosingMark
+    )
+}
+
+fn snap_spans_to_graphemes(text: &str, spans: &[(usize, usize)]) -> Vec<(usize, usize)> {
+    if spans.is_empty() {
+        return Vec::new();
+    }
+    let mut boundaries: HashSet<usize> = HashSet::with_capacity(text.len() / 4 + 2);
+    for (idx, _) in text.grapheme_indices(true) {
+        boundaries.insert(idx);
+    }
+    boundaries.insert(text.len());
+    let advance = |off: usize| -> usize {
+        text[off..].chars().next().map_or(1, |c| c.len_utf8())
+    };
+    let mut out: Vec<(usize, usize)> = Vec::with_capacity(spans.len());
+    let mut i = 0;
+    while i < spans.len() {
+        let (s, mut e) = spans[i];
+        if !boundaries.contains(&s) {
+            if let Some(last) = out.last_mut() {
+                if e > last.1 {
+                    last.1 = e;
+                }
+                while !boundaries.contains(&last.1) && last.1 < text.len() {
+                    last.1 += advance(last.1);
+                }
+                while i + 1 < spans.len() && spans[i + 1].0 < last.1 {
+                    i += 1;
+                    if spans[i].1 > last.1 {
+                        last.1 = spans[i].1;
+                        while !boundaries.contains(&last.1) && last.1 < text.len() {
+                            last.1 += advance(last.1);
+                        }
+                    }
+                }
+                i += 1;
+                continue;
+            }
+        }
+        while !boundaries.contains(&e) && e < text.len() {
+            e += advance(e);
+        }
+        while i + 1 < spans.len() && spans[i + 1].0 < e {
+            i += 1;
+            if spans[i].1 > e {
+                e = spans[i].1;
+                while !boundaries.contains(&e) && e < text.len() {
+                    e += advance(e);
+                }
+            }
+        }
+        // Degenerate leading orphan (text starts with \p{M}): fuse forward.
+        if out.is_empty() && s < e {
+            if let Some(first) = text[s..e].chars().next() {
+                if is_combining_mark(first) && i + 1 < spans.len() {
+                    e = spans[i + 1].1;
+                    while !boundaries.contains(&e) && e < text.len() {
+                        e += advance(e);
+                    }
+                    // Consume any further spans overlapped by the fusion.
+                    let mut j = i + 1;
+                    while j + 1 < spans.len() && spans[j + 1].0 < e {
+                        j += 1;
+                        if spans[j].1 > e {
+                            e = spans[j].1;
+                            while !boundaries.contains(&e) && e < text.len() {
+                                e += advance(e);
+                            }
+                        }
+                    }
+                    i = j + 1;
+                    out.push((s, e));
+                    continue;
+                }
+            }
+        }
+        out.push((s, e));
+        i += 1;
+    }
+    out
+}
+
+fn snapped_pretokens(text: &str, re: &Regex) -> Vec<String> {
+    let spans: Vec<(usize, usize)> = re.find_iter(text).map(|m| (m.start(), m.end())).collect();
+    snap_spans_to_graphemes(text, &spans)
+        .into_iter()
+        .map(|(s, e)| text[s..e].to_string())
+        .collect()
 }
 
 /// Characters Python's `Normalizer` maps to whitespace replacements.
@@ -102,9 +209,7 @@ pub fn normalize_string_native(text: &str, space_char: char) -> String {
 pub fn pre_tokenize_native(text: &str, space_char: char) -> Vec<String> {
     let normalized = normalize_string_native(text, space_char);
     let re = get_pretok_regex();
-    re.find_iter(&normalized)
-        .map(|m| m.as_str().to_string())
-        .collect()
+    snapped_pretokens(&normalized, re)
 }
 
 /// Native end-to-end pipeline: raw texts -> normalize -> regex pre-tokenize -> Viterbi DAG -> token IDs.
@@ -219,8 +324,8 @@ fn encode_text_native_inner(
     )?;
     let re = get_full_pretok_regex();
     let mut tokens: Vec<String> = Vec::new();
-    for m in re.find_iter(&normalized) {
-        let seg = decode_cached(m.as_str(), trie, byte_fallback).map_err(PyValueError::new_err)?;
+    for chunk in snapped_pretokens(&normalized, re) {
+        let seg = decode_cached(chunk.as_str(), trie, byte_fallback).map_err(PyValueError::new_err)?;
         tokens.extend(seg.iter().map(|(token, ..)| token.clone()));
     }
     Ok(tokens)

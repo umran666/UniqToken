@@ -286,6 +286,31 @@ def _get_cached_regex(pattern: str) -> re.Pattern[str]:
     return re.compile(pattern)
 
 
+_ZWJ = "\u200d"
+
+
+def _starts_inside_grapheme(ch: str) -> bool:
+    """Issue #41: True when a chunk starting with `ch` continues a grapheme."""
+    return ch == _ZWJ or unicodedata.category(ch).startswith("M")
+
+
+def _is_orphan_prefix(s: str) -> bool:
+    """True when `s` is only combining marks/ZWJ with no base yet."""
+    return bool(s) and all(c == _ZWJ or unicodedata.category(c).startswith("M") for c in s)
+
+
+def _is_virama_linker(ch: str) -> bool:
+    """Issue #41 (UAX #29 GB9c): virama/linkers join Consonant×Consonant."""
+    if not ch or ch == _ZWJ:
+        return False
+    if ch == "\u17d2":  # KHMER SIGN COENG (InCB=Linker, name lacks VIRAMA)
+        return True
+    try:
+        return "VIRAMA" in unicodedata.name(ch)
+    except ValueError:
+        return False
+
+
 class RegexPreTokenizer:
     """
     Offset-preserving, regex-based Pre-Tokenizer.
@@ -411,6 +436,18 @@ class RegexPreTokenizer:
         if alignment is not None and len(alignment) != len(text):
             raise ValueError("alignment length must match normalized text length")
 
+        # Issue #41: snap regex boundaries to extended grapheme clusters so no
+        # boundary falls before a combining mark (\p{M}) or inside a ZWJ sequence.
+        pending_text: Optional[str] = None
+        pending_start = 0
+        pending_end = 0
+        pending_raw: Tuple[int, int] = (0, 0)
+
+        def _flush() -> Optional[PreToken]:
+            if pending_text is None:
+                return None
+            return PreToken(text=pending_text, start=pending_start, end=pending_end, raw_span=pending_raw)
+
         for match in self.regex.finditer(text):
             start, end = match.span()
             if alignment is None:
@@ -425,7 +462,35 @@ class RegexPreTokenizer:
                     min(span[0] for span in source_spans),
                     max(span[1] for span in source_spans),
                 )
-            yield PreToken(text=match.group(0), start=start, end=end, raw_span=raw_span)
+            cur_text = match.group(0)
+            if pending_text is None:
+                pending_text, pending_start, pending_end, pending_raw = cur_text, start, end, raw_span
+                continue
+            first = cur_text[:1]
+            # GB9c: Consonant + Virama × Consonant stays one grapheme.
+            virama_link = (
+                bool(pending_text)
+                and _is_virama_linker(pending_text[-1])
+                and bool(first)
+                and unicodedata.category(first) == "Lo"
+            )
+            if (
+                (bool(first) and _starts_inside_grapheme(first))
+                or pending_text.endswith(_ZWJ)
+                or _is_orphan_prefix(pending_text)
+                or virama_link
+            ):
+                pending_text += cur_text
+                pending_end = end
+                pending_raw = (pending_raw[0], raw_span[1])
+            else:
+                tok = _flush()
+                assert tok is not None
+                yield tok
+                pending_text, pending_start, pending_end, pending_raw = cur_text, start, end, raw_span
+        tok = _flush()
+        if tok is not None:
+            yield tok
 
     @property
     def _native_pretok_parity(self) -> bool:
@@ -459,7 +524,7 @@ class RegexPreTokenizer:
                 return _caliper_core.rust_pre_tokenize(text)
             except (ImportError, AttributeError, ValueError):
                 pass
-        return [m.group(0) for m in self.regex.finditer(text)]
+        return [t.text for t in self.pre_tokenize_with_offsets(text)]
 
     def pre_tokenize_with_offsets(
         self,

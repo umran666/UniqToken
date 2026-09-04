@@ -17,6 +17,7 @@ rayon = "1.10"
 regex = "1.10"
 unicode-normalization = "0.1"
 unicode-general-category = "1.1"
+unicode-segmentation = "1.12"
 
 [profile.release]
 opt-level = 3
