@@ -1,7 +1,8 @@
 //! High-performance native Prefix Trie implementation for subword matching.
 
+use crate::error::{core_error, CoreResult};
 use ahash::AHashMap;
-use pyo3::exceptions::PyValueError;
+#[cfg(feature = "python")]
 use pyo3::prelude::*;
 use std::sync::{Arc, Mutex};
 
@@ -21,7 +22,7 @@ pub struct TrieNode {
     pub is_terminal: bool,
 }
 
-#[pyclass]
+#[cfg_attr(feature = "python", pyclass)]
 #[derive(Default, Clone)]
 pub struct RustPrefixTrie {
     root: TrieNode,
@@ -32,6 +33,42 @@ pub struct RustPrefixTrie {
     seg_cache: Arc<Mutex<AHashMap<(bool, String), CachedSegmentation>>>,
 }
 
+/// Shared insert logic behind both the plain (all configurations) and the
+/// Python-bound `insert` methods, which are mutually exclusive by feature and
+/// therefore can never collide.
+pub(crate) fn insert_token(
+    trie: &mut RustPrefixTrie,
+    token: &str,
+    log_p: f64,
+    token_id: Option<u32>,
+) -> CoreResult<()> {
+    if token.is_empty() {
+        return core_error("token must not be empty");
+    }
+    if !log_p.is_finite() {
+        return core_error("log_p must be finite");
+    }
+
+    let mut curr = &mut trie.root;
+    for ch in token.chars() {
+        curr = curr.children.entry(ch).or_default();
+    }
+    curr.is_terminal = true;
+    curr.token = Some(token.to_string());
+    curr.token_id = token_id;
+    curr.log_p = log_p;
+    Ok(())
+}
+
+#[cfg(not(feature = "python"))]
+impl RustPrefixTrie {
+    /// Plain insert for non-Python bindings (e.g. WebAssembly vocab loading).
+    pub fn insert(&mut self, token: &str, log_p: f64, token_id: Option<u32>) -> CoreResult<()> {
+        insert_token(self, token, log_p, token_id)
+    }
+}
+
+#[cfg(feature = "python")]
 #[pymethods]
 impl RustPrefixTrie {
     #[new]
@@ -55,23 +92,8 @@ impl RustPrefixTrie {
     }
 
     /// Inserts a non-empty subword with a finite log probability.
-    pub fn insert(&mut self, token: &str, log_p: f64, token_id: Option<u32>) -> PyResult<()> {
-        if token.is_empty() {
-            return Err(PyValueError::new_err("token must not be empty"));
-        }
-        if !log_p.is_finite() {
-            return Err(PyValueError::new_err("log_p must be finite"));
-        }
-
-        let mut curr = &mut self.root;
-        for ch in token.chars() {
-            curr = curr.children.entry(ch).or_default();
-        }
-        curr.is_terminal = true;
-        curr.token = Some(token.to_string());
-        curr.token_id = token_id;
-        curr.log_p = log_p;
-        Ok(())
+    pub fn insert(&mut self, token: &str, log_p: f64, token_id: Option<u32>) -> CoreResult<()> {
+        insert_token(self, token, log_p, token_id)
     }
 
     /// Finds all matching prefixes for a slice of text starting at position 0.

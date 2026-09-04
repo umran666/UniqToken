@@ -1,11 +1,15 @@
 //! Native Viterbi decoding and forward-backward expectation algorithms.
 
 use crate::trie::{CachedSegmentation, RustPrefixTrie};
-use pyo3::exceptions::PyValueError;
+#[cfg(feature = "python")]
+use crate::error::{core_error, CoreError, CoreResult};
+#[cfg(feature = "python")]
 use pyo3::prelude::*;
+#[cfg(feature = "python")]
 use std::collections::HashMap;
 use std::sync::Arc;
 
+#[cfg(feature = "python")]
 use rayon::prelude::*;
 
 const DEFAULT_BYTE_LOG_P: f64 = -10.0;
@@ -52,6 +56,7 @@ pub(crate) fn decode_cached(
     Ok(seg)
 }
 
+#[cfg(feature = "python")]
 fn spans_from_cached(seg: &CachedSegmentation) -> Vec<ViterbiSpan> {
     seg.iter()
         .map(|(token, token_id, start, end)| ViterbiSpan {
@@ -63,10 +68,12 @@ fn spans_from_cached(seg: &CachedSegmentation) -> Vec<ViterbiSpan> {
         .collect()
 }
 
+#[cfg(feature = "python")]
 fn tokens_from_cached(seg: &CachedSegmentation) -> Vec<String> {
     seg.iter().map(|(token, ..)| token.clone()).collect()
 }
 
+#[cfg(feature = "python")]
 fn ids_from_cached(seg: &CachedSegmentation) -> Result<Vec<u32>, String> {
     seg.iter()
         .map(|(token, token_id, ..)| {
@@ -87,6 +94,9 @@ struct Edge {
     prev_node: usize,
     pieces: Vec<TokenPiece>,
     log_p: f64,
+    // Consumed by the Python-gated forward-backward path; retained (not read)
+    // on WebAssembly builds.
+    #[cfg_attr(not(feature = "python"), allow(dead_code))]
     length: usize,
 }
 
@@ -96,6 +106,7 @@ struct Node {
     best_edge: Option<Edge>,
 }
 
+#[cfg(feature = "python")]
 #[pyclass]
 #[derive(Clone, Debug)]
 pub struct ViterbiSpan {
@@ -109,6 +120,16 @@ pub struct ViterbiSpan {
     pub end: usize,
 }
 
+#[cfg(not(feature = "python"))]
+#[derive(Clone, Debug)]
+pub struct ViterbiSpan {
+    pub token: String,
+    pub token_id: Option<u32>,
+    pub start: usize,
+    pub end: usize,
+}
+
+#[cfg(feature = "python")]
 pub(crate) fn diagnostic_viterbi_inner(
     chars: &[char],
     trie: &RustPrefixTrie,
@@ -163,12 +184,13 @@ pub(crate) fn diagnostic_viterbi_inner(
     (t_trie, t_dp, edges, n + 1)
 }
 
+#[cfg(feature = "python")]
 #[pyfunction]
 pub fn rust_diagnostic_viterbi(
     text: &str,
     trie: &RustPrefixTrie,
     byte_fallback: bool,
-) -> PyResult<(f64, f64, usize, usize)> {
+) -> CoreResult<(f64, f64, usize, usize)> {
     let chars: Vec<char> = text.chars().collect();
     let (t_trie, t_dp, edges, states) = diagnostic_viterbi_inner(&chars, trie, byte_fallback);
     Ok((t_trie, t_dp, edges, states))
@@ -279,6 +301,7 @@ pub(crate) fn viterbi_decode_chars(
     Ok(spans)
 }
 
+#[cfg(feature = "python")]
 fn viterbi_ids_chars(
     chars: &[char],
     trie: &RustPrefixTrie,
@@ -297,6 +320,7 @@ fn viterbi_ids_chars(
 }
 
 /// Computes the most probable segmentation using Python character offsets.
+#[cfg(feature = "python")]
 #[pyfunction]
 #[pyo3(signature = (text, trie, byte_fallback, max_edges_per_node=None))]
 pub fn rust_viterbi_decode(
@@ -304,21 +328,20 @@ pub fn rust_viterbi_decode(
     trie: &RustPrefixTrie,
     byte_fallback: bool,
     max_edges_per_node: Option<usize>,
-) -> PyResult<Vec<ViterbiSpan>> {
+) -> CoreResult<Vec<ViterbiSpan>> {
     if matches!(max_edges_per_node, Some(0)) {
-        return Err(PyValueError::new_err(
-            "max_edges_per_node must be greater than zero",
-        ));
+        return core_error("max_edges_per_node must be greater than zero");
     }
     if max_edges_per_node.is_none() {
-        let seg = decode_cached(text, trie, byte_fallback).map_err(PyValueError::new_err)?;
+        let seg = decode_cached(text, trie, byte_fallback).map_err(CoreError)?;
         return Ok(spans_from_cached(&seg));
     }
     let chars: Vec<char> = text.chars().collect();
-    viterbi_decode_chars(&chars, trie, byte_fallback, max_edges_per_node).map_err(PyValueError::new_err)
+    viterbi_decode_chars(&chars, trie, byte_fallback, max_edges_per_node).map_err(CoreError)
 }
 
 /// Computes most probable segmentations for a batch of strings concurrently using Rayon (releases GIL).
+#[cfg(feature = "python")]
 #[pyfunction]
 #[pyo3(signature = (texts, trie, byte_fallback, max_edges_per_node=None))]
 pub fn rust_viterbi_decode_batch(
@@ -327,11 +350,9 @@ pub fn rust_viterbi_decode_batch(
     trie: &RustPrefixTrie,
     byte_fallback: bool,
     max_edges_per_node: Option<usize>,
-) -> PyResult<Vec<Vec<ViterbiSpan>>> {
+) -> CoreResult<Vec<Vec<ViterbiSpan>>> {
     if matches!(max_edges_per_node, Some(0)) {
-        return Err(PyValueError::new_err(
-            "max_edges_per_node must be greater than zero",
-        ));
+        return core_error("max_edges_per_node must be greater than zero");
     }
     let decode_item = |text: &str| -> Result<Vec<ViterbiSpan>, String> {
         if max_edges_per_node.is_none() {
@@ -347,18 +368,19 @@ pub fn rust_viterbi_decode_batch(
     if texts.len() < 32 {
         return texts
             .iter()
-            .map(|text| decode_item(text).map_err(PyValueError::new_err))
+            .map(|text| decode_item(text).map_err(CoreError))
             .collect();
     }
     py.allow_threads(|| {
         texts
             .par_iter()
-            .map(|text| decode_item(text).map_err(PyValueError::new_err))
+            .map(|text| decode_item(text).map_err(CoreError))
             .collect()
     })
 }
 
 /// Batch encodes strings to token strings (no ViterbiSpan wrapper) — single FFI, minimal conversion.
+#[cfg(feature = "python")]
 #[pyfunction]
 #[pyo3(signature = (texts, trie, byte_fallback, max_edges_per_node=None))]
 pub fn rust_encode_tokens_batch(
@@ -367,11 +389,9 @@ pub fn rust_encode_tokens_batch(
     trie: &RustPrefixTrie,
     byte_fallback: bool,
     max_edges_per_node: Option<usize>,
-) -> PyResult<Vec<Vec<String>>> {
+) -> CoreResult<Vec<Vec<String>>> {
     if matches!(max_edges_per_node, Some(0)) {
-        return Err(PyValueError::new_err(
-            "max_edges_per_node must be greater than zero",
-        ));
+        return core_error("max_edges_per_node must be greater than zero");
     }
     let decode_item = |text: &str| -> Result<Vec<String>, String> {
         if max_edges_per_node.is_none() {
@@ -388,18 +408,19 @@ pub fn rust_encode_tokens_batch(
     if texts.len() < 32 {
         return texts
             .iter()
-            .map(|text| decode_item(text).map_err(PyValueError::new_err))
+            .map(|text| decode_item(text).map_err(CoreError))
             .collect();
     }
     py.allow_threads(|| {
         texts
             .par_iter()
-            .map(|text| decode_item(text).map_err(PyValueError::new_err))
+            .map(|text| decode_item(text).map_err(CoreError))
             .collect()
     })
 }
 
 /// Batch encodes strings directly to token integer IDs using parallel Rayon workers (releases GIL).
+#[cfg(feature = "python")]
 #[pyfunction]
 #[pyo3(signature = (texts, trie, byte_fallback, max_edges_per_node=None))]
 pub fn rust_encode_ids_batch(
@@ -408,11 +429,9 @@ pub fn rust_encode_ids_batch(
     trie: &RustPrefixTrie,
     byte_fallback: bool,
     max_edges_per_node: Option<usize>,
-) -> PyResult<Vec<Vec<u32>>> {
+) -> CoreResult<Vec<Vec<u32>>> {
     if matches!(max_edges_per_node, Some(0)) {
-        return Err(PyValueError::new_err(
-            "max_edges_per_node must be greater than zero",
-        ));
+        return core_error("max_edges_per_node must be greater than zero");
     }
     let decode_item = |text: &str| -> Result<Vec<u32>, String> {
         if max_edges_per_node.is_none() {
@@ -428,29 +447,28 @@ pub fn rust_encode_ids_batch(
     if texts.len() < 32 {
         return texts
             .iter()
-            .map(|text| decode_item(text).map_err(PyValueError::new_err))
+            .map(|text| decode_item(text).map_err(CoreError))
             .collect();
     }
     py.allow_threads(|| {
         texts
             .par_iter()
-            .map(|text| decode_item(text).map_err(PyValueError::new_err))
+            .map(|text| decode_item(text).map_err(CoreError))
             .collect()
     })
 }
 
 
 /// Forward-backward statistics for text fully covered by the supplied trie.
+#[cfg(feature = "python")]
 #[pyfunction]
 pub fn rust_forward_backward_expectations(
     text: &str,
     trie: &RustPrefixTrie,
     freq: f64,
-) -> PyResult<(HashMap<String, f64>, f64)> {
+) -> CoreResult<(HashMap<String, f64>, f64)> {
     if !freq.is_finite() || freq < 0.0 {
-        return Err(PyValueError::new_err(
-            "freq must be finite and non-negative",
-        ));
+        return core_error("freq must be finite and non-negative");
     }
 
     let chars: Vec<char> = text.chars().collect();
@@ -485,9 +503,7 @@ pub fn rust_forward_backward_expectations(
 
     let total_log_z = alpha[n];
     if total_log_z == f64::NEG_INFINITY {
-        return Err(PyValueError::new_err(
-            "lattice is disconnected; forward-backward requires complete trie coverage",
-        ));
+        return core_error("lattice is disconnected; forward-backward requires complete trie coverage");
     }
 
     let mut beta = vec![f64::NEG_INFINITY; n + 1];
@@ -514,6 +530,7 @@ pub fn rust_forward_backward_expectations(
 }
 
 #[inline]
+#[cfg(feature = "python")]
 fn log_add(a: f64, b: f64) -> f64 {
     if a == f64::NEG_INFINITY {
         b
@@ -528,7 +545,7 @@ fn log_add(a: f64, b: f64) -> f64 {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "python"))]
 mod tests {
     use super::*;
 

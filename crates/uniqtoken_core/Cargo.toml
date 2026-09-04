@@ -11,13 +11,26 @@ name = "uniqtoken_core"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-pyo3 = { version = "0.21", features = ["extension-module", "abi3-py39"] }
+pyo3 = { version = "0.21", features = ["extension-module", "abi3-py39"], optional = true }
 ahash = "0.8"
 rayon = "1.10"
 regex = "1.10"
 unicode-normalization = "0.1"
 unicode-general-category = "1.1"
 unicode-segmentation = "1.12"
+wasm-bindgen = { version = "0.2", optional = true }
+js-sys = { version = "0.3", optional = true }
+serde_json = { version = "1.0", optional = true }
+
+[features]
+default = ["python"]
+python = ["dep:pyo3"]
+wasm = ["dep:wasm-bindgen", "dep:js-sys", "dep:serde_json"]
+
+# WebAssembly only: route OS randomness through the browser crypto API.
+# Host builds keep the default getrandom backend untouched.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+getrandom = { version = "0.2", features = ["js"] }
 
 [profile.release]
 opt-level = 3

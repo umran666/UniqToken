@@ -1,28 +1,35 @@
 //! UniqToken Core: High-performance native Rust acceleration module for UniqToken.
 
+pub mod error;
 pub mod normalizer;
 pub mod pipeline;
 pub mod rust_tokenizer;
 pub mod seed;
 pub mod trie;
 pub mod viterbi;
+#[cfg(feature = "wasm")]
+pub mod wasm;
 
+#[cfg(feature = "python")]
 use normalizer::{rust_normalize, rust_normalize_with_alignment};
-use pipeline::{
-    rust_encode_text_batch, rust_encode_text_native, rust_encode_text_native_batch,
-    rust_pre_tokenize,
-};
-use pyo3::prelude::*;
-use rust_tokenizer::rust_diagnostic_batch;
-use rust_tokenizer::RustTokenizer;
+#[cfg(feature = "python")]
+use pipeline::{rust_encode_text_batch, rust_encode_text_native, rust_encode_text_native_batch, rust_pre_tokenize};
+#[cfg(feature = "python")]
+use rust_tokenizer::{rust_diagnostic_batch, RustTokenizer};
+#[cfg(feature = "python")]
 use seed::rust_mine_ngrams;
+#[cfg(feature = "python")]
 use trie::RustPrefixTrie;
+#[cfg(feature = "python")]
 use viterbi::{
-    rust_diagnostic_viterbi, rust_encode_ids_batch, rust_encode_tokens_batch,
-    rust_forward_backward_expectations, rust_viterbi_decode, rust_viterbi_decode_batch, ViterbiSpan,
+    rust_diagnostic_viterbi, rust_encode_ids_batch, rust_encode_tokens_batch, rust_forward_backward_expectations,
+    rust_viterbi_decode, rust_viterbi_decode_batch, ViterbiSpan,
 };
+#[cfg(feature = "python")]
+use pyo3::prelude::*;
 
 /// Native UniqToken Core Python Module
+#[cfg(feature = "python")]
 #[pymodule]
 fn uniqtoken_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<RustPrefixTrie>()?;
@@ -44,5 +51,3 @@ fn uniqtoken_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(rust_diagnostic_batch, m)?)?;
     Ok(())
 }
-
-

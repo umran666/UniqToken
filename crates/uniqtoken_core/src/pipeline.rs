@@ -1,20 +1,31 @@
 //! High-performance native end-to-end normalization, pre-tokenization, and batch encoding pipeline.
 
-use crate::normalizer::rust_normalize;
+#[cfg(feature = "python")]
+use crate::error::{core_error, CoreError, CoreResult};
+#[cfg(feature = "python")]
+use crate::normalizer::normalize_inner;
+#[cfg(feature = "python")]
 use crate::trie::RustPrefixTrie;
+#[cfg(feature = "python")]
 use crate::viterbi::decode_cached;
-use pyo3::exceptions::PyValueError;
+#[cfg(feature = "python")]
 use pyo3::prelude::*;
+#[cfg(feature = "python")]
 use rayon::prelude::*;
 use regex::Regex;
+#[cfg(feature = "python")]
 use std::collections::HashSet;
 use std::sync::OnceLock;
+#[cfg(feature = "python")]
 use unicode_normalization::UnicodeNormalization;
+#[cfg(feature = "python")]
 use unicode_segmentation::UnicodeSegmentation;
 
+#[cfg(feature = "python")]
 static PRETOK_REGEX: OnceLock<Regex> = OnceLock::new();
 static PRETOK_FULL_REGEX: OnceLock<Regex> = OnceLock::new();
 
+#[cfg(feature = "python")]
 fn get_pretok_regex() -> &'static Regex {
     PRETOK_REGEX.get_or_init(|| {
         // High-speed unicode-aware word/punctuation/whitespace splitting regex
@@ -63,6 +74,7 @@ pub(crate) fn get_full_pretok_regex() -> &'static Regex {
     })
 }
 
+#[cfg(feature = "python")]
 #[pyfunction]
 pub fn rust_pre_tokenize(text: &str) -> Vec<String> {
     let re = get_full_pretok_regex();
@@ -76,6 +88,7 @@ pub fn rust_pre_tokenize(text: &str) -> Vec<String> {
 /// sign). Such a split emits orphan combining marks. Snap every match end
 /// forward to the next grapheme boundary and merge overlapped matches so no
 /// emitted chunk starts inside a cluster.
+#[cfg(feature = "python")]
 fn is_combining_mark(ch: char) -> bool {
     use unicode_general_category::{GeneralCategory, get_general_category};
     matches!(
@@ -86,6 +99,7 @@ fn is_combining_mark(ch: char) -> bool {
     )
 }
 
+#[cfg(feature = "python")]
 fn snap_spans_to_graphemes(text: &str, spans: &[(usize, usize)]) -> Vec<(usize, usize)> {
     if spans.is_empty() {
         return Vec::new();
@@ -166,6 +180,7 @@ fn snap_spans_to_graphemes(text: &str, spans: &[(usize, usize)]) -> Vec<(usize, 
     out
 }
 
+#[cfg(feature = "python")]
 fn snapped_pretokens(text: &str, re: &Regex) -> Vec<String> {
     let spans: Vec<(usize, usize)> = re.find_iter(text).map(|m| (m.start(), m.end())).collect();
     snap_spans_to_graphemes(text, &spans)
@@ -179,6 +194,7 @@ fn snapped_pretokens(text: &str, re: &Regex) -> Vec<String> {
 /// Mirrors `Normalizer.UNICODE_SPACES` plus the ASCII space; tabs, newlines,
 /// and carriage returns are deliberately NOT mapped here so the pre-tokenizer
 /// regex handles them exactly like the Python single-encode path.
+#[cfg(feature = "python")]
 fn is_python_unicode_space(ch: char) -> bool {
     matches!(
         ch,
@@ -192,6 +208,7 @@ fn is_python_unicode_space(ch: char) -> bool {
 /// NFKC first, then only the configured unicode-space set (and plain space)
 /// become the metaspace character. Other whitespace is left for the
 /// pre-tokenizer's `\s` handling to keep Rust/Python parity on tabs/newlines.
+#[cfg(feature = "python")]
 pub fn normalize_string_native(text: &str, space_char: char) -> String {
     let mut normalized = String::with_capacity(text.len() + 8);
     let nfkc: String = text.nfkc().collect();
@@ -206,6 +223,7 @@ pub fn normalize_string_native(text: &str, space_char: char) -> String {
 }
 
 /// Normalizes and pre-tokenizes a string into discrete subword chunks natively in Rust.
+#[cfg(feature = "python")]
 pub fn pre_tokenize_native(text: &str, space_char: char) -> Vec<String> {
     let normalized = normalize_string_native(text, space_char);
     let re = get_pretok_regex();
@@ -214,6 +232,7 @@ pub fn pre_tokenize_native(text: &str, space_char: char) -> Vec<String> {
 
 /// Native end-to-end pipeline: raw texts -> normalize -> regex pre-tokenize -> Viterbi DAG -> token IDs.
 /// Executes completely in parallel across all CPU cores with the Python GIL released.
+#[cfg(feature = "python")]
 #[pyfunction]
 #[pyo3(signature = (texts, trie, byte_fallback=true, space_char=' '))]
 pub fn rust_encode_text_batch(
@@ -222,11 +241,9 @@ pub fn rust_encode_text_batch(
     trie: &RustPrefixTrie,
     byte_fallback: bool,
     space_char: char,
-) -> PyResult<Vec<Vec<u32>>> {
+) -> CoreResult<Vec<Vec<u32>>> {
     if matches!(space_char, '\u{E000}' | '\u{E001}') {
-        return Err(pyo3::exceptions::PyValueError::new_err(
-            "space_char conflicts with reserved metaspace escape characters",
-        ));
+        return core_error("space_char conflicts with reserved metaspace escape characters");
     }
     py.allow_threads(|| {
         texts
@@ -241,7 +258,7 @@ pub fn rust_encode_text_batch(
                         Ok(seg) => {
                             for (token, token_id, ..) in seg.iter() {
                                 let id = token_id.ok_or_else(|| {
-                                    pyo3::exceptions::PyValueError::new_err(format!(
+                                    CoreError(format!(
                                         "rust_encode_text_batch: decoded token {:?} has no integer ID",
                                         token
                                     ))
@@ -252,7 +269,7 @@ pub fn rust_encode_text_batch(
                         // Never silently turn a disconnected lattice into an
                         // empty or partial sequence — propagate with context.
                         Err(err) => {
-                            return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                            return Err(CoreError(format!(
                                 "rust_encode_text_batch: Viterbi decode failed for input #{} (chunk {:?}): {}",
                                 idx, chunk, err
                             )));
@@ -273,11 +290,10 @@ pub fn rust_encode_text_batch(
 /// native pipeline is exactly equivalent; otherwise bail out so Python handles
 /// escaping/raising. Private-use metaspace escape characters also belong to
 /// the Python Normalizer's escape dance.
-fn native_security_gate(text: &str, normalize_unicode: bool) -> PyResult<()> {
+#[cfg(feature = "python")]
+fn native_security_gate(text: &str, normalize_unicode: bool) -> CoreResult<()> {
     if text.contains('\u{E000}') || text.contains('\u{E001}') {
-        return Err(PyValueError::new_err(
-            "text contains private-use metaspace escape characters; use the Python pipeline",
-        ));
+        return core_error("text contains private-use metaspace escape characters; use the Python pipeline");
     }
     if normalize_unicode {
         // NFKC can synthesize '<' or '|' from fullwidth/compatibility chars
@@ -286,19 +302,16 @@ fn native_security_gate(text: &str, normalize_unicode: bool) -> PyResult<()> {
         // rust_normalize is negligible.
         let canonical: String = text.nfkc().collect();
         if canonical.contains("<|") {
-            return Err(PyValueError::new_err(
-                "text contains control-token syntax after NFKC; use the Python pipeline",
-            ));
+            return core_error("text contains control-token syntax after NFKC; use the Python pipeline");
         }
     } else if text.contains("<|") {
-        return Err(PyValueError::new_err(
-            "text contains control-token syntax; use the Python pipeline",
-        ));
+        return core_error("text contains control-token syntax; use the Python pipeline");
     }
     Ok(())
 }
 
 #[allow(clippy::too_many_arguments)]
+#[cfg(feature = "python")]
 fn encode_text_native_inner(
     text: &str,
     trie: &RustPrefixTrie,
@@ -310,9 +323,9 @@ fn encode_text_native_inner(
     lowercase: bool,
     collapse_whitespaces: bool,
     strip_whitespace: bool,
-) -> PyResult<Vec<String>> {
+) -> CoreResult<Vec<String>> {
     native_security_gate(text, normalize_unicode)?;
-    let normalized = rust_normalize(
+    let normalized = normalize_inner(
         text,
         space_char,
         normalize_unicode,
@@ -325,7 +338,7 @@ fn encode_text_native_inner(
     let re = get_full_pretok_regex();
     let mut tokens: Vec<String> = Vec::new();
     for chunk in snapped_pretokens(&normalized, re) {
-        let seg = decode_cached(chunk.as_str(), trie, byte_fallback).map_err(PyValueError::new_err)?;
+        let seg = decode_cached(chunk.as_str(), trie, byte_fallback).map_err(CoreError)?;
         tokens.extend(seg.iter().map(|(token, ..)| token.clone()));
     }
     Ok(tokens)
@@ -336,6 +349,7 @@ fn encode_text_native_inner(
 /// gates on the same config the Python path would use (see
 /// `CustomTokenizer._native_pipeline_kwargs`); this function additionally
 /// refuses texts that would need security-shield escaping.
+#[cfg(feature = "python")]
 #[pyfunction]
 #[allow(clippy::too_many_arguments)]
 #[pyo3(signature = (text, trie, byte_fallback=true, space_char='\u{2581}', normalize_unicode=true, normalize_unicode_spaces=true, normalize_punctuation=false, lowercase=false, collapse_whitespaces=false, strip_whitespace=false))]
@@ -350,7 +364,7 @@ pub fn rust_encode_text_native(
     lowercase: bool,
     collapse_whitespaces: bool,
     strip_whitespace: bool,
-) -> PyResult<Vec<String>> {
+) -> CoreResult<Vec<String>> {
     encode_text_native_inner(
         text,
         trie,
@@ -368,6 +382,7 @@ pub fn rust_encode_text_native(
 /// Fused batch encode: one FFI + Rayon across texts. On any per-text rejection
 /// (e.g. control-token syntax) the whole batch errors so the caller can fall
 /// back to the Python pipeline wholesale.
+#[cfg(feature = "python")]
 #[pyfunction]
 #[allow(clippy::too_many_arguments)]
 #[pyo3(signature = (texts, trie, byte_fallback=true, space_char='\u{2581}', normalize_unicode=true, normalize_unicode_spaces=true, normalize_punctuation=false, lowercase=false, collapse_whitespaces=false, strip_whitespace=false))]
@@ -383,7 +398,7 @@ pub fn rust_encode_text_native_batch(
     lowercase: bool,
     collapse_whitespaces: bool,
     strip_whitespace: bool,
-) -> PyResult<Vec<Vec<String>>> {
+) -> CoreResult<Vec<Vec<String>>> {
     // ponytail: same sequential-below-32 rule as the raw batch functions.
     if texts.len() < 32 {
         return texts

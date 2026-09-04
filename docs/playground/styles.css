@@ -1,0 +1,148 @@
+:root {
+  color-scheme: dark;
+  --bg: #101418;
+  --panel: #1a2129;
+  --ink: #e8eef4;
+  --muted: #93a1b0;
+  --accent: #6cb8ff;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font: 16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+.wrap {
+  max-width: 880px;
+  margin: 0 auto;
+  padding: 24px 16px 48px;
+}
+
+h1 {
+  margin: 0 0 4px;
+  font-size: 28px;
+}
+
+.sub {
+  margin: 0 0 20px;
+  color: var(--muted);
+}
+
+code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.9em;
+}
+
+.input-label {
+  display: block;
+  margin-bottom: 6px;
+  font-weight: 600;
+}
+
+textarea {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid #33404d;
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--ink);
+  font: 15px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+  resize: vertical;
+}
+
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 8px;
+  margin: 16px 0;
+}
+
+.metrics > div {
+  padding: 8px 12px;
+  border: 1px solid #2a343f;
+  border-radius: 8px;
+  background: var(--panel);
+}
+
+.metrics .k {
+  display: block;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+
+.metrics .v {
+  font-size: 20px;
+  font-variant-numeric: tabular-nums;
+}
+
+h2 {
+  font-size: 18px;
+  margin: 20px 0 8px;
+}
+
+.chips {
+  min-height: 64px;
+  padding: 12px;
+  border: 1px solid #2a343f;
+  border-radius: 8px;
+  background: var(--panel);
+  line-height: 2.1;
+  overflow-wrap: anywhere;
+}
+
+.chip {
+  display: inline-block;
+  margin: 1px;
+  padding: 0 7px;
+  border-radius: 6px;
+  color: #0b0e11;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 14px;
+  white-space: pre-wrap;
+}
+
+.chip.c0 { background: #ffd166; }
+.chip.c1 { background: #8ce99a; }
+.chip.c2 { background: #74c0fc; }
+.chip.c3 { background: #e599f7; }
+.chip.c4 { background: #ffa8a8; }
+.chip.c5 { background: #99e9f2; }
+.chip.c6 { background: #ffec99; }
+.chip.c7 { background: #b2f2bb; }
+.chip.fallback {
+  outline: 2px dashed #ff6b6b;
+  outline-offset: -2px;
+}
+
+.error {
+  color: #ffa8a8;
+}
+
+/* Both live regions stay in the accessibility tree from page load so screen
+   readers reliably announce the first message. Empty states collapse to zero
+   footprint without display:none (which would drop them from the tree). */
+#error:empty,
+.share-note:empty {
+  font-size: 0;
+  line-height: 0;
+  margin: 0;
+}
+
+.share-note {
+  color: var(--muted);
+  font-size: 14px;
+}
+
+footer {
+  margin-top: 24px;
+  color: var(--muted);
+  font-size: 14px;
+}

@@ -1,0 +1,86 @@
+name: WASM Playground
+
+on:
+  push:
+    branches: [main, master]
+    paths:
+      - crates/uniqtoken_core/**
+      - docs/playground/**
+      - .github/workflows/wasm-playground.yml
+  pull_request:
+    branches: [main, master]
+    paths:
+      - crates/uniqtoken_core/**
+      - docs/playground/**
+      - .github/workflows/wasm-playground.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: wasm-playground-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build WASM bundle
+    runs-on: ubuntu-latest
+    steps:
+      # Third-party actions are pinned to full commit SHAs and the checkout
+      # token is not persisted, so later steps (including third-party actions)
+      # never see repository credentials.
+      - name: Checkout code
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # pinned v4
+        with:
+          persist-credentials: false
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # pinned stable
+        with:
+          targets: wasm32-unknown-unknown
+          components: clippy
+
+      - name: Clippy (wasm target)
+        run: cargo clippy --manifest-path crates/uniqtoken_core/Cargo.toml --target wasm32-unknown-unknown --no-default-features --features wasm -- -D warnings
+
+      - name: Rust unit tests (default + wasm features)
+        run: cargo test --manifest-path crates/uniqtoken_core/Cargo.toml --features wasm
+
+      - name: Rust unit tests (wasm-only build)
+        run: cargo test --manifest-path crates/uniqtoken_core/Cargo.toml --no-default-features --features wasm
+
+      - name: Install wasm-pack
+        uses: jetli/wasm-pack-action@0d096b08b4e5a7de8c28de67e11e945404e9eefa # pinned v0.4.0
+        with:
+          version: v0.15.0
+
+      - name: Build web bundle
+        run: wasm-pack build crates/uniqtoken_core --target web --out-dir ../../docs/playground/pkg --no-pack -- --no-default-features --features wasm
+
+      - name: Enforce 1.5 MiB wasm budget
+        run: |
+          wasm=docs/playground/pkg/uniqtoken_core_bg.wasm
+          size=$(stat -c%s "$wasm")
+          echo "wasm bundle bytes: $size"
+          test "$size" -lt 1572864
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # pinned v3
+        with:
+          path: docs/playground
+
+  deploy:
+    name: Deploy to GitHub Pages
+    if: github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # pinned v4

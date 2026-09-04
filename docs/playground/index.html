@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>UniqToken Playground — interactive subword tokenizer demo</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <main class="wrap">
+    <header>
+      <h1>UniqToken Playground</h1>
+      <p class="sub">
+        Client-side tokenization powered by <code>uniqtoken_core</code> compiled to WebAssembly.
+        Nothing leaves your browser. <span id="vocab-line"></span>
+      </p>
+    </header>
+
+    <label class="input-label" for="input">Input text</label>
+    <textarea id="input" rows="5" spellcheck="false"></textarea>
+
+    <section class="metrics" aria-live="polite">
+      <div><span class="k">Tokens</span><span class="v" id="m-tokens">–</span></div>
+      <div><span class="k">Bytes / token</span><span class="v" id="m-bpt">–</span></div>
+      <div><span class="k">Byte fallback</span><span class="v" id="m-fallback">–</span></div>
+      <div><span class="k">Avg log-prob</span><span class="v" id="m-logprob">–</span></div>
+    </section>
+
+    <section>
+      <h2>Token pills</h2>
+      <div id="chips" class="chips" aria-live="polite"></div>
+    </section>
+
+    <p id="share-note" class="share-note" aria-live="polite"></p>
+    <p id="error" class="error" role="alert"></p>
+
+    <footer>
+      <p>
+        Tokenizer: embedded demo vocabulary (590 entries) + UTF-8 byte fallback, so every input
+        tokenizes with 0% out-of-vocabulary. The URL hash carries the current input as a shareable link.
+      </p>
+    </footer>
+  </main>
+
+  <script type="module" src="./app.js"></script>
+</body>
+</html>

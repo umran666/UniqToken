@@ -1,3 +1,5 @@
+use crate::error::{core_error, CoreResult};
+#[cfg(feature = "python")]
 use pyo3::prelude::*;
 use unicode_normalization::UnicodeNormalization;
 
@@ -25,15 +27,14 @@ pub(crate) fn is_python_whitespace(ch: char) -> bool {
     ch.is_whitespace() || matches!(ch as u32, 0x1C..=0x1F | 0x85)
 }
 
-fn validate_space_char(space_char: char) -> PyResult<()> {
+fn validate_space_char(space_char: char) -> CoreResult<()> {
     if space_char == ESCAPE_PREFIX || space_char == ESCAPED_METASPACE {
-        return Err(pyo3::exceptions::PyValueError::new_err(
-            "space_char conflicts with reserved metaspace escape characters",
-        ));
+        return core_error("space_char conflicts with reserved metaspace escape characters");
     }
     Ok(())
 }
 
+#[cfg(feature = "python")]
 #[pyfunction]
 #[allow(clippy::too_many_arguments)]
 #[pyo3(signature = (text, space_char='\u{2581}', normalize_unicode=true, normalize_unicode_spaces=true, normalize_punctuation=false, lowercase=false, collapse_whitespaces=false, strip_whitespace=false))]
@@ -46,7 +47,32 @@ pub fn rust_normalize(
     lowercase: bool,
     collapse_whitespaces: bool,
     strip_whitespace: bool,
-) -> PyResult<String> {
+) -> CoreResult<String> {
+    normalize_inner(
+        text,
+        space_char,
+        normalize_unicode,
+        normalize_unicode_spaces,
+        normalize_punctuation,
+        lowercase,
+        collapse_whitespaces,
+        strip_whitespace,
+    )
+}
+
+/// Shared normalization core behind the Python binding and the WebAssembly
+/// playground engine (which always uses these exact default flags).
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn normalize_inner(
+    text: &str,
+    space_char: char,
+    normalize_unicode: bool,
+    normalize_unicode_spaces: bool,
+    normalize_punctuation: bool,
+    lowercase: bool,
+    collapse_whitespaces: bool,
+    strip_whitespace: bool,
+) -> CoreResult<String> {
     validate_space_char(space_char)?;
     // token-only path — no alignment, ~1.33× faster than with_alignment for ASCII
     let mut s = if normalize_unicode {
@@ -108,6 +134,7 @@ pub fn rust_normalize(
     Ok(out)
 }
 
+#[cfg(feature = "python")]
 #[pyfunction]
 #[allow(clippy::too_many_arguments)]
 #[pyo3(signature = (text, space_char='\u{2581}', normalize_unicode=true, normalize_unicode_spaces=true, normalize_punctuation=false, lowercase=false, collapse_whitespaces=false, strip_whitespace=false))]
@@ -120,7 +147,7 @@ pub fn rust_normalize_with_alignment(
     lowercase: bool,
     collapse_whitespaces: bool,
     strip_whitespace: bool,
-) -> PyResult<(String, Vec<(usize, usize)>)> {
+) -> CoreResult<(String, Vec<(usize, usize)>)> {
     validate_space_char(space_char)?;
     let chars: Vec<char> = text.chars().collect();
     let n = chars.len();
@@ -259,7 +286,7 @@ pub fn rust_normalize_with_alignment(
     Ok((out, align))
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "python"))]
 mod tests {
     use super::*;
     #[test]
