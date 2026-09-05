@@ -23,14 +23,19 @@ js-sys = { version = "0.3", optional = true }
 serde_json = { version = "1.0", optional = true }
 
 [features]
-default = ["python"]
+default = ["python", "c_abi"]
 python = ["dep:pyo3"]
+c_abi = ["dep:serde_json"]
 wasm = ["dep:wasm-bindgen", "dep:js-sys", "dep:serde_json"]
 
 # WebAssembly only: route OS randomness through the browser crypto API.
 # Host builds keep the default getrandom backend untouched.
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 getrandom = { version = "0.2", features = ["js"] }
+
+[[test]]
+name = "c_abi_test"
+required-features = ["c_abi"]
 
 [profile.release]
 opt-level = 3

@@ -25,6 +25,15 @@ jobs:
       - name: Lint Rust core
         run: cargo clippy --manifest-path crates/uniqtoken_core/Cargo.toml --all-targets -- -D warnings
 
+      - name: Test Rust core
+        run: cargo test --manifest-path crates/uniqtoken_core/Cargo.toml --all-targets
+
+      - name: Build and test standalone C++ llama.cpp adapter
+        run: |
+          cargo build --manifest-path crates/uniqtoken_core/Cargo.toml --release --no-default-features --features c_abi
+          g++ -std=c++17 -O2 -Iexamples/llamacpp_adapter examples/llamacpp_adapter/uniqtoken_llama.cpp -Lcrates/uniqtoken_core/target/release -luniqtoken_core -Wl,-rpath,crates/uniqtoken_core/target/release -Wl,--no-allow-shlib-undefined -o uniqtoken_llama
+          ./uniqtoken_llama crates/uniqtoken_core/demo_vocab.json
+
   test:
     name: Test (Python ${{ matrix.python-version }} on ${{ matrix.os }})
     runs-on: ${{ matrix.os }}

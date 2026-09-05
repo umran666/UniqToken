@@ -1,0 +1,11 @@
+cmake_minimum_required(VERSION 3.14)
+project(uniqtoken_llamacpp_adapter C CXX)
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+add_executable(uniqtoken_llama uniqtoken_llama.cpp)
+target_include_directories(uniqtoken_llama PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+# Link against uniqtoken_core if built
+find_library(UNIQTOKEN_CORE_LIB uniqtoken_core PATHS ../../target/release ../../target/debug)
+if (UNIQTOKEN_CORE_LIB)
+    target_link_libraries(uniqtoken_llama PRIVATE ${UNIQTOKEN_CORE_LIB})
+endif()
