@@ -1,6 +1,7 @@
 """Public package namespace for the UniqToken tokenizer."""
 
 from .batch_collator import BatchCollator, BatchEncoding
+from .binary_format import export_binary, load_binary
 from .bpe_model import BPEModel
 from .bpe_trainer import BPETrainer
 from .byte_codec import ByteFallbackEngine
@@ -97,6 +98,8 @@ __all__ = [
     "GGUFExporter",
     "extract_gguf_metadata",
     "extract_gguf_scores",
+    "export_binary",
+    "load_binary",
     "MultimodalTokenizer",
     "MultimodalSequence",
     "ImageElement",
