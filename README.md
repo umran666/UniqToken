@@ -419,7 +419,7 @@ assert tok2.encode_to_ids("test") == tok.encode_to_ids("test")
 
 ## Command-Line Interface (CLI)
 
-UniqToken ships with a production CLI executable (`uniqtoken`, with backwards-compatible `uniqtoken` alias) for training, encoding, decoding, and evaluation:
+UniqToken ships with a production CLI executable (`uniqtoken`) for training, encoding, decoding, and evaluation:
 
 ```bash
 # 1. Train a tokenizer with PMI ranking and SuperBPE optimization

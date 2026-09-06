@@ -12,11 +12,11 @@ from typing import Deque, Dict, Iterable, List, Optional, Set, Tuple
 _X_RE = _regex.compile(r"\X")
 _MARK_RE = _regex.compile(r"\p{M}")
 
-# Module-level Rust core alias, preferring the repo's own crate name. Kept in
-# one place so inner functions never `import uniqtoken_core` (a stale
-# site-packages module whose RustPrefixTrie class is a *different* type).
+# Module-level Rust core import. Kept in one place so inner functions never
+# re-import it: a stale site-packages copy would expose a *different*
+# RustPrefixTrie class type.
 try:
-    import uniqtoken_core as uniqtoken_core
+    import uniqtoken_core
 except ImportError:
     uniqtoken_core = None  # type: ignore[assignment]
 
@@ -224,9 +224,8 @@ class SeedVocabularyBuilder:
             counts, _ = self.mine_ngrams_with_entropy(chunk_counts)
             return counts
         # ponytail: Rust &str slice + AHashMap if available; Python fallback exact.
-        # Reuse the module-level uniqtoken_core alias (imported as uniqtoken_core);
-        # importing the stale site-packages `uniqtoken_core` here would bypass the
-        # repo's own Rust core and break class-identity for shared types.
+        # Reuse the module-level uniqtoken_core import; re-importing it here
+        # would bypass the repo's own Rust core and break class-identity for shared types.
         if not getattr(chunk_counts, "is_streaming", False):
             core = uniqtoken_core if uniqtoken_core is not None else None
             if core is not None:

@@ -672,8 +672,8 @@ def run_phase_fourteen_confirmatory(
                 all_records.append(rec_cal)
 
                 print(
-                    f"  [{lm_name:<16}] SP BPB: {bpb_sp:.3f} | BPE BPB: {bpb_bpe:.3f} | CAL BPB: {bpb_cal:.3f} "
-                    f"(Diff Cal-BPE: {bpb_cal - bpb_bpe:+.3f}) | Steps: SP={st_sp} BPE={st_bpe} CAL={st_cal}",
+                    f"  [{lm_name:<16}] SP BPB: {bpb_sp:.3f} | BPE BPB: {bpb_bpe:.3f} | UniqToken BPB: {bpb_cal:.3f} "
+                    f"(Diff UniqToken-BPE: {bpb_cal - bpb_bpe:+.3f}) | Steps: SP={st_sp} BPE={st_bpe} UniqToken={st_cal}",
                     flush=True,
                 )
 

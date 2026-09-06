@@ -20,7 +20,7 @@ from .unigram_lattice import UnigramLattice
 from .byte_codec import ByteFallbackEngine
 
 try:
-    import uniqtoken_core as uniqtoken_core
+    import uniqtoken_core
 
     _HAS_UNIQTOKEN_CORE = hasattr(uniqtoken_core, "RustPrefixTrie")
 except ImportError:
@@ -184,8 +184,8 @@ class UnigramModel:
         # ponytail: batch cuts 4600→100 FFI/cache checks; Rust batch when compiled else hoisted Python
         rust_trie = self._get_rust_trie()
         if rust_trie is not None:
-            # uniqtoken_core is the module-level alias for uniqtoken_core (or None);
-            # do NOT re-import `uniqtoken_core` here — the stale site-packages
+            # uniqtoken_core is the module-level import (or None);
+            # do NOT re-import it here — a stale site-packages
             # module would reject this module's RustPrefixTrie instances.
             core = uniqtoken_core
             if core is not None:

@@ -80,13 +80,13 @@ def run_throughput_benchmark(num_sentences: int = 5000) -> None:
     raw_rayon_count = 0
     t_raw_rayon = 0.0
     try:
-        import uniqtoken_core as uniqtoken_core
+        import uniqtoken_core
     except ImportError:
-        import uniqtoken_core  # type: ignore[no-redef]
+        uniqtoken_core = None
 
     try:
         rust_trie = tok.model._get_rust_trie()
-        if rust_trie is not None:
+        if rust_trie is not None and uniqtoken_core is not None:
             # rust_encode_ids_batch expects pre-tokenized chunks (exactly what
             # tok.encode feeds the model) — NOT raw sentences. Include the
             # Python normalize/pre-tokenize time in the reported rate.
