@@ -191,10 +191,12 @@ impl RustPrefixTrie {
         let mut results = Vec::with_capacity(8);
         let mut current = &self.root;
         let max_len = self.max_subword_len.unwrap_or(usize::MAX);
-        let end = bytes.len().min(start + max_len);
-        for offset in 0..(end - start) {
+        for (offset, &b) in bytes[start..].iter().enumerate() {
+            if offset >= max_len {
+                break;
+            }
             // SAFETY: caller guarantees ASCII; `b as char` is identity for < 0x80.
-            let ch = bytes[start + offset] as char;
+            let ch = b as char;
             let Some(next) = current.children.get(&ch) else {
                 break;
             };
