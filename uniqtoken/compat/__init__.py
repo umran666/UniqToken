@@ -18,14 +18,19 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any, Dict, Optional, Union
 
+from ..bpe_model import BPEModel
+from ..byte_codec import ByteFallbackEngine
 from ..hf_importer import (
     HFByteLevelBPE,
     import_hf_bpe,
     import_hf_tokenizer,
     import_hf_unigram,
 )
+from ..pre_tokenizer import Normalizer, RegexPreTokenizer
+from ..security_shield import SecurityShield
 from ..sentencepiece_importer import (
     import_sentencepiece,
     load_sentencepiece_model,
@@ -36,6 +41,7 @@ from ..tiktoken_adapter import (
     TiktokenEncoding,
     load_tiktoken_ranks,
 )
+from ..unigram_trainer import UnigramModel
 
 __all__ = [
     "VocabularyMutationError",
@@ -63,19 +69,55 @@ class VocabularyMutationError(TypeError):
     """Raised when a compat-loaded model's vocabulary is mutated or re-ranked."""
 
 
+#: Model/config types whose state carries token IDs or tokenization behavior.
+#: Instances of these are surfaced through recursive frozen views.
+_FROZEN_TYPES = (
+    UnigramModel,
+    BPEModel,
+    Normalizer,
+    RegexPreTokenizer,
+    SecurityShield,
+    ByteFallbackEngine,
+)
+
+
+def _freeze_value(value: Any) -> Any:
+    """Returns an immutable read-only view of ``value`` when it is mutable."""
+    if isinstance(value, dict):
+        return MappingProxyType(value)
+    if isinstance(value, list):
+        return tuple(value)
+    if isinstance(value, set):
+        return frozenset(value)
+    if isinstance(value, _FROZEN_TYPES):
+        return FrozenCompatModel(value)
+    return value
+
+
 class FrozenCompatModel:
     """
     Read-only view over a compat-imported tokenizer.
 
-    Delegates every read/encode/decode attribute to the wrapped model, but
-    rejects attribute writes and re-training with
-    :class:`VocabularyMutationError`. This guarantees the compat contract:
-    token IDs, ranks and pre-tokenization behavior can never change after
-    import.
+    Delegates every read/encode/decode attribute to the wrapped model, but:
 
-    ponytail: this is a facade, not deep immutability — direct mutation of the
-    wrapped model (``fm._model.model = ...``) bypasses the guard. Upgrade path
-    if ever needed: copy-on-wrap with mappingproxy views over vocab structures.
+    - attribute writes and re-training raise
+      :class:`VocabularyMutationError`;
+    - mutable delegated state is surfaced through immutable views:
+      mappings become :class:`types.MappingProxyType`, lists become tuples,
+      sets become frozensets, and nested model/config objects
+      (:class:`~uniqtoken.unigram_trainer.UnigramModel`,
+      :class:`~uniqtoken.bpe_model.BPEModel`,
+      :class:`~uniqtoken.pre_tokenizer.Normalizer`,
+      :class:`~uniqtoken.pre_tokenizer.RegexPreTokenizer`,
+      :class:`~uniqtoken.security_shield.SecurityShield`,
+      :class:`~uniqtoken.byte_codec.ByteFallbackEngine`) are wrapped in
+      further frozen views — so token IDs and tokenization behavior can
+      never change through this surface.
+
+    ponytail: the freeze is recursive only over the known model/config types
+    above; unknown mutable objects nested deeper are still delegated as-is.
+    Upgrade path if ever needed: whitelist-only attribute exposure per
+    model type.
     """
 
     __slots__ = ("_model",)
@@ -84,7 +126,7 @@ class FrozenCompatModel:
         object.__setattr__(self, "_model", model)
 
     def __getattr__(self, name: str) -> Any:
-        return getattr(self._model, name)
+        return _freeze_value(getattr(self._model, name))
 
     def __setattr__(self, name: str, value: Any) -> None:
         raise VocabularyMutationError(
@@ -104,10 +146,41 @@ class FrozenCompatModel:
         return f"FrozenCompatModel({self._model!r})"
 
 
-# Facade aliases required by the compat contract (issue #49).
-TiktokenCompat = TiktokenEncoding
-HuggingFaceCompat = import_hf_tokenizer
-SentencePieceCompat = import_sentencepiece
+class TiktokenCompat(TiktokenEncoding):
+    """
+    Frozen tiktoken-compatible encoding: the Compatibility Engine surface of
+    :class:`TiktokenEncoding`.
+
+    Token IDs (ranks) are exposed as a read-only mapping and attribute writes
+    are rejected, so an imported encoding can never be re-ranked or mutated.
+    """
+
+    def __init__(self, *args: Any, **kwargs: Any):
+        object.__setattr__(self, "_frozen", False)
+        super().__init__(*args, **kwargs)
+        self.__dict__["ranks"] = MappingProxyType(dict(self.ranks))
+        self.__dict__["special_tokens"] = MappingProxyType(dict(self.special_tokens))
+        object.__setattr__(self, "_frozen", True)
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        if self.__dict__.get("_frozen"):
+            raise VocabularyMutationError(
+                "compat models are frozen: attribute assignment would mutate "
+                "the imported vocabulary. Train a new model via uniqtoken.train "
+                "instead."
+            )
+        object.__setattr__(self, name, value)
+
+
+# Frozen loader entry points (issue #49 facade names).
+def HuggingFaceCompat(source: Union[str, Path, Dict[str, Any]]) -> FrozenCompatModel:
+    """Frozen HuggingFace ``tokenizer.json`` import — see :func:`from_huggingface`."""
+    return from_huggingface(source)
+
+
+def SentencePieceCompat(source: Union[str, Path, bytes]) -> FrozenCompatModel:
+    """Frozen SentencePiece ``.model`` import — see :func:`from_sentencepiece`."""
+    return from_sentencepiece(source)
 
 
 def from_tiktoken(
@@ -125,7 +198,7 @@ def from_tiktoken(
     raw regex string.
     """
     return FrozenCompatModel(
-        TiktokenEncoding.from_file(
+        TiktokenCompat.from_file(
             path,
             name=name,
             pattern=pattern,
