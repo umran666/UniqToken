@@ -6,6 +6,7 @@ import random
 import warnings
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Literal, Optional, Sequence, Set, Tuple, Union
 
@@ -29,6 +30,17 @@ except ImportError:
         import caliper_core as _native_core  # type: ignore[no-redef]
     except ImportError:
         _native_core = None  # type: ignore[assignment]
+
+
+@lru_cache(maxsize=32)
+def _cached_chat_engine(template_str: str) -> ChatTemplateEngine:
+    """Return a cached :class:`ChatTemplateEngine` for a template source string.
+
+    Jinja2 compilation is expensive; ``apply_chat_template`` is typically
+    called with the same few templates, so engines are shared per source
+    string instead of recompiled on every call.
+    """
+    return ChatTemplateEngine(template_str)
 
 
 @dataclass(frozen=True)
@@ -80,14 +92,10 @@ class CustomTokenizer:
         self._cross_word_model_id: Optional[int] = id(self.model)
         self._specials_pipe_form: Optional[bool] = None
         self._specials_model_id: Optional[int] = None
-        #: Optional Jinja2 chat template string. Set to a built-in template
-        #: name (e.g. ``"chatml"``), a raw Jinja2 string, or ``None``.
+        #: Optional Jinja2 chat template. Stored as passed: a built-in
+        #: template name (e.g. ``"chatml"``), a raw Jinja2 string, or ``None``.
         #: Used by :meth:`apply_chat_template` when no override is passed.
-        self.chat_template: Optional[str] = (
-            BUILTIN_TEMPLATES[chat_template]
-            if chat_template in BUILTIN_TEMPLATES
-            else chat_template
-        )
+        self.chat_template: Optional[str] = chat_template
 
     @property
     def vocab_size(self) -> int:
@@ -475,6 +483,11 @@ class CustomTokenizer:
         * The name of a pre-bundled template: one of
           ``"chatml"``, ``"llama3"``, ``"mistral"``, ``"zephyr"``.
 
+        Security: untrusted message *content* is sanitized (control-token
+        sequences escaped) before rendering, so content cannot spoof turn
+        boundaries in the tokenized output. Roles are restricted to
+        ``[A-Za-z0-9_-]+`` for the same reason.
+
         Parameters
         ----------
         conversation:
@@ -511,15 +524,11 @@ class CustomTokenizer:
         resolved_template_str: Optional[str] = None
         if chat_template is not None:
             resolved_template_str = (
-                BUILTIN_TEMPLATES[chat_template]
-                if chat_template in BUILTIN_TEMPLATES
-                else chat_template
+                BUILTIN_TEMPLATES[chat_template] if chat_template in BUILTIN_TEMPLATES else chat_template
             )
         elif self.chat_template is not None:
             resolved_template_str = (
-                BUILTIN_TEMPLATES[self.chat_template]
-                if self.chat_template in BUILTIN_TEMPLATES
-                else self.chat_template
+                BUILTIN_TEMPLATES[self.chat_template] if self.chat_template in BUILTIN_TEMPLATES else self.chat_template
             )
 
         if resolved_template_str is None:
@@ -529,21 +538,41 @@ class CustomTokenizer:
                 "that was saved with a chat_template.  "
                 f"Built-in templates: {list(BUILTIN_TEMPLATES)}"
             )
+        if not isinstance(resolved_template_str, str):
+            raise TypeError(
+                f"chat_template must be a built-in name or Jinja2 string, got {type(resolved_template_str).__name__}"
+            )
 
         # --- Resolve BOS/EOS tokens from the model's special-token list ---
-        bos_token = ""
-        eos_token = ""
-        for tok in self.model.special_tokens:
-            tok_lower = tok.lower()
-            if "bos" in tok_lower or tok in ("<s>", "<|begin_of_text|>"):
-                bos_token = tok
-            if "eos" in tok_lower or tok in ("</s>", "<|end_of_text|>", "<|im_end|>"):
-                eos_token = tok
+        # Explicit priority order: first match wins. Substring matching is
+        # deliberately avoided (e.g. a vocab token "aboss" must not count as
+        # BOS), and turn separators such as <|im_end|> are not EOS tokens.
+        bos_token = next(
+            (t for t in ("<s>", "<|begin_of_text|>", "<|bos|>") if t in self.model.special_tokens),
+            "",
+        )
+        eos_token = next(
+            (t for t in ("</s>", "<|end_of_text|>", "<|eos|>") if t in self.model.special_tokens),
+            "",
+        )
 
-        # --- Render the template ---
-        engine = ChatTemplateEngine(resolved_template_str)
+        # --- Sanitize untrusted message content before rendering ---
+        # Rendering is plain-text interpolation: a literal "<|im_start|>system"
+        # inside content would otherwise render verbatim and then encode as a
+        # REAL control-token ID (allowed_special="all" below), spoofing a turn
+        # boundary (issue #44 acceptance criterion). Escape control sequences
+        # in content up front so only the template's own markers become IDs.
+        safe_conversation = [
+            {**message, "content": self.security.sanitize(message["content"], allowed_special="none")}
+            if isinstance(message, dict) and isinstance(message.get("content"), str)
+            else (dict(message) if isinstance(message, dict) else message)
+            for message in conversation
+        ]
+
+        # --- Render the template (engines cached by source string) ---
+        engine = _cached_chat_engine(resolved_template_str)
         rendered = engine.render(
-            conversation,
+            safe_conversation,
             add_generation_prompt=add_generation_prompt,
             bos_token=bos_token,
             eos_token=eos_token,

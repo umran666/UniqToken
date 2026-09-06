@@ -71,6 +71,8 @@ def export_binary(tokenizer: CustomTokenizer, output_path: Union[str, Path]) -> 
         "max_subword_len": model.max_subword_len,
         "byte_fallback": model.byte_fallback,
         "unk_token": model.unk_token,
+        # Optional: absent (None) for tokenizers without the chat feature.
+        "chat_template": getattr(tokenizer, "chat_template", None),
         "normalizer": {
             "space_char": normalizer.space_char,
             "lowercase": normalizer.lowercase,
@@ -259,6 +261,12 @@ def load_binary(file_path: Union[str, Path], use_mmap: bool = True) -> CustomTok
             raise ValueError("Corrupted binary model: special_tokens must be a list")
         if "unk_token" in config and not isinstance(config["unk_token"], str):
             raise ValueError("Corrupted binary model: unk_token must be a string")
+        if (
+            "chat_template" in config
+            and config["chat_template"] is not None
+            and not isinstance(config["chat_template"], str)
+        ):
+            raise ValueError("Corrupted binary model: chat_template must be a string or None")
         # Fast unpack scores and strings
         vocab: Dict[str, float] = {}
         token_to_id: Dict[str, int] = {}
@@ -313,11 +321,13 @@ def load_binary(file_path: Union[str, Path], use_mmap: bool = True) -> CustomTok
                 digit_chunking=pre_cfg.get("digit_chunking", "greedy"),
                 preset=pre_cfg.get("preset"),
             )
-            return CustomTokenizer(
+            tokenizer = CustomTokenizer(
                 model=model,
                 normalizer=normalizer,
                 pre_tokenizer=pre_tokenizer,
             )
+            tokenizer.chat_template = config.get("chat_template", None)
+            return tokenizer
         except (TypeError, ValueError, KeyError) as e:
             raise ValueError(f"Corrupted binary model: invalid component configuration: {e}") from e
     finally:

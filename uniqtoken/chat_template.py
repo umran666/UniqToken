@@ -16,13 +16,26 @@ Security
 --------
 All template rendering is performed inside a Jinja2 `SandboxedEnvironment`
 which prevents arbitrary Python execution from within template strings.
-User-supplied *message content* is treated as data, never as markup, so
-role-boundary tokens cannot be injected through the `content` field.
+Message *content* is treated as data, never as markup.  Note that the
+rendered string is plain text: boundary tokens (``<|im_start|>`` etc.)
+appearing literally inside *content* would be indistinguishable from real
+turn markers after rendering.  Callers that tokenize the result (such as
+`CustomTokenizer.apply_chat_template`) must therefore sanitize untrusted
+content (escape control sequences) *before* rendering — the sandbox alone
+does not stop token spoofing, only code execution.
 """
 
 from __future__ import annotations
 
+import re
+
 from typing import Any, Dict, List, Optional
+
+#: Roles are interpolated verbatim into several built-in templates
+#: (e.g. ``<|{{ role }}|>``), so a role containing markup characters would
+#: spoof turn boundaries. Restrict to a safe token instead of an allowlist
+#: so custom roles (``function``, ``developer``, ...) keep working.
+_ROLE_RE = re.compile(r"[A-Za-z0-9_-]+")
 
 
 # ---------------------------------------------------------------------------
@@ -38,6 +51,7 @@ _CHATML_TEMPLATE = (
 )
 
 _LLAMA3_TEMPLATE = (
+    "{{ bos_token }}"
     "{% for message in messages %}"
     "<|start_header_id|>{{ message['role'] }}<|end_header_id|>\n\n"
     "{{ message['content'] }}"
@@ -48,15 +62,25 @@ _LLAMA3_TEMPLATE = (
     "{% endif %}"
 )
 
+# System messages carry no INST block of their own in Mistral's format, so
+# they are folded into the next user turn (dropping them silently would lose
+# user data). A trailing system message with no following user turn is
+# emitted as its own INST block rather than discarded.
 _MISTRAL_TEMPLATE = (
     "{{ bos_token }}"
+    "{% set ns = namespace(system_msg='') %}"
     "{% for message in messages %}"
-    "{% if message['role'] == 'user' %}"
-    "[INST] {{ message['content'] }} [/INST]"
+    "{% if message['role'] == 'system' %}"
+    "{% set ns.system_msg = message['content'] %}"
+    "{% elif message['role'] == 'user' %}"
+    "[INST] {% if ns.system_msg %}{{ ns.system_msg }}\n\n{% endif %}"
+    "{{ message['content'] }} [/INST]"
+    "{% set ns.system_msg = '' %}"
     "{% elif message['role'] == 'assistant' %}"
     "{{ message['content'] }}{{ eos_token }}"
     "{% endif %}"
     "{% endfor %}"
+    "{% if ns.system_msg %}[INST] {{ ns.system_msg }} [/INST]{% endif %}"
     "{% if add_generation_prompt %}[INST] {% endif %}"
 )
 
@@ -83,10 +107,12 @@ BUILTIN_TEMPLATES: Dict[str, str] = {
 # ChatTemplateEngine
 # ---------------------------------------------------------------------------
 
+
 def _require_jinja2() -> Any:
     """Return the `jinja2` module, raising a friendly ImportError if absent."""
     try:
         import jinja2  # noqa: PLC0415
+
         return jinja2
     except ImportError as exc:
         raise ImportError(
@@ -111,9 +137,15 @@ class ChatTemplateEngine:
     Jinja2 context; the template accesses it via `{{ message['content'] }}`.
     Jinja2's autoescaping is intentionally *disabled* (the output is plain text,
     not HTML), but the sandbox prevents any code path that would let content
-    strings execute as Jinja2 logic.  Boundary tokens that appear literally
-    inside a content string are rendered as verbatim text, not as template
-    control flow.
+    strings execute as Jinja2 logic.  Note the sandbox does NOT stop literal
+    boundary tokens inside content from rendering verbatim into the output
+    string — callers that tokenize the result must sanitize untrusted content
+    beforehand (see `CustomTokenizer.apply_chat_template`).
+
+    Message *roles* are interpolated verbatim by the built-in templates, so
+    roles containing markup would spoof turn boundaries.  Roles are therefore
+    restricted to ``[A-Za-z0-9_-]+`` (letters, digits, ``_``, ``-``), which
+    blocks injection while still allowing custom roles like ``function``.
 
     Parameters
     ----------
@@ -124,9 +156,7 @@ class ChatTemplateEngine:
 
     def __init__(self, template_str: str) -> None:
         if not isinstance(template_str, str):
-            raise TypeError(
-                f"template_str must be a str, got {type(template_str).__name__}"
-            )
+            raise TypeError(f"template_str must be a str, got {type(template_str).__name__}")
         self._template_str = template_str
         self._compiled_template: Optional[Any] = None  # lazily compiled
 
@@ -188,6 +218,7 @@ class ChatTemplateEngine:
         if self._compiled_template is None:
             _require_jinja2()  # ensure jinja2 is installed
             import jinja2.sandbox  # noqa: PLC0415
+
             env = jinja2.sandbox.SandboxedEnvironment(
                 keep_trailing_newline=False,
                 autoescape=False,
@@ -199,29 +230,31 @@ class ChatTemplateEngine:
     def _validate_conversation(conversation: List[Dict[str, str]]) -> None:
         """Raise for malformed conversation inputs."""
         if not isinstance(conversation, list):
-            raise TypeError(
-                f"conversation must be a list of dicts, got {type(conversation).__name__}"
-            )
+            raise TypeError(f"conversation must be a list of dicts, got {type(conversation).__name__}")
         if not conversation:
             raise ValueError("conversation must contain at least one message")
         for i, message in enumerate(conversation):
             if not isinstance(message, dict):
-                raise TypeError(
-                    f"conversation[{i}] must be a dict, got {type(message).__name__}"
-                )
+                raise TypeError(f"conversation[{i}] must be a dict, got {type(message).__name__}")
             if "role" not in message:
-                raise ValueError(
-                    f"conversation[{i}] is missing required key 'role'"
-                )
+                raise ValueError(f"conversation[{i}] is missing required key 'role'")
             if "content" not in message:
+                raise ValueError(f"conversation[{i}] is missing required key 'content'")
+            role = message["role"]
+            if not isinstance(role, str) or _ROLE_RE.fullmatch(role) is None:
                 raise ValueError(
-                    f"conversation[{i}] is missing required key 'content'"
+                    f"conversation[{i}] has invalid role {role!r}: "
+                    "must match [A-Za-z0-9_-]+ (roles are interpolated "
+                    "verbatim into templates, so markup is rejected)"
                 )
+            if not isinstance(message["content"], str):
+                raise TypeError(f"conversation[{i}]['content'] must be a str, got {type(message['content']).__name__}")
 
 
 # ---------------------------------------------------------------------------
 # Convenience factory
 # ---------------------------------------------------------------------------
+
 
 def get_builtin_template(name: str) -> ChatTemplateEngine:
     """Return a :class:ChatTemplateEngine for one of the pre-bundled templates.
@@ -238,8 +271,5 @@ def get_builtin_template(name: str) -> ChatTemplateEngine:
     """
     if name not in BUILTIN_TEMPLATES:
         available = ", ".join(sorted(BUILTIN_TEMPLATES))
-        raise KeyError(
-            f"Unknown built-in template {name!r}.  "
-            f"Available templates: {available}"
-        )
+        raise KeyError(f"Unknown built-in template {name!r}.  Available templates: {available}")
     return ChatTemplateEngine(BUILTIN_TEMPLATES[name])
