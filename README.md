@@ -77,6 +77,7 @@ UniqToken's public API is split into two non-overlapping engines, both sitting o
 ```python
 # Accelerate an existing model — IDs never change:
 from uniqtoken.compat import from_tiktoken
+
 enc = from_tiktoken("cl100k_base.tiktoken", name="cl100k_base", pattern="cl100k_base")
 
 # Train a new vocabulary — research features:
