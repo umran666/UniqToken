@@ -8,7 +8,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Literal, Optional, Sequence, Set, Tuple, Union
+from typing import Any, Dict, Iterable, List, Literal, Optional, Sequence, Set, Tuple, Union, overload
 
 from .bpe_model import BPEModel
 from .byte_codec import ByteFallbackEngine, validate_dropout_prob as _validate_dropout_prob
@@ -345,7 +345,7 @@ class CustomTokenizer:
     @classmethod
     def train_from_corpus(
         cls,
-        corpus: List[str],
+        corpus: Iterable[str],
         target_vocab_size: int = 8000,
         seed_multiplier: float = 3.0,
         max_ngram_length: int = 16,
@@ -454,6 +454,33 @@ class CustomTokenizer:
     # ------------------------------------------------------------------
     # Chat template API
     # ------------------------------------------------------------------
+
+    @overload
+    def apply_chat_template(
+        self,
+        conversation: List[Dict[str, Any]],
+        tokenize: Literal[True] = True,
+        add_generation_prompt: bool = False,
+        chat_template: Optional[str] = None,
+    ) -> List[int]: ...
+
+    @overload
+    def apply_chat_template(
+        self,
+        conversation: List[Dict[str, Any]],
+        tokenize: Literal[False],
+        add_generation_prompt: bool = False,
+        chat_template: Optional[str] = None,
+    ) -> str: ...
+
+    @overload
+    def apply_chat_template(
+        self,
+        conversation: List[Dict[str, Any]],
+        tokenize: bool = True,
+        add_generation_prompt: bool = False,
+        chat_template: Optional[str] = None,
+    ) -> Union[str, List[int]]: ...
 
     def apply_chat_template(
         self,

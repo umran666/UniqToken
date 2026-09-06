@@ -58,7 +58,7 @@ jobs:
       - name: Install Build & Test Tooling
         run: |
           python -m pip install --upgrade pip setuptools wheel build
-          python -m pip install ruff mypy pytest coverage maturin regex tokenizers transformers sentencepiece tiktoken
+          python -m pip install ruff mypy pytest coverage maturin regex tokenizers transformers sentencepiece tiktoken jinja2
 
       - name: Build & Install Native Extension (fresh from source)
         run: |

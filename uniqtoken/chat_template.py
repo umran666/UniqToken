@@ -217,12 +217,17 @@ class ChatTemplateEngine:
         """Return (and cache) the compiled Jinja2 template object."""
         if self._compiled_template is None:
             _require_jinja2()  # ensure jinja2 is installed
+            import jinja2.exceptions  # noqa: PLC0415
             import jinja2.sandbox  # noqa: PLC0415
+
+            def _raise_exception(msg: str = "") -> None:
+                raise jinja2.exceptions.TemplateError(msg)
 
             env = jinja2.sandbox.SandboxedEnvironment(
                 keep_trailing_newline=False,
                 autoescape=False,
             )
+            env.globals["raise_exception"] = _raise_exception
             self._compiled_template = env.from_string(self._template_str)
         return self._compiled_template
 

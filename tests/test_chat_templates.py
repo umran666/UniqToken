@@ -378,6 +378,15 @@ class TestCustomTemplate(unittest.TestCase):
         with self.assertRaises(TypeError):
             ChatTemplateEngine(42)  # type: ignore[arg-type]
 
+    def test_raise_exception_in_template(self):
+        import jinja2.exceptions
+
+        tpl = "{% if messages[0]['role'] != 'system' %}{{ raise_exception('First message must be system') }}{% endif %}"
+        engine = ChatTemplateEngine(tpl)
+        with self.assertRaises(jinja2.exceptions.TemplateError) as ctx:
+            engine.render([{"role": "user", "content": "Hi"}])
+        self.assertIn("First message must be system", str(ctx.exception))
+
 
 # ---------------------------------------------------------------------------
 # 6. Role-injection security
@@ -473,6 +482,7 @@ class TestApplyChatTemplateSecurity(unittest.TestCase):
             tokenize=False,
             chat_template="chatml",
         )
+        assert isinstance(result, str)
         # Exactly one role opening: the legitimate user turn. The payload's
         # markers are escaped (<\|...\|\>), never active boundaries.
         self.assertEqual(result.count("<|im_start|>"), 1)
