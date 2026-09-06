@@ -959,7 +959,11 @@ def run_phase_fourteen_confirmatory(
 
     # Panel D: 3-Way Architecture Comparison at Medium & Large Tiers
     ax_d = axes[1, 1]
-    m_colors = {"SentencePiece-Unigram": "#1f77b4", "Boundary-BPE": "#2ca02c", "UniqToken-SuperBPE (Config B)": "#d62728"}
+    m_colors = {
+        "SentencePiece-Unigram": "#1f77b4",
+        "Boundary-BPE": "#2ca02c",
+        "UniqToken-SuperBPE (Config B)": "#d62728",
+    }
     for m_name in ["SentencePiece-Unigram", "Boundary-BPE", "UniqToken-SuperBPE (Config B)"]:
         vals_med = [summary_grid["Medium (6L-256d)"][V][m_name]["true_lm_bpb_mean"] for V in vocab_scales]
         vals_lrg = [summary_grid["Large (8L-512d)"][V][m_name]["true_lm_bpb_mean"] for V in vocab_scales]
