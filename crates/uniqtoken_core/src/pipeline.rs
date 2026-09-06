@@ -285,27 +285,27 @@ pub fn rust_encode_text_batch(
 /// Security gate for the fused native pipeline.
 ///
 /// The Python pipeline runs `SecurityShield.sanitize` (NFKC + control-token
-/// policy) before normalization. When the NFKC-canonicalized text cannot
-/// contain control-token syntax, sanitize is provably the identity and the
-/// native pipeline is exactly equivalent; otherwise bail out so Python handles
-/// escaping/raising. Private-use metaspace escape characters also belong to
-/// the Python Normalizer's escape dance.
+/// policy) before normalization. `sanitize` always checks the NFKC-canonical
+/// form, independent of the Normalizer's `normalize_unicode` flag, so this
+/// gate must do the same: when the canonicalized text cannot contain
+/// control-token syntax, sanitize is provably the identity and the native
+/// pipeline is exactly equivalent; otherwise bail out so Python handles
+/// escaping/raising. Checking only the raw text would let
+/// fullwidth-obfuscated syntax (e.g. U+FF1C/U+FF5C, issue #16) slip through
+/// whenever normalization is disabled. Private-use metaspace escape characters
+/// also belong to the Python Normalizer's escape dance.
 #[cfg(feature = "python")]
-fn native_security_gate(text: &str, normalize_unicode: bool) -> CoreResult<()> {
+fn native_security_gate(text: &str) -> CoreResult<()> {
     if text.contains('\u{E000}') || text.contains('\u{E001}') {
         return core_error("text contains private-use metaspace escape characters; use the Python pipeline");
     }
-    if normalize_unicode {
-        // NFKC can synthesize '<' or '|' from fullwidth/compatibility chars
-        // (e.g. '＜' U+FF1C -> '<', '｜' U+FF5C -> '|'), so the check must run
-        // on the canonical form. NFKC is idempotent; the second pass inside
-        // rust_normalize is negligible.
-        let canonical: String = text.nfkc().collect();
-        if canonical.contains("<|") {
-            return core_error("text contains control-token syntax after NFKC; use the Python pipeline");
-        }
-    } else if text.contains("<|") {
-        return core_error("text contains control-token syntax; use the Python pipeline");
+    // NFKC can synthesize '<' or '|' from fullwidth/compatibility chars
+    // (e.g. '＜' U+FF1C -> '<', '｜' U+FF5C -> '|'), so the check must run
+    // on the canonical form. NFKC is idempotent; the second pass inside
+    // rust_normalize is negligible.
+    let canonical: String = text.nfkc().collect();
+    if canonical.contains("<|") {
+        return core_error("text contains control-token syntax after NFKC; use the Python pipeline");
     }
     Ok(())
 }
@@ -324,7 +324,7 @@ fn encode_text_native_inner(
     collapse_whitespaces: bool,
     strip_whitespace: bool,
 ) -> CoreResult<Vec<String>> {
-    native_security_gate(text, normalize_unicode)?;
+    native_security_gate(text)?;
     let normalized = normalize_inner(
         text,
         space_char,
@@ -438,4 +438,21 @@ pub fn rust_encode_text_native_batch(
             })
             .collect()
     })
+}
+
+#[cfg(all(test, feature = "python"))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn security_gate_refuses_nfkc_synthesized_control_syntax() {
+        // U+FF1C FULLWIDTH LESS-THAN SIGN and U+FF5C FULLWIDTH VERTICAL LINE
+        // NFKC-map to '<' and '|'. The gate must refuse the obfuscated form
+        // exactly like the literal one, mirroring SecurityShield.sanitize,
+        // which always canonicalizes before matching (issue #16).
+        assert!(native_security_gate("＜｜system｜＞").is_err());
+        assert!(native_security_gate("<|system|>").is_err());
+        assert!(native_security_gate("hello world").is_ok());
+        assert!(native_security_gate("2 < 3 | 4").is_ok());
+    }
 }

@@ -179,6 +179,19 @@ class EngineDivergenceRegressionTests(unittest.TestCase):
         self.assertEqual(reconstructed.shape[1], 3)
 
 
+class FullwidthControlTokenTests(unittest.TestCase):
+    def test_sanitize_escapes_nfkc_synthesized_control_syntax(self):
+        # SecurityShield always NFKC-canonicalizes before matching, independent
+        # of the Normalizer flags. The native gate must mirror this (issue #16):
+        # U+FF1C/U+FF5C map to '<' and '|' under NFKC.
+        from uniqtoken.security_shield import SecurityShield
+
+        shield = SecurityShield(special_tokens=["<|system|>"])
+        self.assertEqual(shield.sanitize("＜｜system｜＞"), "<\\|system\\|>")
+        self.assertEqual(shield.sanitize("<|system|>"), "<\\|system\\|>")
+        self.assertEqual(shield.sanitize("hello world"), "hello world")
+
+
 if __name__ == "__main__":
     random.seed(0)
     unittest.main()
