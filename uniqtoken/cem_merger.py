@@ -275,3 +275,34 @@ class CrossEntropyMerging:
             byte_fallback=model.byte_fallback,
             unk_token=model.unk_token,
         )
+
+
+class SuperBPE(CrossEntropyMerging):
+    """
+    SuperBPE "space travel" merging: :class:`CrossEntropyMerging` with
+    ``cross_word=True`` forced on.
+
+    The corpus is treated as one continuous token stream and only merges whose
+    result contains the space character are accepted, producing tokens that
+    span word boundaries (e.g. ``the\\u2581quick``). Existing token IDs are
+    preserved; new merged tokens are appended (pure vocabulary growth), so
+    this belongs to the Research Engine (:mod:`uniqtoken.train`), not the
+    Compatibility Engine.
+    """
+
+    def __init__(
+        self,
+        max_merges: int = 200,
+        max_score: float = 0.0,
+        verbose: bool = False,
+        space_char: str = "\u2581",
+        min_pmi: Optional[float] = None,
+    ):
+        super().__init__(
+            max_merges=max_merges,
+            max_score=max_score,
+            verbose=verbose,
+            cross_word=True,
+            space_char=space_char,
+            min_pmi=min_pmi,
+        )

@@ -65,6 +65,24 @@ Most production tokenizers lean on a compiled C++ or Rust backend (SentencePiece
 
 What distinguishes UniqToken from standard subword tokenizers is its **script-aware candidate generation** and **entropy-guided vocabulary construction**, which produce higher byte efficiency than Boundary-BPE while retaining lower token-level cross-entropy than SentencePiece under controlled compute and capacity regimes.
 
+### Two Engines, One Core
+
+UniqToken's public API is split into two non-overlapping engines, both sitting on the shared native Rust core (`crates/uniqtoken_core`):
+
+| Engine | Namespace | Purpose | Contract |
+|:-|:-|:-|:-|
+| **Compatibility Engine** | `uniqtoken.compat` | Accelerate *existing* models: `from_tiktoken`, `from_huggingface`, `from_sentencepiece` (aliases `TiktokenCompat`, `HuggingFaceCompat`, `SentencePieceCompat`) | Exact ID parity, exact pre-tokenization regex, identical segmentation, zero token count delta. Imported models are returned **frozen**: vocabulary mutation or re-ranking raises `VocabularyMutationError`. |
+| **Research Engine** | `uniqtoken.train` | Train *new* vocabularies: `UnigramTrainer`, `UnigramLattice`, `SuperBPE`, script-aware `SeedVocabularyBuilder`, `BPETrainer`, `CrossEntropyMerging`, `VocabularyAdapter` | Introduces a new vocabulary and token IDs; dual-offset composition and byte fallback apply end-to-end. |
+
+```python
+# Accelerate an existing model — IDs never change:
+from uniqtoken.compat import from_tiktoken
+enc = from_tiktoken("cl100k_base.tiktoken", name="cl100k_base", pattern="cl100k_base")
+
+# Train a new vocabulary — research features:
+from uniqtoken import UnigramTrainer, SuperBPE
+```
+
 ### Design Goals
 
 | # | Production Failure Mode | UniqToken's Response |

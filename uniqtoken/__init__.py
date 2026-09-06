@@ -6,7 +6,7 @@ from .bpe_model import BPEModel
 from .bpe_trainer import BPETrainer
 from .byte_codec import ByteFallbackEngine
 from .chat_template import BUILTIN_TEMPLATES, ChatTemplateEngine, get_builtin_template
-from .cem_merger import CrossEntropyMerging
+from .cem_merger import CrossEntropyMerging, SuperBPE
 from .hf_exporter import (
     GGUFExporter,
     HuggingFaceExporter,
@@ -91,6 +91,7 @@ __all__ = [
     "SeedVocabularyBuilder",
     "SeedToken",
     "CrossEntropyMerging",
+    "SuperBPE",
     "BPEModel",
     "BPETrainer",
     "StreamingChunkCounter",
