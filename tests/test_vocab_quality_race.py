@@ -141,7 +141,7 @@ class RaceEntryConstructionTests(unittest.TestCase):
     def test_race_entry_required_fields(self):
         e = RaceEntry(
             tokenizer="test",
-            category="caliper",
+            category="uniqtoken",
             target_vocab=500,
             actual_vocab=500,
             trained_fresh=True,

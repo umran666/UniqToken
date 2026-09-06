@@ -1,5 +1,5 @@
 """
-Unit and Parity Tests comparing caliper_core Rust engine vs Pure-Python Lattice.
+Unit and Parity Tests comparing uniqtoken_core Rust engine vs Pure-Python Lattice.
 """
 
 from __future__ import annotations
@@ -11,16 +11,16 @@ from uniqtoken.tokenizer import CustomTokenizer
 from uniqtoken.unigram_trainer import UnigramModel, UnigramTrainer
 
 try:
-    import uniqtoken_core as caliper_core
+    import uniqtoken_core as uniqtoken_core
 
     HAS_RUST = True
 except ImportError:
     try:
-        import caliper_core  # type: ignore[no-redef]
+        import uniqtoken_core  # type: ignore[no-redef]
 
         HAS_RUST = True
     except ImportError:
-        caliper_core = None  # type: ignore[assignment]
+        uniqtoken_core = None  # type: ignore[assignment]
         HAS_RUST = False
 
 
@@ -43,12 +43,12 @@ class RustPythonParityTests(unittest.TestCase):
 
     def test_rust_core_is_detected_and_imported(self):
         self.assertTrue(HAS_RUST, "uniqtoken_core must be compiled and importable")
-        self.assertTrue(hasattr(caliper_core, "RustPrefixTrie"))
-        self.assertTrue(hasattr(caliper_core, "rust_viterbi_decode"))
+        self.assertTrue(hasattr(uniqtoken_core, "RustPrefixTrie"))
+        self.assertTrue(hasattr(uniqtoken_core, "rust_viterbi_decode"))
 
     def test_rust_vs_python_exact_token_and_offset_parity(self):
         if not HAS_RUST:
-            self.skipTest("caliper_core not compiled")
+            self.skipTest("uniqtoken_core not compiled")
 
         test_sentences = [
             "the quick brown fox",
@@ -68,7 +68,7 @@ class RustPythonParityTests(unittest.TestCase):
             rust_trie = model._get_rust_trie()
             self.assertIsNotNone(rust_trie)
             assert rust_trie is not None
-            rust_spans = caliper_core.rust_viterbi_decode(sent, rust_trie, model.byte_fallback)
+            rust_spans = uniqtoken_core.rust_viterbi_decode(sent, rust_trie, model.byte_fallback)
             rust_tuples = [(s.token, s.start, s.end) for s in rust_spans]
 
             # 2. Pure Python lattice decode (bypassing Rust dispatch)

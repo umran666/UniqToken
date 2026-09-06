@@ -419,7 +419,7 @@ assert tok2.encode_to_ids("test") == tok.encode_to_ids("test")
 
 ## Command-Line Interface (CLI)
 
-UniqToken ships with a production CLI executable (`uniqtoken`, with backwards-compatible `caliper` alias) for training, encoding, decoding, and evaluation:
+UniqToken ships with a production CLI executable (`uniqtoken`, with backwards-compatible `uniqtoken` alias) for training, encoding, decoding, and evaluation:
 
 ```bash
 # 1. Train a tokenizer with PMI ranking and SuperBPE optimization
@@ -627,7 +627,7 @@ ids = enc.encode("Hello, world!")  # identical to tiktoken.encode()
 text = enc.decode(ids)
 ```
 
-`to_caliper_bpe_model()` additionally converts the ranks into UniqToken's native `BPEModel` (IDs preserved) for reuse in training/analysis. CI runs token-for-token differential tests against the real `tiktoken` package on multilingual, emoji/ZWJ, and code inputs.
+`to_uniqtoken_bpe_model()` additionally converts the ranks into UniqToken's native `BPEModel` (IDs preserved) for reuse in training/analysis. CI runs token-for-token differential tests against the real `tiktoken` package on multilingual, emoji/ZWJ, and code inputs.
 
 ### HuggingFace tokenizer.json importer
 

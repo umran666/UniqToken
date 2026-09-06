@@ -18,7 +18,7 @@ from uniqtoken.unigram_trainer import UnigramModel
 
 class PropertyBasedFuzzSuite(unittest.TestCase):
     """
-    Adversarial Fuzz & Property-Based Test Suite for Caliper Tokenizer.
+    Adversarial Fuzz & Property-Based Test Suite for UniqToken Tokenizer.
 
     Validates structural invariants across:
     1. Invariant Roundtrip: decode(encode(x)) == expected_normalized_and_sanitized(x).

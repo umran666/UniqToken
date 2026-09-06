@@ -151,7 +151,7 @@ class SynthesizedProtoTests(unittest.TestCase):
 
 @unittest.skipUnless(HAS_SPM, "sentencepiece package not installed")
 class RealSentencePieceImportTests(unittest.TestCase):
-    """Differential tests: train SPM, import into Caliper, compare encode."""
+    """Differential tests: train SPM, import into UniqToken, compare encode."""
 
     sp: Any
     cal: Any
@@ -231,11 +231,11 @@ class RealSentencePieceImportTests(unittest.TestCase):
             )
 
     def test_encode_id_parity_for_midtext_words(self):
-        """Caliper's importer cannot faithfully reproduce SPM's
+        """UniqToken's importer cannot faithfully reproduce SPM's
         add_dummy_prefix behavior without a code change in the tokenizer
         itself (see :data:`_spm_dummy_prefix_note`). SPM's first word in
         every encode gets a free ``\\u2581`` prefix, which lets it pick
-        consolidated ``\\u2581word`` pieces that Caliper never gets a
+        consolidated ``\\u2581word`` pieces that UniqToken never gets a
         chance to consider because its pre-tokenizer does not prepend a
         metaspace.
 
@@ -253,7 +253,7 @@ class RealSentencePieceImportTests(unittest.TestCase):
         for text in ["the quick brown fox", "abc 42 def", "fallback support"]:
             sp_ids = self.sp.EncodeAsIds(text)
             # SPM's encode is [<dummy>, <word1>, <word2>, ...]
-            # The pieces list after the dummy prefix is what Caliper should
+            # The pieces list after the dummy prefix is what UniqToken should
             # be able to reproduce from the *tail* of the input.
             if sp_ids and sp_ids[0] == DUMMY_PREFIX_ID:
                 # Skip past the first word (which is privileged by SPM's

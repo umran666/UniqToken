@@ -164,7 +164,7 @@ def train_command(args: argparse.Namespace) -> int:
         print("Error: Corpus is empty.", file=sys.stderr)
         return 1
 
-    _print_msg(f"Training Caliper tokenizer on {len(args.corpus)} corpus files (Target Vocab: {args.vocab_size})...")
+    _print_msg(f"Training UniqToken tokenizer on {len(args.corpus)} corpus files (Target Vocab: {args.vocab_size})...")
     tok = CustomTokenizer.train_from_corpus(
         corpus=_corpus_doc_stream() if is_streaming else corpus,
         target_vocab_size=args.vocab_size,
@@ -219,7 +219,7 @@ def _load_input(args: argparse.Namespace) -> str:
 
 
 def encode_command(args: argparse.Namespace) -> int:
-    """Handles 'caliper encode'."""
+    """Handles 'uniqtoken encode'."""
     model_path = Path(args.model)
     if not model_path.exists():
         print(f"Error: Model directory not found: {args.model}", file=sys.stderr)
@@ -288,7 +288,7 @@ def _parse_token_ids(input_data: str) -> List[int]:
 
 
 def decode_command(args: argparse.Namespace) -> int:
-    """Handles 'caliper decode'."""
+    """Handles 'uniqtoken decode'."""
     model_path = Path(args.model)
     if not model_path.exists():
         print(f"Error: Model directory not found: {args.model}", file=sys.stderr)
@@ -453,7 +453,7 @@ def compare_command(args: argparse.Namespace) -> int:
 
 
 def benchmark_command(args: argparse.Namespace) -> int:
-    """Handles 'caliper benchmark'."""
+    """Handles 'uniqtoken benchmark'."""
     suite = TokenizerBenchmarkSuite()
     suite.print_summary_report(include_large_payloads=args.large_payloads)
     if args.export_markdown:
@@ -466,7 +466,7 @@ def benchmark_command(args: argparse.Namespace) -> int:
 
 
 def downstream_command(args: argparse.Namespace) -> int:
-    """Handles 'caliper eval-downstream'."""
+    """Handles 'uniqtoken eval-downstream'."""
     vs = 500 if args.smoke_test else args.vocab_size
     include_ext = not args.no_external and not args.smoke_test
     evaluator = DownstreamEvaluator(vocab_size=vs)

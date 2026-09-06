@@ -91,12 +91,12 @@ class SyntheticRanksTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.enc.decode([99999])
 
-    def test_to_caliper_bpe_model_ids_preserved(self):
-        model = self.enc.to_caliper_bpe_model()
+    def test_to_uniqtoken_bpe_model_ids_preserved(self):
+        model = self.enc.to_uniqtoken_bpe_model()
         self.assertEqual(model.token_to_id["the"], 259)
         self.assertEqual(model.token_to_id[" the"], 258)
         self.assertEqual(model.id_to_token[256], "th")
-        # Caliper's BPE merge semantics on a single word must match tiktoken's
+        # UniqToken's BPE merge semantics on a single word must match tiktoken's
         # per-piece result for pieces without the pattern's split boundaries.
         self.assertEqual(model._encode_word("the"), ["the"])
         self.assertEqual(model._encode_word(" th"), [" ", "th"])

@@ -10,17 +10,12 @@ from typing import Iterator, List, Literal, Optional, Sequence, Tuple, Union
 DigitChunking = Literal["block3", "single", "greedy"]
 
 try:
-    import uniqtoken_core as _caliper_core
+    import uniqtoken_core as _uniqtoken_core
 
-    _HAS_RUST_NORM = hasattr(_caliper_core, "rust_normalize_with_alignment")
+    _HAS_RUST_NORM = hasattr(_uniqtoken_core, "rust_normalize_with_alignment")
 except ImportError:
-    try:
-        import caliper_core as _caliper_core  # type: ignore[no-redef]
-
-        _HAS_RUST_NORM = hasattr(_caliper_core, "rust_normalize_with_alignment")
-    except ImportError:
-        _caliper_core = None  # type: ignore[assignment]
-        _HAS_RUST_NORM = False
+    _uniqtoken_core = None  # type: ignore[assignment]
+    _HAS_RUST_NORM = False
 
 
 @dataclass(frozen=True)
@@ -139,9 +134,9 @@ class Normalizer:
 
         # ponytail: Rust normalizer with exact parity; Python fallback if mismatch
         if _HAS_RUST_NORM and not self.casefold:
-            assert _caliper_core is not None
+            assert _uniqtoken_core is not None
             try:
-                res = _caliper_core.rust_normalize_with_alignment(
+                res = _uniqtoken_core.rust_normalize_with_alignment(
                     text,
                     self.space_char,
                     self.normalize_unicode,
@@ -242,9 +237,9 @@ class Normalizer:
         if not isinstance(text, str):
             raise TypeError(f"text must be a string, got {type(text).__name__}")
         if _HAS_RUST_NORM and not self.casefold:
-            assert _caliper_core is not None
+            assert _uniqtoken_core is not None
             try:
-                return _caliper_core.rust_normalize(
+                return _uniqtoken_core.rust_normalize(
                     text,
                     self.space_char,
                     self.normalize_unicode,
@@ -549,9 +544,9 @@ class RegexPreTokenizer:
             raise TypeError(f"text must be a string, got {type(text).__name__}")
         # ponytail: Rust pre_tokenize for default config; Python fallback exact
         if _HAS_RUST_NORM and self._native_pretok_parity:
-            assert _caliper_core is not None
+            assert _uniqtoken_core is not None
             try:
-                return _caliper_core.rust_pre_tokenize(text)
+                return _uniqtoken_core.rust_pre_tokenize(text)
             except (ImportError, AttributeError, ValueError):
                 pass
         return [t.text for t in self.pre_tokenize_with_offsets(text)]

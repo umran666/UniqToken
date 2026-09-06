@@ -46,7 +46,7 @@ class TokenizerBenchmarkSuite:
     4. Offset Span Computation Overhead.
     5. Code Indentation Context Compression Savings.
     6. Unigram vs. BPE Head-to-Head Architectural Comparison.
-    7. Caliper vs. HuggingFace, SentencePiece, and tiktoken baselines.
+    7. UniqToken vs. HuggingFace, SentencePiece, and tiktoken baselines.
     """
 
     BENCHMARK_CORPORA = {
@@ -391,7 +391,7 @@ class TokenizerBenchmarkSuite:
             uniqtoken_label = "UniqToken (Rust Core)"
         except ImportError:
             try:
-                import caliper_core
+                import uniqtoken_core
 
                 uniqtoken_label = "UniqToken (Rust Core)"
             except ImportError:
@@ -643,7 +643,7 @@ class TokenizerBenchmarkSuite:
         """Exports full benchmark results to a formatted GitHub Markdown document."""
         results = self.run_all_benchmarks()
         lines = [
-            "# Caliper Tokenizer Benchmark Report",
+            "# UniqToken Tokenizer Benchmark Report",
             "",
             "## Multilingual Throughput & Compression",
             "",
@@ -694,8 +694,8 @@ class TokenizerBenchmarkSuite:
             [
                 r"\bottomrule",
                 r"\end{tabular}",
-                r"\caption{Caliper Empirical Benchmark Suite Evaluation Across Multilingual Corpora.}",
-                r"\label{tab:caliper_benchmarks}",
+                r"\caption{UniqToken Empirical Benchmark Suite Evaluation Across Multilingual Corpora.}",
+                r"\label{tab:uniqtoken_benchmarks}",
                 r"\end{table*}",
             ]
         )
@@ -705,7 +705,7 @@ class TokenizerBenchmarkSuite:
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Run Caliper tokenizer benchmarks.")
+    parser = argparse.ArgumentParser(description="Run UniqToken tokenizer benchmarks.")
     parser.add_argument(
         "--large-payloads",
         action="store_true",

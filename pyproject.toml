@@ -96,7 +96,6 @@ Repository = "https://github.com/umran666/uniqtoken"
 
 [project.scripts]
 uniqtoken = "uniqtoken.cli:main"
-caliper = "uniqtoken.cli:main"
 
 [tool.setuptools]
 packages = ["uniqtoken", "uniqtoken.multimodal", "benchmarks"]
@@ -109,7 +108,6 @@ exclude = [
     "dist",
     ".mypy_cache",
     ".ruff_cache",
-    "caliper_tokenizer.egg-info",
     "uniqtoken.egg-info",
     "crates",
 ]

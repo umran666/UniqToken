@@ -213,11 +213,11 @@ class TiktokenEncoding:
                 raise ValueError(f"unknown token id {tid} in {self.name}")
         return b"".join(pieces).decode("utf-8", errors="replace")
 
-    # -- conversion to Caliper's native model --------------------------------
+    # -- conversion to UniqToken's native model --------------------------------
 
-    def to_caliper_bpe_model(self) -> BPEModel:
+    def to_uniqtoken_bpe_model(self) -> BPEModel:
         """
-        Converts the tiktoken ranks into a Caliper :class:`BPEModel`.
+        Converts the tiktoken ranks into a UniqToken :class:`BPEModel`.
 
         Byte strings map 1:1 to str via latin-1 (every rank key is a byte
         string, so the mapping is bijective and round-trips exactly). Merge
@@ -225,7 +225,7 @@ class TiktokenEncoding:
         strictly lower ranks — the segmentation BPE training produced when the
         token was created. Token IDs (ranks) are preserved exactly.
 
-        Note: the returned model's vocab/merges/IDs are faithful, but Caliper's
+        Note: the returned model's vocab/merges/IDs are faithful, but UniqToken's
         BPEModel pre-tokenizes on spaces only — for tiktoken-identical output,
         keep using TiktokenEncoding.encode.
         """

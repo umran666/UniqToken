@@ -1,7 +1,7 @@
 """
 Phase Fourteen B: Five-Seed Confirmatory Factorial Benchmark & Interaction Testing.
 Evaluates 2 Critical Vocabulary Capacities (32K, 64K) x 3 LM Architectures (Small, Medium, Large)
-across 3 Tokenizers (SentencePiece, Boundary-BPE, Caliper Config B) across N=5 paired seeds [101, 202, 303, 404, 505].
+across 3 Tokenizers (SentencePiece, Boundary-BPE, UniqToken Config B) across N=5 paired seeds [101, 202, 303, 404, 505].
 Total: 90 matched FLOP runs (5.0e+12 analytical FLOPs on CUDA).
 Executes pre-registered hypothesis testing and 2-way Repeated Measures ANOVA (V x LM Capacity interaction).
 """
@@ -527,7 +527,7 @@ def run_phase_fourteen_confirmatory(
             bpe_fert = len(bpe_tokens) / max(num_words, 1)
             bpe_enc = lambda t: bpe_model.encode_to_ids(t)
 
-            # 3. Caliper Config B
+            # 3. UniqToken Config B
             tok_base = CustomTokenizer.train_from_corpus(
                 corpus=train_docs,
                 target_vocab_size=base_target,
@@ -634,7 +634,7 @@ def run_phase_fourteen_confirmatory(
                 )
                 all_records.append(rec_bpe)
 
-                # Caliper Config B
+                # UniqToken Config B
                 ce_cal, bpb_cal, p_tot_cal, p_non_cal, st_cal, tok_cal, fl_cal, wc_cal = (
                     train_and_eval_capacity_transformer(
                         enc_fn=cal_enc,
@@ -651,7 +651,7 @@ def run_phase_fourteen_confirmatory(
                     vocab_size=V,
                     lm_tier=lm_name,
                     seed=seed,
-                    model_name="Caliper-SuperBPE (Config B)",
+                    model_name="UniqToken-SuperBPE (Config B)",
                     actual_vocab_size=cal_actual_v,
                     num_layers=cfg.num_layers,
                     d_model=cfg.d_model,
@@ -684,22 +684,22 @@ def run_phase_fourteen_confirmatory(
 
     raw_tests: List[Dict[str, Any]] = []
 
-    # Test 1: H1 (Caliper 64K Medium < Caliper 32K Medium)
+    # Test 1: H1 (UniqToken 64K Medium < UniqToken 32K Medium)
     c64_med = [
         r.true_lm_bpb
         for r in all_records
-        if r.model_name == "Caliper-SuperBPE (Config B)" and r.vocab_size == 65536 and r.lm_tier == "Medium (6L-256d)"
+        if r.model_name == "UniqToken-SuperBPE (Config B)" and r.vocab_size == 65536 and r.lm_tier == "Medium (6L-256d)"
     ]
     c32_med = [
         r.true_lm_bpb
         for r in all_records
-        if r.model_name == "Caliper-SuperBPE (Config B)" and r.vocab_size == 32768 and r.lm_tier == "Medium (6L-256d)"
+        if r.model_name == "UniqToken-SuperBPE (Config B)" and r.vocab_size == 32768 and r.lm_tier == "Medium (6L-256d)"
     ]
     diff_h1 = np.array(c64_med) - np.array(c32_med)
     t_h1, p_h1 = stats.ttest_rel(c64_med, c32_med)
     raw_tests.append(
         {
-            "name": "H1: BPB(Caliper, 64K, Med) < BPB(Caliper, 32K, Med)",
+            "name": "H1: BPB(UniqToken, 64K, Med) < BPB(UniqToken, 32K, Med)",
             "mean_a": float(np.mean(c64_med)),
             "mean_b": float(np.mean(c32_med)),
             "diff": float(np.mean(diff_h1)),
@@ -713,22 +713,22 @@ def run_phase_fourteen_confirmatory(
         }
     )
 
-    # Test 2: H2 (CE(Caliper, 64K, Medium) < CE(Caliper, 64K, Small))
+    # Test 2: H2 (CE(UniqToken, 64K, Medium) < CE(UniqToken, 64K, Small))
     ce64_med = [
         r.token_ce_loss
         for r in all_records
-        if r.model_name == "Caliper-SuperBPE (Config B)" and r.vocab_size == 65536 and r.lm_tier == "Medium (6L-256d)"
+        if r.model_name == "UniqToken-SuperBPE (Config B)" and r.vocab_size == 65536 and r.lm_tier == "Medium (6L-256d)"
     ]
     ce64_sml = [
         r.token_ce_loss
         for r in all_records
-        if r.model_name == "Caliper-SuperBPE (Config B)" and r.vocab_size == 65536 and r.lm_tier == "Small (4L-128d)"
+        if r.model_name == "UniqToken-SuperBPE (Config B)" and r.vocab_size == 65536 and r.lm_tier == "Small (4L-128d)"
     ]
     diff_h2 = np.array(ce64_med) - np.array(ce64_sml)
     t_h2, p_h2 = stats.ttest_rel(ce64_med, ce64_sml)
     raw_tests.append(
         {
-            "name": "H2: CE(Caliper, 64K, Med) < CE(Caliper, 64K, Small)",
+            "name": "H2: CE(UniqToken, 64K, Med) < CE(UniqToken, 64K, Small)",
             "mean_a": float(np.mean(ce64_med)),
             "mean_b": float(np.mean(ce64_sml)),
             "diff": float(np.mean(diff_h2)),
@@ -742,17 +742,17 @@ def run_phase_fourteen_confirmatory(
         }
     )
 
-    # Test 3: H3 (BPB(Caliper, 64K, Medium) < BPB(Caliper, 64K, Small))
+    # Test 3: H3 (BPB(UniqToken, 64K, Medium) < BPB(UniqToken, 64K, Small))
     c64_sml = [
         r.true_lm_bpb
         for r in all_records
-        if r.model_name == "Caliper-SuperBPE (Config B)" and r.vocab_size == 65536 and r.lm_tier == "Small (4L-128d)"
+        if r.model_name == "UniqToken-SuperBPE (Config B)" and r.vocab_size == 65536 and r.lm_tier == "Small (4L-128d)"
     ]
     diff_h3 = np.array(c64_med) - np.array(c64_sml)
     t_h3, p_h3 = stats.ttest_rel(c64_med, c64_sml)
     raw_tests.append(
         {
-            "name": "H3: BPB(Caliper, 64K, Med) < BPB(Caliper, 64K, Small)",
+            "name": "H3: BPB(UniqToken, 64K, Med) < BPB(UniqToken, 64K, Small)",
             "mean_a": float(np.mean(c64_med)),
             "mean_b": float(np.mean(c64_sml)),
             "diff": float(np.mean(diff_h3)),
@@ -766,17 +766,17 @@ def run_phase_fourteen_confirmatory(
         }
     )
 
-    # Test 4: H4 (BPB(Caliper, 64K, Large) vs BPB(Caliper, 64K, Medium) - Testing Diminishing Return)
+    # Test 4: H4 (BPB(UniqToken, 64K, Large) vs BPB(UniqToken, 64K, Medium) - Testing Diminishing Return)
     c64_lrg = [
         r.true_lm_bpb
         for r in all_records
-        if r.model_name == "Caliper-SuperBPE (Config B)" and r.vocab_size == 65536 and r.lm_tier == "Large (8L-512d)"
+        if r.model_name == "UniqToken-SuperBPE (Config B)" and r.vocab_size == 65536 and r.lm_tier == "Large (8L-512d)"
     ]
     diff_h4 = np.array(c64_lrg) - np.array(c64_med)
     t_h4, p_h4 = stats.ttest_rel(c64_lrg, c64_med)
     raw_tests.append(
         {
-            "name": "H4: BPB(Caliper, 64K, Large) < BPB(Caliper, 64K, Med)",
+            "name": "H4: BPB(UniqToken, 64K, Large) < BPB(UniqToken, 64K, Med)",
             "mean_a": float(np.mean(c64_lrg)),
             "mean_b": float(np.mean(c64_med)),
             "diff": float(np.mean(diff_h4)),
@@ -812,7 +812,7 @@ def run_phase_fourteen_confirmatory(
         )
     print("=" * 175)
 
-    # 2. Repeated Measures 2-Way ANOVA on Caliper BPB (5 seeds x 2 Vocab x 3 Capacity)
+    # 2. Repeated Measures 2-Way ANOVA on UniqToken BPB (5 seeds x 2 Vocab x 3 Capacity)
     print("\n" + "=" * 175)
     print("REPEATED-MEASURES 2-WAY ANOVA: BPB ~ VOCAB + CAPACITY + (VOCAB x CAPACITY) + (1|SEED)")
     print("=" * 175)
@@ -827,7 +827,7 @@ def run_phase_fourteen_confirmatory(
                     if r.seed == seed
                     and r.vocab_size == V
                     and r.lm_tier == lm_name
-                    and r.model_name == "Caliper-SuperBPE (Config B)"
+                    and r.model_name == "UniqToken-SuperBPE (Config B)"
                 ][0]
                 anova_matrix[s_idx, v_idx, l_idx] = rec.true_lm_bpb
 
@@ -847,7 +847,7 @@ def run_phase_fourteen_confirmatory(
     summary_grid: Dict[str, Dict[int, Dict[str, Dict[str, float]]]] = defaultdict(lambda: defaultdict(dict))
     for lm_name in lm_tiers:
         for V in vocab_scales:
-            for m_name in ["SentencePiece-Unigram", "Boundary-BPE", "Caliper-SuperBPE (Config B)"]:
+            for m_name in ["SentencePiece-Unigram", "Boundary-BPE", "UniqToken-SuperBPE (Config B)"]:
                 recs = [r for r in all_records if r.lm_tier == lm_name and r.vocab_size == V and r.model_name == m_name]
                 summary_grid[lm_name][V][m_name] = {
                     "true_lm_bpb_mean": float(np.mean([r.true_lm_bpb for r in recs])),
@@ -863,7 +863,7 @@ def run_phase_fourteen_confirmatory(
     print("-" * 175)
     for lm_name in lm_tiers:
         for V in vocab_scales:
-            for m_name in ["SentencePiece-Unigram", "Boundary-BPE", "Caliper-SuperBPE (Config B)"]:
+            for m_name in ["SentencePiece-Unigram", "Boundary-BPE", "UniqToken-SuperBPE (Config B)"]:
                 st = summary_grid[lm_name][V][m_name]
                 bpb_str = f"{st['true_lm_bpb_mean']:.3f} +- {st['true_lm_bpb_std']:.3f}"
                 print(
@@ -874,14 +874,14 @@ def run_phase_fourteen_confirmatory(
     # 4-Panel Publication Figure
     fig, axes = plt.subplots(2, 2, figsize=(18, 13), dpi=300)
 
-    # Panel A: Caliper True LM BPB vs V with 95% CIs
+    # Panel A: UniqToken True LM BPB vs V with 95% CIs
     ax_a = axes[0, 0]
     tier_colors = {"Small (4L-128d)": "#1f77b4", "Medium (6L-256d)": "#ff7f0e", "Large (8L-512d)": "#2ca02c"}
     tier_markers = {"Small (4L-128d)": "o-", "Medium (6L-256d)": "s-", "Large (8L-512d)": "^-"}
 
     for lm_name in lm_tiers:
-        means = [summary_grid[lm_name][V]["Caliper-SuperBPE (Config B)"]["true_lm_bpb_mean"] for V in vocab_scales]
-        stds = [summary_grid[lm_name][V]["Caliper-SuperBPE (Config B)"]["true_lm_bpb_std"] for V in vocab_scales]
+        means = [summary_grid[lm_name][V]["UniqToken-SuperBPE (Config B)"]["true_lm_bpb_mean"] for V in vocab_scales]
+        stds = [summary_grid[lm_name][V]["UniqToken-SuperBPE (Config B)"]["true_lm_bpb_std"] for V in vocab_scales]
         cis = [2.776 * (s / np.sqrt(len(seeds))) for s in stds]
         ax_a.errorbar(
             vocab_scales,
@@ -902,17 +902,17 @@ def run_phase_fourteen_confirmatory(
     ax_a.set_xticks(vocab_scales)
     ax_a.get_xaxis().set_major_formatter(matplotlib.ticker.ScalarFormatter())
     ax_a.set_title(
-        "Panel A: Caliper BPB Scaling (32K -> 64K) with 95% CIs Across LM Tiers", fontsize=11, fontweight="bold"
+        "Panel A: UniqToken BPB Scaling (32K -> 64K) with 95% CIs Across LM Tiers", fontsize=11, fontweight="bold"
     )
     ax_a.set_xlabel("Vocabulary Size (V)", fontsize=10)
     ax_a.set_ylabel("True LM BPB (lower is better)", fontsize=10)
     ax_a.grid(True, linestyle="--", alpha=0.5)
     ax_a.legend()
 
-    # Panel B: Caliper Cross-Tier Progression at 64K (BPB and CE)
+    # Panel B: UniqToken Cross-Tier Progression at 64K (BPB and CE)
     ax_b = axes[0, 1]
-    bpb_64_means = [summary_grid[lm][65536]["Caliper-SuperBPE (Config B)"]["true_lm_bpb_mean"] for lm in lm_tiers]
-    ce_64_means = [summary_grid[lm][65536]["Caliper-SuperBPE (Config B)"]["token_ce_loss_mean"] for lm in lm_tiers]
+    bpb_64_means = [summary_grid[lm][65536]["UniqToken-SuperBPE (Config B)"]["true_lm_bpb_mean"] for lm in lm_tiers]
+    ce_64_means = [summary_grid[lm][65536]["UniqToken-SuperBPE (Config B)"]["token_ce_loss_mean"] for lm in lm_tiers]
 
     x_pos = np.arange(len(lm_tiers))
     ax_b.plot(x_pos, bpb_64_means, "ro-", linewidth=2.4, markersize=9, label="True LM BPB (Left)")
@@ -922,7 +922,7 @@ def run_phase_fourteen_confirmatory(
     ax_b.set_xticklabels(["Small (4L-128d)", "Medium (6L-256d)", "Large (8L-512d)"], fontsize=10)
     ax_b.set_ylabel("True LM BPB", fontsize=10, color="red")
     ax_b.set_title(
-        "Panel B: Caliper Cross-Tier Performance at V = 65,536 (Saturation Curve)", fontsize=11, fontweight="bold"
+        "Panel B: UniqToken Cross-Tier Performance at V = 65,536 (Saturation Curve)", fontsize=11, fontweight="bold"
     )
     ax_b.grid(True, linestyle="--", alpha=0.5)
 
@@ -935,7 +935,7 @@ def run_phase_fourteen_confirmatory(
     # Panel C: Factorial Interaction Plot (Slope Differences)
     ax_c = axes[1, 0]
     for lm_name in lm_tiers:
-        vals = [summary_grid[lm_name][V]["Caliper-SuperBPE (Config B)"]["true_lm_bpb_mean"] for V in vocab_scales]
+        vals = [summary_grid[lm_name][V]["UniqToken-SuperBPE (Config B)"]["true_lm_bpb_mean"] for V in vocab_scales]
         slope = vals[1] - vals[0]
         ax_c.plot(
             [0, 1],
@@ -959,8 +959,8 @@ def run_phase_fourteen_confirmatory(
 
     # Panel D: 3-Way Architecture Comparison at Medium & Large Tiers
     ax_d = axes[1, 1]
-    m_colors = {"SentencePiece-Unigram": "#1f77b4", "Boundary-BPE": "#2ca02c", "Caliper-SuperBPE (Config B)": "#d62728"}
-    for m_name in ["SentencePiece-Unigram", "Boundary-BPE", "Caliper-SuperBPE (Config B)"]:
+    m_colors = {"SentencePiece-Unigram": "#1f77b4", "Boundary-BPE": "#2ca02c", "UniqToken-SuperBPE (Config B)": "#d62728"}
+    for m_name in ["SentencePiece-Unigram", "Boundary-BPE", "UniqToken-SuperBPE (Config B)"]:
         vals_med = [summary_grid["Medium (6L-256d)"][V][m_name]["true_lm_bpb_mean"] for V in vocab_scales]
         vals_lrg = [summary_grid["Large (8L-512d)"][V][m_name]["true_lm_bpb_mean"] for V in vocab_scales]
         ax_d.plot(

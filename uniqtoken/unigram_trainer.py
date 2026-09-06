@@ -20,17 +20,12 @@ from .unigram_lattice import UnigramLattice
 from .byte_codec import ByteFallbackEngine
 
 try:
-    import uniqtoken_core as caliper_core
+    import uniqtoken_core as uniqtoken_core
 
-    _HAS_CALIPER_CORE = hasattr(caliper_core, "RustPrefixTrie")
+    _HAS_UNIQTOKEN_CORE = hasattr(uniqtoken_core, "RustPrefixTrie")
 except ImportError:
-    try:
-        import caliper_core  # type: ignore[no-redef]
-
-        _HAS_CALIPER_CORE = hasattr(caliper_core, "RustPrefixTrie")
-    except ImportError:
-        caliper_core = None  # type: ignore[assignment]
-        _HAS_CALIPER_CORE = False
+    uniqtoken_core = None  # type: ignore[assignment]
+    _HAS_UNIQTOKEN_CORE = False
 
 
 @dataclass
@@ -74,13 +69,13 @@ class UnigramModel:
         return trie
 
     def _get_rust_trie(self) -> Optional[Any]:
-        """Builds (and caches) a native RustPrefixTrie if caliper_core is available."""
-        if not _HAS_CALIPER_CORE:
+        """Builds (and caches) a native RustPrefixTrie if uniqtoken_core is available."""
+        if not _HAS_UNIQTOKEN_CORE:
             return None
         self._sync_cache()
         rust_trie = self.__dict__.get("_rust_trie")
         if rust_trie is None:
-            rust_trie = caliper_core.RustPrefixTrie(self.max_subword_len)
+            rust_trie = uniqtoken_core.RustPrefixTrie(self.max_subword_len)
             for token, log_p in self.vocab.items():
                 tid = self.token_to_id.get(token)
                 if tid is None:
@@ -189,10 +184,10 @@ class UnigramModel:
         # ponytail: batch cuts 4600→100 FFI/cache checks; Rust batch when compiled else hoisted Python
         rust_trie = self._get_rust_trie()
         if rust_trie is not None:
-            # caliper_core is the module-level alias for uniqtoken_core (or None);
-            # do NOT re-import `caliper_core` here — the stale site-packages
+            # uniqtoken_core is the module-level alias for uniqtoken_core (or None);
+            # do NOT re-import `uniqtoken_core` here — the stale site-packages
             # module would reject this module's RustPrefixTrie instances.
-            core = caliper_core
+            core = uniqtoken_core
             if core is not None:
                 try:
                     # ponytail: rust_encode_tokens_batch returns Vec<Vec<String>> directly — no ViterbiSpan wrapper, single FFI
@@ -252,11 +247,11 @@ class UnigramModel:
         if cached is not None:
             return list(cached)
 
-        # 1. Native Rust Viterbi engine dispatch (if caliper_core compiled)
+        # 1. Native Rust Viterbi engine dispatch (if uniqtoken_core compiled)
         rust_trie = self._get_rust_trie()
         if rust_trie is not None:
             try:
-                rust_spans = caliper_core.rust_viterbi_decode(
+                rust_spans = uniqtoken_core.rust_viterbi_decode(
                     text,
                     rust_trie,
                     self.byte_fallback,
@@ -541,21 +536,21 @@ class UnigramTrainer:
                     expected_counts: Dict[str, float] = {}
                     total_corpus_log_lik = 0.0
                     can_use_rust_em = (
-                        _HAS_CALIPER_CORE
+                        _HAS_UNIQTOKEN_CORE
                         and self.min_edge_log_prob is None
                         and self.max_edges_per_node is None
                         and self.max_ngram_length >= 16
                     )
                     if can_use_rust_em:
                         try:
-                            rust_trie = caliper_core.RustPrefixTrie(self.max_ngram_length)
+                            rust_trie = uniqtoken_core.RustPrefixTrie(self.max_ngram_length)
                             for t, lp in current_vocab_log_probs.items():
                                 rust_trie.insert(t, lp, 0)
                             for chunk, count in chunk_counts.items():
                                 if chunk in required_tokens and (chunk.startswith("<|") and chunk.endswith("|>")):
                                     expected_counts[chunk] = expected_counts.get(chunk, 0.0) + count
                                     continue
-                                chunk_exp, chunk_log_lik = caliper_core.rust_forward_backward_expectations(
+                                chunk_exp, chunk_log_lik = uniqtoken_core.rust_forward_backward_expectations(
                                     chunk, rust_trie, 1.0
                                 )
                                 total_corpus_log_lik += chunk_log_lik * count

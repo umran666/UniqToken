@@ -25,18 +25,18 @@ DEFAULT_SPECIAL_PATTERN = r"<\|[^\s|]+\|>"
 
 def _warn_unsupported(component: str, detail: str) -> None:
     warnings.warn(
-        f"HF importer: {component} ({detail}) has no exact Caliper equivalent; "
+        f"HF importer: {component} ({detail}) has no exact UniqToken equivalent; "
         "imported tokenizer may tokenize differently than the source.",
         stacklevel=3,
     )
 
 
 def _map_normalizer(cfg: Any) -> Normalizer:
-    """Maps an HF normalizer config onto Caliper's Normalizer (best effort)."""
+    """Maps an HF normalizer config onto UniqToken's Normalizer (best effort)."""
     cfg = cfg or {}
     ntype = cfg.get("type")
     # An absent/empty HF normalizer is an identity transform. Do not let
-    # Caliper's Normalizer defaults silently add NFKC or Unicode-space mapping.
+    # UniqToken's Normalizer defaults silently add NFKC or Unicode-space mapping.
     kwargs: Dict[str, Any] = {
         "space_char": "\u2581",
         "normalize_unicode": False,
@@ -65,7 +65,7 @@ def _map_normalizer(cfg: Any) -> Normalizer:
 
 
 def _map_pre_tokenizer(cfg: Any, normalizer: Normalizer) -> RegexPreTokenizer:
-    """Maps an HF pre-tokenizer config onto Caliper's RegexPreTokenizer (best effort)."""
+    """Maps an HF pre-tokenizer config onto UniqToken's RegexPreTokenizer (best effort)."""
     cfg = cfg or {}
     ptype = cfg.get("type")
     space_char = "\u2581"
@@ -74,17 +74,17 @@ def _map_pre_tokenizer(cfg: Any, normalizer: Normalizer) -> RegexPreTokenizer:
         if not isinstance(space_char, str) or len(space_char) != 1:
             raise ValueError("HF Metaspace replacement must be exactly one character")
         if space_char in {Normalizer._ESCAPE_PREFIX, Normalizer._ESCAPED_METASPACE}:
-            raise ValueError("HF Metaspace replacement conflicts with Caliper's reserved escape characters")
+            raise ValueError("HF Metaspace replacement conflicts with UniqToken's reserved escape characters")
         normalizer.space_char = space_char
         prepend = cfg.get("prepend_scheme") or ("always" if cfg.get("add_prefix_space") else "never")
         if prepend != "never":
-            _warn_unsupported("pre_tokenizer", f"Metaspace prepend_scheme={prepend!r} (Caliper never prepends)")
+            _warn_unsupported("pre_tokenizer", f"Metaspace prepend_scheme={prepend!r} (UniqToken never prepends)")
         if cfg.get("split") is False:
             _warn_unsupported("pre_tokenizer", "Metaspace split=False")
     elif ptype not in (None, "Metaspace"):
         _warn_unsupported("pre_tokenizer", ptype or "unknown")
     elif ptype is None:
-        _warn_unsupported("pre_tokenizer", "none configured; Caliper's default regex will be used")
+        _warn_unsupported("pre_tokenizer", "none configured; UniqToken's default regex will be used")
 
     return RegexPreTokenizer(space_char=space_char)
 
@@ -92,10 +92,10 @@ def _map_pre_tokenizer(cfg: Any, normalizer: Normalizer) -> RegexPreTokenizer:
 def import_hf_unigram(data: Dict[str, Any]) -> CustomTokenizer:
     """
     Imports an HF ``tokenizer.json`` (parsed dict) with a Unigram model into a
-    Caliper :class:`CustomTokenizer`.
+    UniqToken :class:`CustomTokenizer`.
 
     Vocab scores and token IDs are preserved exactly. Normalizer/pre-tokenizer
-    components are mapped best-effort; anything without an exact Caliper
+    components are mapped best-effort; anything without an exact UniqToken
     equivalent emits a warning. Requires ``byte_fallback`` or an unknown token
     for OOV characters.
     """
@@ -353,8 +353,8 @@ def import_hf_bpe(data: Dict[str, Any]) -> Union[HFByteLevelBPE, BPEModel]:
 
     ByteLevel pre-tokenization (GPT-2 style) returns a fully functional
     :class:`HFByteLevelBPE` with exact-ID encode/decode. Non-byte-level BPE
-    returns a Caliper :class:`BPEModel` carrying vocab/merges/IDs for data
-    reuse — encode semantics depend on the source pre-tokenizer, which Caliper
+    returns a UniqToken :class:`BPEModel` carrying vocab/merges/IDs for data
+    reuse — encode semantics depend on the source pre-tokenizer, which UniqToken
     cannot reproduce in general.
     """
     model = data.get("model", {})
@@ -444,5 +444,5 @@ def import_hf_tokenizer(source: Union[str, Path, Dict[str, Any]]) -> Union[Custo
     if mtype == "BPE":
         return import_hf_bpe(data)
     raise NotImplementedError(
-        f"HF model type {mtype!r} is not supported (Caliper has no WordPiece engine); supported types: Unigram, BPE"
+        f"HF model type {mtype!r} is not supported (UniqToken has no WordPiece engine); supported types: Unigram, BPE"
     )

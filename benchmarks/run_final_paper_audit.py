@@ -6,7 +6,7 @@ Final Scientific Paper Audit & Publication-Ready Pareto Synthesis
 Performs a rigorous, frozen audit across all 27 factorial conditions:
     3 Vocabulary Scales (16K, 32K, 64K) x
     3 LM Architectures (Small 4L-128d, Medium 6L-256d, Large 8L-512d) x
-    3 Tokenizers (SentencePiece-Unigram, Boundary-BPE, Caliper-SuperBPE)
+    3 Tokenizers (SentencePiece-Unigram, Boundary-BPE, UniqToken-SuperBPE)
 
 Exact Cost Modeling:
 - Total Parameters P and Non-Embedding Parameters P_non_embed
@@ -69,7 +69,7 @@ def load_and_audit_dataset():
         ("Medium (6L-256d)", 6, 256, 1024),
         ("Large (8L-512d)", 8, 512, 2048),
     ]
-    tokenizers = ["SentencePiece-Unigram", "Boundary-BPE", "Caliper-SuperBPE (Config B)"]
+    tokenizers = ["SentencePiece-Unigram", "Boundary-BPE", "UniqToken-SuperBPE (Config B)"]
 
     # 32K and 64K Scales from Phase 14B
     for tier_name, L, d, d_ff in tiers:
@@ -142,7 +142,7 @@ def plot_publication_figure(dataset, pareto_2d, pareto_3d, out_path):
     tok_colors = {
         "SentencePiece-Unigram": "#2b5c8f",
         "Boundary-BPE": "#d95f02",
-        "Caliper-SuperBPE (Config B)": "#7570b3",
+        "UniqToken-SuperBPE (Config B)": "#7570b3",
     }
     tier_markers = {"Small (4L-128d)": "o", "Medium (6L-256d)": "s", "Large (8L-512d)": "^"}
 
@@ -248,9 +248,9 @@ def plot_publication_figure(dataset, pareto_2d, pareto_3d, out_path):
 
     # Annotate embedding scaling at Large
     for d in dataset:
-        if d["tier"] == "Large (8L-512d)" and "Caliper" in d["tokenizer"]:
+        if d["tier"] == "Large (8L-512d)" and "UniqToken" in d["tokenizer"]:
             ax3.annotate(
-                f"Caliper {d['vocab_label']}-Large\n({d['embed_memory_mb']:.1f} MB, BPB={d['bpb']:.2f})",
+                f"UniqToken {d['vocab_label']}-Large\n({d['embed_memory_mb']:.1f} MB, BPB={d['bpb']:.2f})",
                 (d["embed_memory_mb"], d["bpb"]),
                 xytext=(8, -10),
                 textcoords="offset points",

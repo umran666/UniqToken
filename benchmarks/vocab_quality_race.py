@@ -13,11 +13,11 @@ they can be compared on:
   dispatches via ``torch.cuda.is_available()``)
 
 Trainable baselines (matched budget, apples-to-apples):
-  - Caliper Unigram (Caliper PMI Unigram trainer)
-  - Caliper BPE     (Caliper BPE trainer)
-  - Caliper SuperBPE (Caliper Unigram + CEM cross-word merging)
+  - UniqToken Unigram (UniqToken PMI Unigram trainer)
+  - UniqToken BPE     (UniqToken BPE trainer)
+  - UniqToken SuperBPE (UniqToken Unigram + CEM cross-word merging)
   - SentencePiece Unigram (the real ``sentencepiece`` trainer,
-                           imported into Caliper for inference)
+                           imported into UniqToken for inference)
 
 Pretrained baselines (fixed vocab, informational only):
   - tiktoken ``cl100k_base``  (~100k vocab, byte-level BPE)
@@ -123,8 +123,8 @@ class _ExternalWrapper:
         return self._encode(text)
 
 
-def _train_caliper_unigram(budget: int, corpus: List[str]):
-    """Caliper PMI Unigram trained from scratch on the corpus."""
+def _train_uniqtoken_unigram(budget: int, corpus: List[str]):
+    """UniqToken PMI Unigram trained from scratch on the corpus."""
     from uniqtoken.tokenizer import CustomTokenizer
 
     return CustomTokenizer.train_from_corpus(
@@ -136,8 +136,8 @@ def _train_caliper_unigram(budget: int, corpus: List[str]):
     )
 
 
-def _train_caliper_bpe(budget: int, normalizer, pre_tokenizer, corpus: List[str]):
-    """Caliper BPE trained from scratch on the pre-tokenized corpus chunks.
+def _train_uniqtoken_bpe(budget: int, normalizer, pre_tokenizer, corpus: List[str]):
+    """UniqToken BPE trained from scratch on the pre-tokenized corpus chunks.
 
     The harness's existing ``create_tokenizers`` already builds this; we
     repeat the logic here so the orchestrator owns the budget and can
@@ -161,8 +161,8 @@ def _train_caliper_bpe(budget: int, normalizer, pre_tokenizer, corpus: List[str]
     )
 
 
-def _train_caliper_superbpe(budget: int, corpus: List[str]):
-    """Caliper Unigram + CEM cross-word merging (SuperBPE)."""
+def _train_uniqtoken_superbpe(budget: int, corpus: List[str]):
+    """UniqToken Unigram + CEM cross-word merging (SuperBPE)."""
     from uniqtoken.cem_merger import CrossEntropyMerging
     from uniqtoken.tokenizer import CustomTokenizer
 
@@ -189,7 +189,7 @@ def _train_caliper_superbpe(budget: int, corpus: List[str]):
 
 def _train_sentencepiece(budget: int, corpus: List[str]):
     """Train a SentencePiece Unigram model at the matched budget, then
-    import it into Caliper for inference so the harness sees a uniform
+    import it into UniqToken for inference so the harness sees a uniform
     ``encode_to_ids`` interface.
 
     SPM is allowed to shrink the requested vocab to its observed
@@ -314,15 +314,15 @@ def run_vocab_quality_race(
         seed=seed,
     )
 
-    unigram_tok = _train_caliper_unigram(budget, train_corpus)
+    unigram_tok = _train_uniqtoken_unigram(budget, train_corpus)
     report.entries.append(_race_entry("UniqToken (Unigram)", "uniqtoken", budget, unigram_tok, steps, **train_kwargs))
     unigram_norm = unigram_tok.normalizer
     unigram_pretok = unigram_tok.pre_tokenizer
 
-    bpe_tok = _train_caliper_bpe(budget, unigram_norm, unigram_pretok, train_corpus)
+    bpe_tok = _train_uniqtoken_bpe(budget, unigram_norm, unigram_pretok, train_corpus)
     report.entries.append(_race_entry("UniqToken (BPE)", "uniqtoken", budget, bpe_tok, steps, **train_kwargs))
 
-    sbp_tok = _train_caliper_superbpe(budget, train_corpus)
+    sbp_tok = _train_uniqtoken_superbpe(budget, train_corpus)
     report.entries.append(_race_entry("UniqToken (SuperBPE)", "uniqtoken", budget, sbp_tok, steps, **train_kwargs))
 
     if include_sentencepiece:
@@ -482,7 +482,7 @@ def main() -> int:
     args = parser.parse_args()
 
     if args.budget < 64:
-        parser.error("--budget must be at least 64 (Caliper floor ~401 with byte_fallback)")
+        parser.error("--budget must be at least 64 (UniqToken floor ~401 with byte_fallback)")
     if args.steps < 1:
         parser.error("--steps must be positive")
 

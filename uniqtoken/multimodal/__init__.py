@@ -1,5 +1,5 @@
 """
-Caliper Multimodal Tokenizer Subpackage.
+UniqToken Multimodal Tokenizer Subpackage.
 """
 
 from uniqtoken.multimodal.audio_codec import AudioSegment, ResidualVectorQuantizer

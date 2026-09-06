@@ -60,18 +60,18 @@ class BatchParityTests(unittest.TestCase):
 
     def test_rust_token_vs_span_path(self):
         try:
-            import caliper_core
+            import uniqtoken_core
 
-            if not hasattr(caliper_core, "rust_encode_tokens_batch"):
+            if not hasattr(uniqtoken_core, "rust_encode_tokens_batch"):
                 self.skipTest("rust_encode_tokens_batch not built")
         except ImportError:
-            self.skipTest("no caliper_core")
+            self.skipTest("no uniqtoken_core")
         trie = self.tok.model._get_rust_trie()
         if trie is None:
             self.skipTest("no trie")
         chunks = ["the", " quick", " brown"]
-        toks = caliper_core.rust_encode_tokens_batch(chunks, trie, True)
-        spans = caliper_core.rust_viterbi_decode_batch(chunks, trie, True)
+        toks = uniqtoken_core.rust_encode_tokens_batch(chunks, trie, True)
+        spans = uniqtoken_core.rust_viterbi_decode_batch(chunks, trie, True)
         self.assertEqual([s.token for s in spans[0]], toks[0])
 
 

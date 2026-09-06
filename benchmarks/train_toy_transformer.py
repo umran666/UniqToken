@@ -3,8 +3,8 @@ Downstream LLM Model Pretraining Validation Benchmark.
 
 Evaluates tokenizer efficiency in end-to-end Transformer Language Model training:
 1. Trains identical architecture MiniTransformerLM models across tokenizer variants:
-   - Caliper Unigram
-   - Caliper SuperBPE
+   - UniqToken Unigram
+   - UniqToken SuperBPE
    - Standard BPE
 2. Measures:
    - Validation Cross-Entropy Loss
@@ -120,7 +120,7 @@ def create_tokenizers(target_vocab: int = 500, corpus: Optional[List[str]] = Non
     )
 
     # 3. Standard BPE — trained and applied on the same pre-tokenized chunks
-    #    as the Caliper variants so the baseline is directly comparable.
+    #    as the UniqToken variants so the baseline is directly comparable.
     bpe_chunks: List[str] = []
     for doc in training_corpus:
         norm = unigram_tok.normalizer.normalize(doc)

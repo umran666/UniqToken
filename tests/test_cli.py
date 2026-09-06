@@ -192,7 +192,7 @@ class CLITests(unittest.TestCase):
             corpus_file = tmp / "corpus.txt"
             model_dir = tmp / "sbp_model"
 
-            corpus_file.write_text("hello world from caliper superbpe compression\n", encoding="utf-8")
+            corpus_file.write_text("hello world from uniqtoken superbpe compression\n", encoding="utf-8")
 
             ret = cli.main(
                 [

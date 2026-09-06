@@ -15,7 +15,7 @@ try:
     HAS_RUST = hasattr(_core, "rust_pre_tokenize")
 except ImportError:
     try:
-        import caliper_core as _core  # type: ignore[no-redef]
+        import uniqtoken_core as _core  # type: ignore[no-redef]
 
         HAS_RUST = hasattr(_core, "rust_pre_tokenize")
     except ImportError:
@@ -121,15 +121,15 @@ class GraphemeBoundaryTests(unittest.TestCase):
         """Issue #41: mine_ngrams never produces partial grapheme clusters.
 
         Also covers the forced-Python fallback path (no native extension)
-        by patching caliper_core to None so the pure-Python cluster-
+        by patching uniqtoken_core to None so the pure-Python cluster-
         windowing code is exercised.
         """
         import uniqtoken.seed_builder as _sb
 
         # Force the pure-Python path by hiding the native extension.
-        _original_core = _sb.caliper_core
+        _original_core = _sb.uniqtoken_core
         try:
-            _sb.caliper_core = None
+            _sb.uniqtoken_core = None
             builder = SeedVocabularyBuilder(target_vocab_size=500, min_frequency=1)
             # 'स्क' is SA (\u0938) + VIRAMA (\u094d) + KA (\u0915).
             # It forms an indivisible conjunct cluster. Neither the base consonant
@@ -148,7 +148,7 @@ class GraphemeBoundaryTests(unittest.TestCase):
                     msg=f"partial cluster ngram: {token!r}",
                 )
         finally:
-            _sb.caliper_core = _original_core
+            _sb.uniqtoken_core = _original_core
 
     def test_unicode_version_gap_mark(self) -> None:
         """Ensure Unicode 14+ combining marks (e.g. U+0897) are recognized via regex \\p{M}."""

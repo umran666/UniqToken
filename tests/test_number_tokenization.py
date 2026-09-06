@@ -19,7 +19,7 @@ try:
     HAS_RUST = hasattr(_core, "rust_pre_tokenize")
 except ImportError:
     try:
-        import caliper_core as _core  # type: ignore[no-redef]
+        import uniqtoken_core as _core  # type: ignore[no-redef]
 
         HAS_RUST = hasattr(_core, "rust_pre_tokenize")
     except ImportError:

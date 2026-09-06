@@ -3,7 +3,7 @@ from __future__ import annotations
 """Differential tests for the HF tokenizer.json importer.
 
 Builds synthetic tokenizers with the real `tokenizers` package, serializes to
-tokenizer.json, imports into Caliper, and compares vocab/IDs/encodes.
+tokenizer.json, imports into UniqToken, and compares vocab/IDs/encodes.
 """
 
 import json
@@ -71,7 +71,7 @@ class HFUnigramImportTests(unittest.TestCase):
 
     def test_decode_roundtrip(self):
         ids = self.cal.encode_to_ids("hello world")
-        # Caliper's decoder converts the metaspace char back to a real space
+        # UniqToken's decoder converts the metaspace char back to a real space
         self.assertEqual(self.cal.decode(ids), "hello world")
 
 

@@ -131,13 +131,13 @@ def load_sentencepiece_model(source: Union[str, Path, bytes]) -> SentencePieceMo
 
 def import_sentencepiece(source: Union[str, Path, bytes]) -> CustomTokenizer:
     """
-    Imports a SentencePiece **Unigram** ``.model`` into a Caliper
+    Imports a SentencePiece **Unigram** ``.model`` into a UniqToken
     :class:`CustomTokenizer`.
 
     Piece scores (log-probs) and IDs (piece order) are preserved exactly.
-    CONTROL/UNKNOWN/USER_DEFINED pieces become Caliper special tokens; BYTE
-    pieces (``<0xXX>``) enable Caliper's byte fallback. BPE/Word/Char trainer
-    models are rejected (Caliper's engines differ; SentencePiece does not
+    CONTROL/UNKNOWN/USER_DEFINED pieces become UniqToken special tokens; BYTE
+    pieces (``<0xXX>``) enable UniqToken's byte fallback. BPE/Word/Char trainer
+    models are rejected (UniqToken's engines differ; SentencePiece does not
     store BPE merge tables in the proto).
 
     .. note::
@@ -147,7 +147,7 @@ def import_sentencepiece(source: Union[str, Path, bytes]) -> CustomTokenizer:
        (``\\u2581``) to the input *before* the pre-tokenizer runs. This
        means the first word of every encode gets a free ``\\u2581`` prefix
        and can therefore pick consolidated ``\\u2581word`` pieces during
-       Viterbi. Caliper's pre-tokenizer does not prepend a metaspace, so
+       Viterbi. UniqToken's pre-tokenizer does not prepend a metaspace, so
        its first word never benefits from those consolidated pieces and
        the segmentation of leading words can differ from SPM's.
 
@@ -190,7 +190,7 @@ def import_sentencepiece(source: Union[str, Path, bytes]) -> CustomTokenizer:
     if proto.add_dummy_prefix:
         _warn_unsupported(
             "normalizer",
-            f"add_dummy_prefix=True (name={proto.normalizer_name!r}) — Caliper never "
+            f"add_dummy_prefix=True (name={proto.normalizer_name!r}) — UniqToken never "
             "prepends a metaspace token, so leading-word tokenization may differ",
         )
     normalize_unicode = not proto.normalizer_name.startswith("identity")

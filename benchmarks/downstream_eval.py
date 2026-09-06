@@ -88,8 +88,8 @@ class DownstreamEvaluator:
         self.raw_bytes = len(self.corpus_text.encode("utf-8"))
         self.raw_words = max(len(self.corpus_text.split()), 1)
 
-    def train_caliper_models(self) -> Dict[str, CustomTokenizer]:
-        """Trains standard Caliper Unigram and SuperBPE enhanced models."""
+    def train_uniqtoken_models(self) -> Dict[str, CustomTokenizer]:
+        """Trains standard UniqToken Unigram and SuperBPE enhanced models."""
         base_tok = CustomTokenizer.train_from_corpus(
             corpus=self.corpus,
             target_vocab_size=self.vocab_size,
@@ -155,9 +155,9 @@ class DownstreamEvaluator:
         """Runs downstream evaluation across all available tokenizers."""
         results: List[DownstreamMetrics] = []
 
-        # 1. Caliper Models
-        caliper_models = self.train_caliper_models()
-        for name, tok in caliper_models.items():
+        # 1. UniqToken Models
+        uniqtoken_models = self.train_uniqtoken_models()
+        for name, tok in uniqtoken_models.items():
             metrics = self.evaluate_tokenizer(
                 name=name,
                 encode_fn=tok.encode_to_ids,

@@ -13,15 +13,12 @@ _X_RE = _regex.compile(r"\X")
 _MARK_RE = _regex.compile(r"\p{M}")
 
 # Module-level Rust core alias, preferring the repo's own crate name. Kept in
-# one place so inner functions never `import caliper_core` (a stale
+# one place so inner functions never `import uniqtoken_core` (a stale
 # site-packages module whose RustPrefixTrie class is a *different* type).
 try:
-    import uniqtoken_core as caliper_core
+    import uniqtoken_core as uniqtoken_core
 except ImportError:
-    try:
-        import caliper_core  # type: ignore[no-redef]
-    except ImportError:
-        caliper_core = None  # type: ignore[assignment]
+    uniqtoken_core = None  # type: ignore[assignment]
 
 
 def _grapheme_clusters(text: str) -> list[str]:
@@ -227,11 +224,11 @@ class SeedVocabularyBuilder:
             counts, _ = self.mine_ngrams_with_entropy(chunk_counts)
             return counts
         # ponytail: Rust &str slice + AHashMap if available; Python fallback exact.
-        # Reuse the module-level uniqtoken_core alias (imported as caliper_core);
-        # importing the stale site-packages `caliper_core` here would bypass the
+        # Reuse the module-level uniqtoken_core alias (imported as uniqtoken_core);
+        # importing the stale site-packages `uniqtoken_core` here would bypass the
         # repo's own Rust core and break class-identity for shared types.
         if not getattr(chunk_counts, "is_streaming", False):
-            core = caliper_core if caliper_core is not None else None
+            core = uniqtoken_core if uniqtoken_core is not None else None
             if core is not None:
                 try:
                     if hasattr(core, "rust_mine_ngrams"):
