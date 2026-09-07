@@ -193,7 +193,7 @@ def register_tokenizer() -> bool:
     if not HAS_TRANSFORMERS:
         return False
     try:
-        from transformers.models.auto.tokenization_auto import REGISTERED_TOKENIZER_CLASSES
+        from transformers.models.auto.tokenization_auto import REGISTERED_TOKENIZER_CLASSES  # type: ignore[attr-defined]
     except (ImportError, AttributeError):  # pragma: no cover - pre-v5 transformers
         return False
     REGISTERED_TOKENIZER_CLASSES[UniqTokenizerFast.__name__] = UniqTokenizerFast  # type: ignore[attr-defined]
