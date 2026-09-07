@@ -13,6 +13,7 @@
 </p>
 
 <p align="center">
+  <a href="https://colab.research.google.com/github/umran666/UniqToken/blob/main/notebooks/quickstart.ipynb"><img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"></a>
   <a href="https://github.com/umran666/UniqToken/actions/workflows/ci.yml"><img src="https://github.com/umran666/UniqToken/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
   <a href="https://github.com/umran666/UniqToken/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License"></a>
   <img src="https://img.shields.io/badge/python-3.9%20%7C%203.10%20%7C%203.11%20%7C%203.12-blue.svg" alt="Python">
@@ -299,6 +300,9 @@ maturin develop --manifest-path crates/uniqtoken_core/Cargo.toml --release
 ---
 
 ## Quickstart
+
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/umran666/UniqToken/blob/main/notebooks/quickstart.ipynb)
+*Try UniqToken directly in your browser with our interactive [Google Colab Quickstart Tutorial](https://colab.research.google.com/github/umran666/UniqToken/blob/main/notebooks/quickstart.ipynb) (zero local setup required).*
 
 ### Train a Unigram tokenizer
 
