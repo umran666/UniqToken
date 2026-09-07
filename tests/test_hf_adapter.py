@@ -194,9 +194,7 @@ class UniqTokenizerFastIntegrationTests(unittest.TestCase):
         self.tokenizer.truncation_side = "right"
 
     def test_padding_and_truncation_do_not_raise(self) -> None:
-        encoded = self.tokenizer(
-            TEXTS, padding=True, truncation=True, max_length=10, add_special_tokens=False
-        )
+        encoded = self.tokenizer(TEXTS, padding=True, truncation=True, max_length=10, add_special_tokens=False)
         for row, mask in zip(encoded["input_ids"], encoded["attention_mask"]):
             self.assertLessEqual(len(row), 10)
             self.assertEqual(len(row), len(mask))
@@ -250,9 +248,7 @@ class UniqTokenizerFastIntegrationTests(unittest.TestCase):
 
         args = TrainingArguments(output_dir=tempfile.mkdtemp(), report_to=[], num_train_epochs=0)
         trainer = Trainer(model=TinyModel(self.tokenizer.vocab_size), args=args, tokenizer=self.tokenizer)
-        train_ids = self.tokenizer(
-            TEXTS, padding="max_length", max_length=16, truncation=True, return_tensors="pt"
-        )
+        train_ids = self.tokenizer(TEXTS, padding="max_length", max_length=16, truncation=True, return_tensors="pt")
         self.assertEqual(trainer.tokenizer, self.tokenizer)
         self.assertEqual(train_ids["input_ids"].shape[1], 16)
 
@@ -332,7 +328,11 @@ if __name__ == "__main__":
         # tokenizer.json post-processor, which from_pretrained rebuilds).
         self.assertEqual(
             self.reloaded("hello world")["input_ids"],
-            [self.reloaded.bos_token_id, *self.tokenizer("hello world", add_special_tokens=False)["input_ids"], self.reloaded.eos_token_id],
+            [
+                self.reloaded.bos_token_id,
+                *self.tokenizer("hello world", add_special_tokens=False)["input_ids"],
+                self.reloaded.eos_token_id,
+            ],
         )
 
     def test_export_to_huggingface_directory_loads(self) -> None:

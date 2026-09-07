@@ -391,7 +391,7 @@ hf_tok.save_pretrained("uniqtok_export/")
 
 # Reload directly, or let AutoTokenizer discover the custom class.
 reloaded = UniqTokenizerFast.from_pretrained("uniqtok_export/")
-auto = AutoTokenizer.from_pretrained("uniqtok_export/")   # -> UniqTokenizerFast
+auto = AutoTokenizer.from_pretrained("uniqtok_export/")  # -> UniqTokenizerFast
 ```
 
 Importing ``uniqtoken.hf_adapter`` (or accessing ``uniqtoken.UniqTokenizerFast``)

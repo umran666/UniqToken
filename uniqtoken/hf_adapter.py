@@ -105,9 +105,7 @@ if HAS_TRANSFORMERS:
             from tokenizers import Tokenizer
 
             if not isinstance(tokenizer, CustomTokenizer):
-                raise TypeError(
-                    f"tokenizer must be a uniqtoken.CustomTokenizer, got {type(tokenizer).__name__}"
-                )
+                raise TypeError(f"tokenizer must be a uniqtoken.CustomTokenizer, got {type(tokenizer).__name__}")
             hf_dict = HuggingFaceExporter.export_to_hf_dict(tokenizer)
             backend = Tokenizer.from_str(json.dumps(hf_dict, ensure_ascii=False, sort_keys=True))
             specials = list(tokenizer.model.special_tokens)
