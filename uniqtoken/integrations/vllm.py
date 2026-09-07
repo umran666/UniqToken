@@ -24,6 +24,7 @@ from typing import (
     Set,
     Tuple,
     Union,
+    overload,
 )
 
 from uniqtoken.streaming_decoder import StreamingDecoder
@@ -254,6 +255,12 @@ class UniqTokenVLLMAdapter:
         """Returns token to ID vocabulary dictionary."""
         return dict(self.tokenizer.model.token_to_id)
 
+    @overload
+    def convert_tokens_to_ids(self, tokens: str) -> int: ...
+
+    @overload
+    def convert_tokens_to_ids(self, tokens: Union[List[str], Tuple[str, ...]]) -> List[int]: ...
+
     def convert_tokens_to_ids(self, tokens: Union[str, Sequence[str]]) -> Union[int, List[int]]:
         """Converts a token or list of tokens to token IDs."""
         unk_id = self.unk_token_id if self.unk_token_id is not None else 0
@@ -261,6 +268,12 @@ class UniqTokenVLLMAdapter:
         if isinstance(tokens, str):
             return token_to_id.get(tokens, unk_id)
         return [token_to_id.get(t, unk_id) for t in tokens]
+
+    @overload
+    def convert_ids_to_tokens(self, ids: int) -> str: ...
+
+    @overload
+    def convert_ids_to_tokens(self, ids: Union[List[int], Tuple[int, ...]]) -> List[str]: ...
 
     def convert_ids_to_tokens(self, ids: Union[int, Sequence[int]]) -> Union[str, List[str]]:
         """Converts a token ID or list of IDs to token strings."""
