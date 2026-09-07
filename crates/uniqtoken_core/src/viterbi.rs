@@ -776,4 +776,29 @@ mod tests {
             assert_eq!(c.end, a.end);
         }
     }
+
+    #[test]
+    fn ascii_fast_path_pruning_matches_char_decode() {
+        // "aaa" over {a, aa, aaa} gives node 3 three incoming edges, so a
+        // beam of 1 exercises the duplicated truncation logic in both paths.
+        let mut trie = RustPrefixTrie::new(None);
+        trie.insert("a", -0.5, Some(1)).unwrap();
+        trie.insert("aa", -0.4, Some(2)).unwrap();
+        trie.insert("aaa", -0.3, Some(3)).unwrap();
+        let text = "aaa";
+        let chars: Vec<char> = text.chars().collect();
+        for limit in [Some(1), Some(2), None] {
+            let spans_chars = viterbi_decode_chars(&chars, &trie, true, limit).unwrap();
+            let spans_ascii = viterbi_decode_ascii(text.as_bytes(), &trie, true, limit).unwrap();
+            assert_eq!(spans_chars.len(), spans_ascii.len(), "span count diverged at {:?}", limit);
+            for (c, a) in spans_chars.iter().zip(spans_ascii.iter()) {
+                assert_eq!(
+                    (&c.token, c.token_id, c.start, c.end),
+                    (&a.token, a.token_id, a.start, a.end),
+                    "span diverged at {:?}",
+                    limit
+                );
+            }
+        }
+    }
 }
