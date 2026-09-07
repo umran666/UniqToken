@@ -104,10 +104,10 @@ Standard production BPE tokenizers trained predominantly on English/code (e.g. `
 
 | Language / Family | Script Family | Raw Bytes | UniqToken Tokens | UniqToken Bytes/Tok ↑ | UniqToken Fertility ↓ | Tiktoken Tokens | Tiktoken Bytes/Tok ↑ | Tiktoken Fertility ↓ | Compression Delta | Fallback Rate |
 |:---|:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| **Agglutinative Swahili** | Latin | 12,840 | 4,800 | 2.68 | 2.54 | 4,650 | 2.76 | 2.46 | $\approx 1.0\times$ | **0.0%** |
-| **Tonal Yoruba** | Latin + Diacritics | 16,050 | 6,840 | 2.35 | 3.17 | 8,100 | 1.98 | 3.75 | $+18.7\%$ | **0.0%** |
+| **Agglutinative Swahili** | Latin | 12,840 | 4,800 | 2.68 | 2.54 | 4,650 | 2.76 | 2.46 | $-3.1\%$ | **0.0%** |
+| **Tonal Yoruba** | Latin + Diacritics | 16,050 | 6,840 | 2.35 | 3.17 | 8,100 | 1.98 | 3.75 | $+18.5\%$ | **0.0%** |
 | **Agglutinative Malayalam** | Dravidian (*മലയാളം*) | 24,450 | 2,640 | **9.26** | **2.84** | 14,580 | 1.68 | 15.68 | **$+451.2\%$ (5.5x)** | **0.0%** |
-| **Ge'ez Amharic** | Ethiopic Fidäl (*ግዕዝ*) | 25,530 | 2,310 | **11.05** | **1.28** | 23,640 | 1.08 | 13.13 | **$+923.1\%$ (10.2x)** | **0.0%** |
+| **Ge'ez Amharic** | Ethiopic Fidäl (*ግዕዝ*) | 25,530 | 2,310 | **11.05** | **1.28** | 23,640 | 1.08 | 13.13 | **$+923.3\%$ (10.2x)** | **0.0%** |
 
 Key empirical observations:
 1. **Elimination of the Non-Latin Token Tax**: Tiktoken fragments Malayalam into $15.68\text{ tokens/word}$ ($1.68\text{ Bytes/Token}$) and Amharic into $13.13\text{ tokens/word}$ ($1.08\text{ Bytes/Token}$), indicating near-total decomposition into single UTF-8 bytes. In contrast, UniqToken achieves $9.26\text{ Bytes/Token}$ on Malayalam ($5.5\times$ compression) and $11.05\text{ Bytes/Token}$ on Amharic ($10.2\times$ compression), reducing sequence lengths and downstream attention context consumption by up to $90\%$.

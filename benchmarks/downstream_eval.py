@@ -224,7 +224,7 @@ class DownstreamEvaluator:
             import tiktoken
 
             enc = tiktoken.get_encoding("cl100k_base")
-        except ImportError:
+        except Exception:
             enc = None
 
         results: List[Dict[str, Any]] = []

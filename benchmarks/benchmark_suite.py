@@ -651,7 +651,7 @@ class TokenizerBenchmarkSuite:
             import tiktoken
 
             enc = tiktoken.get_encoding("cl100k_base")
-        except ImportError:
+        except Exception:
             enc = None
 
         rows: List[Dict[str, Any]] = []
@@ -671,11 +671,8 @@ class TokenizerBenchmarkSuite:
                 tt_toks = len(enc.encode(text))
                 tt_bpt = round(raw_bytes / max(tt_toks, 1), 2)
                 tt_fert = round(tt_toks / max(words, 1), 2)
-                comp_delta = (
-                    f"+{round(((uniq_bpt - tt_bpt) / max(tt_bpt, 1e-6)) * 100.0, 1)}%"
-                    if uniq_bpt > tt_bpt
-                    else "approx 1.0x"
-                )
+                delta_pct = ((uniq_bpt - tt_bpt) / max(tt_bpt, 1e-6)) * 100.0
+                comp_delta = f"{delta_pct:+.1f}%"
             else:
                 tt_toks = 0
                 tt_bpt = 0.0
