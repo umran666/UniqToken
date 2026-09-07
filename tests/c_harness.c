@@ -6,10 +6,13 @@
  *   c_harness --loop N   repeat the create/encode/free/destroy cycle N times
  *                        (encode/free leak soak, e.g. under valgrind)
  *
- * Build (from the repository root):
- *   cargo build -p uniqtoken-core --release --no-default-features --features c_abi
+ * Build (from the repository root; the crate is standalone, there is no
+ * workspace root manifest):
+ *   cargo build --manifest-path crates/uniqtoken_core/Cargo.toml --release \
+ *     --no-default-features --features c_abi
  *   cc -std=c99 -Wall -Wextra -Werror tests/c_harness.c -o /tmp/c_harness \
- *     -Icrates/uniqtoken_core/include -Ltarget/release -luniqtoken_core
+ *     -Icrates/uniqtoken_core/include -Lcrates/uniqtoken_core/target/release \
+ *     -luniqtoken_core -Wl,-rpath,"$PWD/crates/uniqtoken_core/target/release"
  */
 #include <stdint.h>
 #include <stdio.h>

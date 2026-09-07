@@ -61,12 +61,12 @@ jobs:
           cc -std=c99 -Wall -Wextra -Werror tests/c_harness.c -o /tmp/c_harness
           -Icrates/uniqtoken_core/include
           -Lcrates/uniqtoken_core/target/release -luniqtoken_core
-          -Wl,-rpath,$PWD/crates/uniqtoken_core/target/release
+          -Wl,-rpath,"$PWD/crates/uniqtoken_core/target/release"
 
       - name: Run C harness
         run: /tmp/c_harness
 
       - name: Leak check C harness
         run: |
-          sudo apt-get install -y valgrind
-          valgrind --leak-check=full --show-leak-kinds=definite --errors-for-leaks=yes --error-exitcode=99 /tmp/c_harness --loop 1000
+          sudo apt-get update && sudo apt-get install -y valgrind
+          valgrind --leak-check=full --show-leak-kinds=definite --errors-for-leak-kinds=definite --error-exitcode=99 /tmp/c_harness --loop 1000

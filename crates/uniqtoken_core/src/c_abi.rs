@@ -271,8 +271,9 @@ const UNK_TOKEN: &str = "<|unk|>";
 const SPACE_CHAR: char = '\u{2581}';
 
 /// Builds a tokenizer handle from a `[[token, logprob, id], ...]` JSON
-/// vocabulary (same shape as `demo_vocab.json`; IDs must be contiguous
-/// from 0). Returns null on any error; the caller owns the handle and must
+/// vocabulary (same shape as `demo_vocab.json`). IDs must be contiguous from
+/// 0 and an `<|unk|>` entry must be present (unknown tokens resolve to it);
+/// otherwise null is returned. The caller owns a successful handle and must
 /// release it with [`uniqtoken_destroy`].
 ///
 /// # Safety
@@ -291,6 +292,20 @@ pub unsafe extern "C" fn uniqtoken_create(vocab_json: *const c_char) -> *mut Uni
         Err(_) => return std::ptr::null_mut(),
     };
     if triples.is_empty() {
+        return std::ptr::null_mut();
+    }
+    // Without contiguous IDs the integer mapping is ambiguous, and without
+    // <|unk|> every unknown span would silently resolve to ID 0 (see encode).
+    let mut seen = vec![false; triples.len()];
+    let mut has_unk = false;
+    for (token, _, id) in &triples {
+        let index = *id as usize;
+        if index >= triples.len() || std::mem::replace(&mut seen[index], true) {
+            return std::ptr::null_mut();
+        }
+        has_unk |= token == UNK_TOKEN;
+    }
+    if !has_unk || seen.iter().any(|seen| !seen) {
         return std::ptr::null_mut();
     }
     let mut trie = RustPrefixTrie::default();
@@ -353,21 +368,25 @@ pub unsafe extern "C" fn uniqtoken_encode(
         *out_len = 0;
         return UNIQTOKEN_OK;
     }
-    *out_ids = ids.as_mut_ptr();
-    *out_len = ids.len();
-    std::mem::forget(ids);
+    // Boxed slice: exact-length allocation with no spare capacity, so the
+    // thin pointer + length round-trips through `uniqtoken_free_tokens`
+    // without any capacity bookkeeping.
+    let boxed: Box<[u32]> = ids.into_boxed_slice();
+    *out_len = boxed.len();
+    *out_ids = Box::into_raw(boxed) as *mut u32;
     UNIQTOKEN_OK
 }
 
 /// Releases an ID array produced by [`uniqtoken_encode`]. Accepts null.
 ///
 /// # Safety
-/// `ids` must have been allocated by [`uniqtoken_encode`] with length `len`
-/// and must not have been freed before.
+/// `ids`/`len` must be the thin pointer + length produced by
+/// [`uniqtoken_encode`] (a boxed-slice round-trip) and must not have been
+/// freed before.
 #[no_mangle]
 pub unsafe extern "C" fn uniqtoken_free_tokens(ids: *mut u32, len: usize) {
     if !ids.is_null() {
-        let _ = Vec::from_raw_parts(ids, len, len);
+        let _ = Box::from_raw(std::ptr::slice_from_raw_parts_mut(ids, len));
     }
 }
 

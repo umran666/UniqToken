@@ -105,6 +105,21 @@ fn test_tokenizer_create_rejects_bad_vocab() {
     }
 }
 
+/// Tests that vocabularies without <|unk|> or with non-contiguous IDs are
+/// refused: otherwise unknown spans would silently resolve to ID 0.
+#[test]
+fn test_tokenizer_create_requires_unk_and_contiguous_ids() {
+    // No <|unk|> entry.
+    let json = CString::new(r#"[["hello",-1.0,0]]"#).unwrap();
+    assert!(unsafe { uniqtoken_create(json.as_ptr()) }.is_null());
+    // Gap: ID 1 missing.
+    let json = CString::new(r#"[["hello",-1.0,0],["x",-1.0,2],["<|unk|>",-5.0,3]]"#).unwrap();
+    assert!(unsafe { uniqtoken_create(json.as_ptr()) }.is_null());
+    // Duplicate ID 0.
+    let json = CString::new(r#"[["hello",-1.0,0],["hello",-1.0,0],["<|unk|>",-5.0,2]]"#).unwrap();
+    assert!(unsafe { uniqtoken_create(json.as_ptr()) }.is_null());
+}
+
 /// Tests the full create/encode/free/destroy cycle against known IDs.
 #[test]
 fn test_tokenizer_encode_roundtrip() {

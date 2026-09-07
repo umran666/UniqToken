@@ -134,8 +134,9 @@ void uniqtoken_free_buffer(void *buffer, size_t size);
 
 /**
  * Builds a tokenizer handle from a `[[token, logprob, id], ...]` JSON
- * vocabulary (same shape as `demo_vocab.json`; IDs must be contiguous
- * from 0). Returns null on any error; the caller owns the handle and must
+ * vocabulary (same shape as `demo_vocab.json`). IDs must be contiguous from
+ * 0 and an `<|unk|>` entry must be present (unknown tokens resolve to it);
+ * otherwise null is returned. The caller owns a successful handle and must
  * release it with [`uniqtoken_destroy`].
  *
  * # Safety
@@ -163,8 +164,9 @@ int32_t uniqtoken_encode(struct UniqTokenHandle *handle,
  * Releases an ID array produced by [`uniqtoken_encode`]. Accepts null.
  *
  * # Safety
- * `ids` must have been allocated by [`uniqtoken_encode`] with length `len`
- * and must not have been freed before.
+ * `ids`/`len` must be the thin pointer + length produced by
+ * [`uniqtoken_encode`] (a boxed-slice round-trip) and must not have been
+ * freed before.
  */
 void uniqtoken_free_tokens(uint32_t *ids, size_t len);
 
