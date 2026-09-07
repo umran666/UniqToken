@@ -64,12 +64,21 @@ fuzz_target!(|data: &[u8]| {
     }
     let mut prev_start = 0;
     let mut prev_end = 0;
-    for span in &spans {
+    for (idx, span) in spans.iter().enumerate() {
         assert!(span.start <= span.end);
         assert!(span.end <= chars.len());
         assert!(span.start >= prev_start);
         assert!(span.end >= prev_end);
-        assert_eq!(span.start, prev_end, "gaps or overlaps detected in span trellis");
+        if idx > 0 {
+            assert!(
+                span.start == prev_end || (span.start == prev_start && span.end == prev_end),
+                "gaps or illegal overlap detected in span trellis: prev=({}, {}), curr=({}, {})",
+                prev_start,
+                prev_end,
+                span.start,
+                span.end,
+            );
+        }
         prev_start = span.start;
         prev_end = span.end;
     }

@@ -16,7 +16,11 @@ from uniqtoken.security_shield import SecurityShield
 from uniqtoken.tokenizer import CustomTokenizer
 from uniqtoken.unigram_trainer import UnigramModel
 
-# Register Hypothesis Execution Profiles
+# Profile Architecture Note (Issue #46):
+# Volumetric generation (~1,000,000+ raw inputs per scheduled run) is executed
+# by the native Rust LibFuzzer target (`fuzz_viterbi` under AddressSanitizer).
+# The Python Hypothesis suite focuses on algebraic invariant verification, multi-layer
+# dual-offset alignment, and state-machine property testing.
 settings.register_profile(
     "dev",
     max_examples=25,
@@ -43,7 +47,10 @@ settings.register_profile(
 )
 
 active_profile = os.getenv("HYPOTHESIS_PROFILE", "default")
-settings.load_profile(active_profile)
+try:
+    settings.load_profile(active_profile)
+except (KeyError, ValueError):
+    settings.load_profile("default")
 
 # Reusable custom hypothesis strategies
 combining_chars = st.characters(categories=["Mn", "Mc", "Me"])

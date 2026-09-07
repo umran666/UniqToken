@@ -65,7 +65,17 @@ pub(crate) fn insert_token(
 
 #[cfg(not(feature = "python"))]
 impl RustPrefixTrie {
+    #[cfg(any(test, feature = "fuzzing"))]
     pub fn new(max_subword_len: Option<usize>) -> Self {
+        Self::new_inner(max_subword_len)
+    }
+
+    #[cfg(not(any(test, feature = "fuzzing")))]
+    pub(crate) fn new(max_subword_len: Option<usize>) -> Self {
+        Self::new_inner(max_subword_len)
+    }
+
+    fn new_inner(max_subword_len: Option<usize>) -> Self {
         Self {
             root: TrieNode::default(),
             max_subword_len,
@@ -78,7 +88,17 @@ impl RustPrefixTrie {
         insert_token(self, token, log_p, token_id)
     }
 
+    #[cfg(any(test, feature = "fuzzing"))]
     pub fn common_prefix_search(&self, text: &str) -> Vec<(String, Option<u32>, f64, usize)> {
+        self.common_prefix_search_inner(text)
+    }
+
+    #[cfg(not(any(test, feature = "fuzzing")))]
+    pub(crate) fn common_prefix_search(&self, text: &str) -> Vec<(String, Option<u32>, f64, usize)> {
+        self.common_prefix_search_inner(text)
+    }
+
+    fn common_prefix_search_inner(&self, text: &str) -> Vec<(String, Option<u32>, f64, usize)> {
         let mut results = Vec::with_capacity(8);
         let mut curr = &self.root;
         let mut char_count = 0;
