@@ -93,6 +93,13 @@ fuzz_target!(|data: &[u8]| {
     if !text.is_empty() && text.chars().count() > 0 {
         assert!(!cached_seg.is_empty());
     }
+    assert_eq!(cached_seg.len(), spans.len(), "cached decode length diverged from uncached decode");
+    for (cached, span) in cached_seg.iter().zip(spans.iter()) {
+        assert_eq!(cached.0, span.token, "cached token text diverged");
+        assert_eq!(cached.1, span.token_id, "cached token id diverged");
+        assert_eq!(cached.2, span.start, "cached span start diverged");
+        assert_eq!(cached.3, span.end, "cached span end diverged");
+    }
 
     // 2. If valid UTF-8, test exact char bounds
     if let Ok(valid_str) = std::str::from_utf8(data) {

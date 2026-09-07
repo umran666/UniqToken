@@ -65,7 +65,6 @@ pub(crate) fn insert_token(
 
 #[cfg(not(feature = "python"))]
 impl RustPrefixTrie {
-    #[cfg(any(test, feature = "fuzzing"))]
     pub fn new(max_subword_len: Option<usize>) -> Self {
         Self {
             root: TrieNode::default(),
@@ -77,6 +76,32 @@ impl RustPrefixTrie {
     /// Plain insert for non-Python bindings (e.g. WebAssembly vocab loading).
     pub fn insert(&mut self, token: &str, log_p: f64, token_id: Option<u32>) -> CoreResult<()> {
         insert_token(self, token, log_p, token_id)
+    }
+
+    pub fn common_prefix_search(&self, text: &str) -> Vec<(String, Option<u32>, f64, usize)> {
+        let mut results = Vec::with_capacity(8);
+        let mut curr = &self.root;
+        let mut char_count = 0;
+        let max_len = self.max_subword_len.unwrap_or(usize::MAX);
+
+        for ch in text.chars() {
+            if char_count >= max_len {
+                break;
+            }
+            if let Some(next_node) = curr.children.get(&ch) {
+                curr = next_node;
+                char_count += 1;
+                if curr.is_terminal {
+                    if let Some(ref tok) = curr.token {
+                        results.push((tok.clone(), curr.token_id, curr.log_p, char_count));
+                    }
+                }
+            } else {
+                break;
+            }
+        }
+
+        results
     }
 }
 
