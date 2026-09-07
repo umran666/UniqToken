@@ -105,8 +105,14 @@ class UniqTokenizerFastIntegrationTests(unittest.TestCase):
         for token in ("<|pad|>", "<|bos|>", "<|eos|>", "<|unk|>"):
             self.assertEqual(self.tokenizer.convert_tokens_to_ids(token), model.token_to_id[token])
         # Extra special tokens (e.g. <|user|>) are carried over and convert to
-        # their original IDs. v5 exposes these via ``extra_special_tokens``.
-        self.assertIn("<|user|>", list(self.tokenizer.extra_special_tokens))
+        # their original IDs. v5 exposes these via ``extra_special_tokens``;
+        # v4 uses ``additional_special_tokens`` and ``all_special_tokens``.
+        extra_tokens = (
+            set(getattr(self.tokenizer, "extra_special_tokens", []) or [])
+            | set(getattr(self.tokenizer, "additional_special_tokens", []) or [])
+            | set(getattr(self.tokenizer, "all_special_tokens", []) or [])
+        )
+        self.assertIn("<|user|>", extra_tokens)
         self.assertEqual(self.tokenizer.convert_tokens_to_ids("<|user|>"), model.token_to_id["<|user|>"])
 
     def test_means_id_consistency(self) -> None:
@@ -154,7 +160,17 @@ class UniqTokenizerFastIntegrationTests(unittest.TestCase):
                 self.assertTrue(0 <= start <= end <= len(text), (start, end, text))
 
     def test_model_input_names(self) -> None:
-        self.assertEqual(self.tokenizer.model_input_names, ["input_ids", "attention_mask"])
+        self.assertIn("input_ids", self.tokenizer.model_input_names)
+        self.assertIn("attention_mask", self.tokenizer.model_input_names)
+        # Fast causal-LM tokenizers don't require token_type_ids in v5;
+        # v4 includes them by default in PreTrainedTokenizerFast.
+        self.assertIn(
+            list(self.tokenizer.model_input_names),
+            [
+                ["input_ids", "attention_mask"],
+                ["input_ids", "token_type_ids", "attention_mask"],
+            ],
+        )
 
     # -- padding & truncation --------------------------------------------
 
