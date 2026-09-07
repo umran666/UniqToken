@@ -32,8 +32,13 @@ pub(crate) fn decode_cached(
         return Ok(Arc::new(Vec::new()));
     }
     if text.len() > SEG_CACHE_MAX_CHUNK_BYTES {
-        let chars: Vec<char> = text.chars().collect();
-        let spans = viterbi_decode_chars(&chars, trie, byte_fallback, None)?;
+        // ASCII fast-path: skip Vec<char> allocation entirely.
+        let spans = if text.is_ascii() {
+            viterbi_decode_ascii(text.as_bytes(), trie, byte_fallback, None)?
+        } else {
+            let chars: Vec<char> = text.chars().collect();
+            viterbi_decode_chars(&chars, trie, byte_fallback, None)?
+        };
         return Ok(Arc::new(
             spans
                 .into_iter()
@@ -44,8 +49,13 @@ pub(crate) fn decode_cached(
     if let Some(hit) = trie.seg_cache_get(byte_fallback, text) {
         return Ok(hit);
     }
-    let chars: Vec<char> = text.chars().collect();
-    let spans = viterbi_decode_chars(&chars, trie, byte_fallback, None)?;
+    // ASCII fast-path: skip Vec<char> allocation entirely.
+    let spans = if text.is_ascii() {
+        viterbi_decode_ascii(text.as_bytes(), trie, byte_fallback, None)?
+    } else {
+        let chars: Vec<char> = text.chars().collect();
+        viterbi_decode_chars(&chars, trie, byte_fallback, None)?
+    };
     let seg: CachedSegmentation = Arc::new(
         spans
             .into_iter()
@@ -301,6 +311,115 @@ pub(crate) fn viterbi_decode_chars(
     Ok(spans)
 }
 
+/// ASCII-specialized Viterbi decode operating on raw `&[u8]` byte slices.
+///
+/// For pure-ASCII text (`str::is_ascii()`), `byte_offset == char_offset`,
+/// so the span positions produced by this function are **identical** to those
+/// from [`viterbi_decode_chars`].  The key advantage is that we skip the
+/// `Vec<char>` heap allocation (4 bytes per codepoint) and all UTF-8
+/// boundary checks.
+///
+/// Callers must ensure every byte in `bytes` satisfies `b < 0x80`.
+pub(crate) fn viterbi_decode_ascii(
+    bytes: &[u8],
+    trie: &RustPrefixTrie,
+    byte_fallback: bool,
+    max_edges_per_node: Option<usize>,
+) -> Result<Vec<ViterbiSpan>, String> {
+    let n = bytes.len();
+    if n == 0 {
+        return Ok(Vec::new());
+    }
+
+    let mut incoming: Vec<Vec<Edge>> = vec![Vec::new(); n + 1];
+    for i in 0..n {
+        let matches = trie.common_prefix_search_ascii(bytes, i);
+        if matches.is_empty() && byte_fallback {
+            // ASCII byte fallback: single byte, single <0xHH> token.
+            let b = bytes[i];
+            let token = format!("<0x{b:02X}>");
+            let (token_id, log_p) = trie
+                .exact_metadata(&token)
+                .unwrap_or((None, DEFAULT_BYTE_LOG_P));
+            incoming[i + 1].push(Edge {
+                prev_node: i,
+                pieces: vec![TokenPiece { token, token_id }],
+                log_p,
+                length: 1,
+            });
+        } else {
+            for (token, token_id, log_p, char_len) in matches {
+                let end = i + char_len;
+                if end <= n {
+                    incoming[end].push(Edge {
+                        prev_node: i,
+                        pieces: vec![TokenPiece { token, token_id }],
+                        log_p,
+                        length: char_len,
+                    });
+                }
+            }
+        }
+    }
+
+    if let Some(limit) = max_edges_per_node {
+        for edges in incoming.iter_mut().skip(1) {
+            if edges.len() > limit {
+                edges.sort_by(|left, right| right.log_p.total_cmp(&left.log_p));
+                edges.truncate(limit);
+            }
+        }
+    }
+
+    let mut nodes: Vec<Node> = (0..=n)
+        .map(|_| Node {
+            best_score: f64::NEG_INFINITY,
+            best_edge: None,
+        })
+        .collect();
+    nodes[0].best_score = 0.0;
+
+    for end in 1..=n {
+        for edge in &incoming[end] {
+            let previous_score = nodes[edge.prev_node].best_score;
+            if previous_score == f64::NEG_INFINITY {
+                continue;
+            }
+            let score = previous_score + edge.log_p;
+            if score > nodes[end].best_score {
+                nodes[end].best_score = score;
+                nodes[end].best_edge = Some(edge.clone());
+            }
+        }
+    }
+
+    if nodes[n].best_edge.is_none() {
+        return Err(format!(
+            "lattice disconnected at character index {n}; enable byte fallback or provide complete vocabulary coverage"
+        ));
+    }
+
+    let mut spans = Vec::new();
+    let mut end = n;
+    while end > 0 {
+        let edge = nodes[end].best_edge.as_ref().ok_or_else(|| {
+            format!("lattice backpointer missing at character index {end}")
+        })?;
+        for piece in edge.pieces.iter().rev() {
+            spans.push(ViterbiSpan {
+                token: piece.token.clone(),
+                token_id: piece.token_id,
+                start: edge.prev_node,
+                end,
+            });
+        }
+        end = edge.prev_node;
+    }
+
+    spans.reverse();
+    Ok(spans)
+}
+
 #[cfg(feature = "python")]
 fn viterbi_ids_chars(
     chars: &[char],
@@ -336,6 +455,11 @@ pub fn rust_viterbi_decode(
         let seg = decode_cached(text, trie, byte_fallback).map_err(CoreError)?;
         return Ok(spans_from_cached(&seg));
     }
+    // ASCII fast-path: skip Vec<char> allocation when possible.
+    if text.is_ascii() {
+        return viterbi_decode_ascii(text.as_bytes(), trie, byte_fallback, max_edges_per_node)
+            .map_err(CoreError);
+    }
     let chars: Vec<char> = text.chars().collect();
     viterbi_decode_chars(&chars, trie, byte_fallback, max_edges_per_node).map_err(CoreError)
 }
@@ -357,6 +481,8 @@ pub fn rust_viterbi_decode_batch(
     let decode_item = |text: &str| -> Result<Vec<ViterbiSpan>, String> {
         if max_edges_per_node.is_none() {
             decode_cached(text, trie, byte_fallback).map(|seg| spans_from_cached(&seg))
+        } else if text.is_ascii() {
+            viterbi_decode_ascii(text.as_bytes(), trie, byte_fallback, max_edges_per_node)
         } else {
             let chars: Vec<char> = text.chars().collect();
             viterbi_decode_chars(&chars, trie, byte_fallback, max_edges_per_node)
@@ -396,6 +522,9 @@ pub fn rust_encode_tokens_batch(
     let decode_item = |text: &str| -> Result<Vec<String>, String> {
         if max_edges_per_node.is_none() {
             decode_cached(text, trie, byte_fallback).map(|seg| tokens_from_cached(&seg))
+        } else if text.is_ascii() {
+            viterbi_decode_ascii(text.as_bytes(), trie, byte_fallback, max_edges_per_node)
+                .map(|spans| spans.into_iter().map(|s| s.token).collect())
         } else {
             let chars: Vec<char> = text.chars().collect();
             viterbi_decode_chars(&chars, trie, byte_fallback, max_edges_per_node)
@@ -436,6 +565,11 @@ pub fn rust_encode_ids_batch(
     let decode_item = |text: &str| -> Result<Vec<u32>, String> {
         if max_edges_per_node.is_none() {
             decode_cached(text, trie, byte_fallback).and_then(|seg| ids_from_cached(&seg))
+        } else if text.is_ascii() {
+            let spans = viterbi_decode_ascii(text.as_bytes(), trie, byte_fallback, max_edges_per_node)?;
+            spans.into_iter()
+                .map(|s| s.token_id.ok_or_else(|| format!("decoded token {:?} has no integer ID", s.token)))
+                .collect()
         } else {
             let chars: Vec<char> = text.chars().collect();
             viterbi_ids_chars(&chars, trie, byte_fallback, max_edges_per_node)
@@ -471,22 +605,39 @@ pub fn rust_forward_backward_expectations(
         return core_error("freq must be finite and non-negative");
     }
 
-    let chars: Vec<char> = text.chars().collect();
-    let n = chars.len();
+    let is_ascii = text.is_ascii();
+    let n = if is_ascii { text.len() } else { text.chars().count() };
     if n == 0 || freq == 0.0 {
         return Ok((HashMap::new(), 0.0));
     }
 
     let mut all_edges: Vec<Edge> = Vec::new();
-    for i in 0..n {
-        for (token, token_id, log_p, char_len) in trie.common_prefix_search_chars(&chars, i) {
-            if i + char_len <= n {
-                all_edges.push(Edge {
-                    prev_node: i,
-                    pieces: vec![TokenPiece { token, token_id }],
-                    log_p,
-                    length: char_len,
-                });
+    if is_ascii {
+        let bytes = text.as_bytes();
+        for i in 0..n {
+            for (token, token_id, log_p, char_len) in trie.common_prefix_search_ascii(bytes, i) {
+                if i + char_len <= n {
+                    all_edges.push(Edge {
+                        prev_node: i,
+                        pieces: vec![TokenPiece { token, token_id }],
+                        log_p,
+                        length: char_len,
+                    });
+                }
+            }
+        }
+    } else {
+        let chars: Vec<char> = text.chars().collect();
+        for i in 0..n {
+            for (token, token_id, log_p, char_len) in trie.common_prefix_search_chars(&chars, i) {
+                if i + char_len <= n {
+                    all_edges.push(Edge {
+                        prev_node: i,
+                        pieces: vec![TokenPiece { token, token_id }],
+                        log_p,
+                        length: char_len,
+                    });
+                }
             }
         }
     }
@@ -582,5 +733,47 @@ mod tests {
     fn rejects_zero_beam_size() {
         let trie = RustPrefixTrie::new(None);
         assert!(rust_viterbi_decode("a", &trie, true, Some(0)).is_err());
+    }
+
+    #[test]
+    fn ascii_fast_path_matches_char_decode_exactly() {
+        let mut trie = RustPrefixTrie::new(None);
+        trie.insert("the", -0.5, Some(1)).unwrap();
+        trie.insert("quick", -1.2, Some(2)).unwrap();
+        trie.insert("brown", -1.5, Some(3)).unwrap();
+        trie.insert("fox", -0.8, Some(4)).unwrap();
+        trie.insert(" ", -0.1, Some(5)).unwrap();
+        trie.insert("o", -2.0, Some(6)).unwrap();
+        trie.insert("x", -2.0, Some(7)).unwrap();
+
+        let text = "the quick brown fox";
+        let chars: Vec<char> = text.chars().collect();
+        let spans_chars = viterbi_decode_chars(&chars, &trie, true, None).unwrap();
+        let spans_ascii = viterbi_decode_ascii(text.as_bytes(), &trie, true, None).unwrap();
+
+        assert_eq!(spans_chars.len(), spans_ascii.len());
+        for (c, a) in spans_chars.iter().zip(spans_ascii.iter()) {
+            assert_eq!(c.token, a.token);
+            assert_eq!(c.token_id, a.token_id);
+            assert_eq!(c.start, a.start);
+            assert_eq!(c.end, a.end);
+        }
+    }
+
+    #[test]
+    fn ascii_fast_path_byte_fallback_matches_char_decode() {
+        let trie = RustPrefixTrie::new(None);
+        let text = "xyz123";
+        let chars: Vec<char> = text.chars().collect();
+        let spans_chars = viterbi_decode_chars(&chars, &trie, true, None).unwrap();
+        let spans_ascii = viterbi_decode_ascii(text.as_bytes(), &trie, true, None).unwrap();
+
+        assert_eq!(spans_chars.len(), spans_ascii.len());
+        for (c, a) in spans_chars.iter().zip(spans_ascii.iter()) {
+            assert_eq!(c.token, a.token);
+            assert_eq!(c.token_id, a.token_id);
+            assert_eq!(c.start, a.start);
+            assert_eq!(c.end, a.end);
+        }
     }
 }

@@ -99,6 +99,9 @@ impl RustPrefixTrie {
     /// Finds all matching prefixes for a slice of text starting at position 0.
     /// Returns tuples of (token, token_id, log_p, char_length).
     pub fn common_prefix_search(&self, text: &str) -> Vec<(String, Option<u32>, f64, usize)> {
+        if text.is_ascii() {
+            return self.common_prefix_search_ascii(text.as_bytes(), 0);
+        }
         let mut results = Vec::with_capacity(8);
         let mut curr = &self.root;
         let mut char_count = 0;
@@ -168,10 +171,54 @@ impl RustPrefixTrie {
         results
     }
 
+    /// ASCII-specialized prefix search operating on raw `&[u8]` byte slices.
+    ///
+    /// For pure-ASCII text (`str::is_ascii()`), every byte maps 1:1 to a
+    /// Unicode code-point via zero-extension (`b as char`), so this method
+    /// produces **identical** results to [`common_prefix_search_chars`] while
+    /// completely bypassing `Vec<char>` allocation and UTF-8 boundary decoding.
+    ///
+    /// # Safety contract
+    ///
+    /// Callers **must** ensure every byte in `bytes[start..]` satisfies
+    /// `b < 0x80`.  The easiest way is to gate on `str::is_ascii()` before
+    /// entering the ASCII fast-path.
+    pub(crate) fn common_prefix_search_ascii(
+        &self,
+        bytes: &[u8],
+        start: usize,
+    ) -> Vec<(String, Option<u32>, f64, usize)> {
+        let mut results = Vec::with_capacity(8);
+        let mut current = &self.root;
+        let max_len = self.max_subword_len.unwrap_or(usize::MAX);
+        let end = bytes.len().min(start + max_len);
+        for offset in 0..(end - start) {
+            // SAFETY: caller guarantees ASCII; `b as char` is identity for < 0x80.
+            let ch = bytes[start + offset] as char;
+            let Some(next) = current.children.get(&ch) else {
+                break;
+            };
+            current = next;
+            if current.is_terminal {
+                if let Some(token) = &current.token {
+                    results.push((token.clone(), current.token_id, current.log_p, offset + 1));
+                }
+            }
+        }
+        results
+    }
+
     pub(crate) fn exact_metadata(&self, token: &str) -> Option<(Option<u32>, f64)> {
         let mut current = &self.root;
-        for ch in token.chars() {
-            current = current.children.get(&ch)?;
+        if token.is_ascii() {
+            for &b in token.as_bytes() {
+                let ch = b as char;
+                current = current.children.get(&ch)?;
+            }
+        } else {
+            for ch in token.chars() {
+                current = current.children.get(&ch)?;
+            }
         }
         current.is_terminal.then_some((current.token_id, current.log_p))
     }
@@ -195,3 +242,40 @@ impl RustPrefixTrie {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn common_prefix_search_ascii_parity() {
+        let mut trie = RustPrefixTrie::default();
+        insert_token(&mut trie, "a", -1.0, Some(1)).unwrap();
+        insert_token(&mut trie, "ab", -0.5, Some(2)).unwrap();
+        insert_token(&mut trie, "abc", -0.2, Some(3)).unwrap();
+        insert_token(&mut trie, "b", -1.0, Some(4)).unwrap();
+
+        let text = "abcd";
+        let chars: Vec<char> = text.chars().collect();
+        let from_chars = trie.common_prefix_search_chars(&chars, 0);
+        let from_ascii = trie.common_prefix_search_ascii(text.as_bytes(), 0);
+
+        assert_eq!(from_chars, from_ascii);
+
+        let from_chars_offset = trie.common_prefix_search_chars(&chars, 1);
+        let from_ascii_offset = trie.common_prefix_search_ascii(text.as_bytes(), 1);
+        assert_eq!(from_chars_offset, from_ascii_offset);
+    }
+
+    #[test]
+    fn exact_metadata_ascii_and_unicode() {
+        let mut trie = RustPrefixTrie::default();
+        insert_token(&mut trie, "hello", -1.0, Some(1)).unwrap();
+        insert_token(&mut trie, "世界", -2.0, Some(2)).unwrap();
+
+        assert_eq!(trie.exact_metadata("hello"), Some((Some(1), -1.0)));
+        assert_eq!(trie.exact_metadata("世界"), Some((Some(2), -2.0)));
+        assert_eq!(trie.exact_metadata("other"), None);
+    }
+}
+
