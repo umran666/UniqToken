@@ -79,7 +79,7 @@ if HAS_TRANSFORMERS:
 
         #: Written into ``tokenizer_config.json`` by ``save_pretrained`` so the
         #: repo advertises the exact class that must be instantiated.
-        _auto_map: Any = {"AutoTokenizer": ["uniqtoken.hf_adapter", "UniqTokenizerFast"]}
+        _auto_map: Any = {"AutoTokenizer": "uniqtoken.hf_adapter.UniqTokenizerFast"}
 
         @classmethod
         def from_custom_tokenizer(
@@ -119,16 +119,32 @@ if HAS_TRANSFORMERS:
             pad = _first_special(specials, _PAD_CANDIDATES)
             if bos:
                 defaults["bos_token"] = bos
-                # HF convention: ``add_special_tokens=True`` prepends/appends
-                # bos/eos. The TemplateProcessing post-processor built from
-                # these flags is serialized into tokenizer.json by
-                # ``save_pretrained``, so the behavior survives reload.
                 defaults["add_bos_token"] = True
             if eos:
                 defaults["eos_token"] = eos
                 defaults["add_eos_token"] = True
             if pad:
                 defaults["pad_token"] = pad
+            # HF convention: ``add_special_tokens=True`` prepends/appends bos/eos.
+            # Insertion is driven by the backend post-processor, not the
+            # ``add_*_token`` flags (some transformers versions auto-build one,
+            # some do not) - so build it explicitly here. ``save_pretrained``
+            # serializes it into tokenizer.json, so the behavior survives reload.
+            if bos or eos:
+                from tokenizers.processors import TemplateProcessing
+
+                special = []
+                if bos:
+                    special.append((bos, backend.token_to_id(bos)))
+                if eos:
+                    special.append((eos, backend.token_to_id(eos)))
+                prefix = f"{bos} " if bos else ""
+                suffix = f" {eos}" if eos else ""
+                backend.post_processor = TemplateProcessing(
+                    single=f"{prefix}$A{suffix}",
+                    pair=f"{prefix}$A:0 $B:1{suffix}",
+                    special_tokens=special,
+                )
             named = {tok for tok in (unk, bos, eos, pad) if tok}
             extra = [tok for tok in specials if tok not in named]
             if extra:

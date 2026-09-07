@@ -238,7 +238,7 @@ class HuggingFaceExporter:
             "tokenizer_class": "UniqTokenizerFast",
             "model_type": "uniqtoken",
             "auto_map": {
-                "AutoTokenizer": ["uniqtoken.hf_adapter", "UniqTokenizerFast"],
+                "AutoTokenizer": "uniqtoken.hf_adapter.UniqTokenizerFast",
             },
             "unk_token": tokenizer.model.unk_token,
             "bos_token": "<|bos|>" if "<|bos|>" in specials else ("<s>" if "<s>" in specials else None),

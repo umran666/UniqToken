@@ -378,6 +378,7 @@ mappings, and ``Trainer`` compatibility — with no custom glue code.
 
 ```python
 from uniqtoken import CustomTokenizer, UniqTokenizerFast
+from transformers import AutoTokenizer
 
 tok = CustomTokenizer.train_from_corpus(corpus, target_vocab_size=8000, verbose=False)
 
