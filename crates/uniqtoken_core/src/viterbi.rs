@@ -107,7 +107,7 @@ struct Node {
 }
 
 #[cfg(feature = "python")]
-#[pyclass]
+#[pyclass(skip_from_py_object)]
 #[derive(Clone, Debug)]
 pub struct ViterbiSpan {
     #[pyo3(get)]
@@ -371,7 +371,7 @@ pub fn rust_viterbi_decode_batch(
             .map(|text| decode_item(text).map_err(CoreError))
             .collect();
     }
-    py.allow_threads(|| {
+    py.detach(|| {
         texts
             .par_iter()
             .map(|text| decode_item(text).map_err(CoreError))
@@ -411,7 +411,7 @@ pub fn rust_encode_tokens_batch(
             .map(|text| decode_item(text).map_err(CoreError))
             .collect();
     }
-    py.allow_threads(|| {
+    py.detach(|| {
         texts
             .par_iter()
             .map(|text| decode_item(text).map_err(CoreError))
@@ -450,7 +450,7 @@ pub fn rust_encode_ids_batch(
             .map(|text| decode_item(text).map_err(CoreError))
             .collect();
     }
-    py.allow_threads(|| {
+    py.detach(|| {
         texts
             .par_iter()
             .map(|text| decode_item(text).map_err(CoreError))

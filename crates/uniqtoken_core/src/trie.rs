@@ -22,7 +22,7 @@ pub struct TrieNode {
     pub is_terminal: bool,
 }
 
-#[cfg_attr(feature = "python", pyclass)]
+#[cfg_attr(feature = "python", pyclass(from_py_object))]
 #[derive(Default, Clone)]
 pub struct RustPrefixTrie {
     root: TrieNode,
