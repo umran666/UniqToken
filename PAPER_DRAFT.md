@@ -101,6 +101,7 @@ To evaluate cross-linguistic generalization beyond high-resource Latin and Devan
 Standard production BPE tokenizers trained predominantly on English/code (e.g. `tiktoken cl100k_base`) exhibit severe vocabulary fragmentation on non-Latin scripts, imposing a heavy "token tax" where non-Latin characters are disassembled into multiple UTF-8 byte tokens. Table 3 benchmarks UniqToken against Tiktoken across these underrepresented corpora:
 
 **Table 3: Cross-Linguistic Fertility and Compression Across Low-Resource Corpora**
+
 | Language / Family | Script Family | Raw Bytes | UniqToken Tokens | UniqToken Bytes/Tok ↑ | UniqToken Fertility ↓ | Tiktoken Tokens | Tiktoken Bytes/Tok ↑ | Tiktoken Fertility ↓ | Compression Delta | Fallback Rate |
 |:---|:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
 | **Agglutinative Swahili** | Latin | 12,840 | 4,800 | 2.68 | 2.54 | 4,650 | 2.76 | 2.46 | $\approx 1.0\times$ | **0.0%** |
