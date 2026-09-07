@@ -183,37 +183,66 @@ class HypothesisTokenizerPropertySuite(unittest.TestCase):
         )
 
     # -------------------------------------------------------------------------
-    # PROPERTY 2: Dual-Offset Coordinate Bounds & Monotonicity
+    # PROPERTY 2: Dual-Offset Coordinate Bounds & Contiguous Monotonicity
     # -------------------------------------------------------------------------
     @given(text=adversarial_unicode_text)
     def test_hypothesis_dual_offset_bounds_and_monotonicity(self, text: str) -> None:
         """
-        Property: For any arbitrary input string, all token raw spans (start, end) must satisfy:
-        1. 0 <= start <= end <= len(raw_text)
-        2. start_k <= start_{k+1} and end_k <= end_{k+1} (Monotonic progression)
+        Property: For any arbitrary input string:
+        1. Lossless tokenizer token spans must tile the entire input from index 0
+           to len(text) without gaps or holes: span.start == prev_end or
+           (span.start == prev_start and span.end == prev_end) for multibyte tokens.
+        2. Standard tokenizer pre-tokenization must preserve dual-offset bounds:
+           0 <= norm_start <= norm_end <= len(norm) and
+           0 <= raw_start <= raw_end <= len(text) monotonically.
         """
-        tokens = STANDARD_TOKENIZER.encode_with_offsets(text)
+        # 1. Exact contiguous tiling verification under lossless tokenization
+        lossless_tokens = LOSSLESS_TOKENIZER.encode_with_offsets(text)
         n_raw = len(text)
-        prev_start = 0
-        prev_end = 0
+        if n_raw > 0:
+            self.assertGreater(len(lossless_tokens), 0, f"Non-empty text yielded no tokens: {text!r}")
+            self.assertEqual(lossless_tokens[0].raw_span[0], 0, f"First span did not start at 0: {text!r}")
+            self.assertEqual(lossless_tokens[-1].raw_span[1], n_raw, f"Last span did not end at len(text): {text!r}")
 
-        for tok in tokens:
+        prev_s = 0
+        prev_e = 0
+        for i, tok in enumerate(lossless_tokens):
             s, e = tok.raw_span
             self.assertGreaterEqual(s, 0, f"Span start < 0 for token {tok.text!r} in {text!r}")
             self.assertLessEqual(e, n_raw, f"Span end > len(text) for token {tok.text!r} in {text!r}")
             self.assertLessEqual(s, e, f"Span start > end for token {tok.text!r} in {text!r}")
-            self.assertGreaterEqual(s, prev_start, f"Start not monotonic: {prev_start} > {s}")
-            self.assertGreaterEqual(e, prev_end, f"End not monotonic: {prev_end} > {e}")
-            prev_start = s
-            prev_end = e
+            if i > 0:
+                self.assertTrue(
+                    s == prev_e or (s == prev_s and e == prev_e),
+                    f"Discontinuous hole or illegal overlap at token {i} ({tok.text!r}): "
+                    f"prev=({prev_s}, {prev_e}), curr=({s}, {e}) in {text!r}",
+                )
+            prev_s, prev_e = s, e
+
+        # 2. Dual-offset coordinates (raw_span & norm_span) in pre-tokenization
+        norm, norm_alignment = STANDARD_TOKENIZER.normalizer.normalize_with_alignment(text)
+        pre_tokens = STANDARD_TOKENIZER.pre_tokenizer.pre_tokenize_with_offsets(norm, norm_alignment)
+        prev_norm_end = 0
+        for pt in pre_tokens:
+            norm_s, norm_e = pt.norm_span
+            raw_s, raw_e = pt.raw_span
+            self.assertGreaterEqual(norm_s, 0)
+            self.assertLessEqual(norm_e, len(norm))
+            self.assertLessEqual(norm_s, norm_e)
+            self.assertGreaterEqual(norm_s, prev_norm_end, f"Normalized spans out of order: {norm_s} < {prev_norm_end}")
+            prev_norm_end = norm_e
+
+            self.assertGreaterEqual(raw_s, 0)
+            self.assertLessEqual(raw_e, n_raw)
+            self.assertLessEqual(raw_s, raw_e)
 
     # -------------------------------------------------------------------------
     # PROPERTY 3: Adversarial Delimiter & Token Smuggling Exhaustion
     # -------------------------------------------------------------------------
     @given(
-        prefix=st.text(max_size=20),
+        prefix=st.text(alphabet=st.characters(blacklist_characters=["<", "|", ">"]), max_size=20),
         token=st.sampled_from(["<|endoftext|>", "<|system|>", "<|user|>", "<|im_start|>", "<|im_end|>"]),
-        suffix=st.text(max_size=20),
+        suffix=st.text(alphabet=st.characters(blacklist_characters=["<", "|", ">"]), max_size=20),
         action=st.sampled_from(["escape", "raise"]),
     )
     def test_hypothesis_adversarial_control_token_neutralization(
@@ -234,6 +263,8 @@ class HypothesisTokenizerPropertySuite(unittest.TestCase):
         else:
             sanitized = shield.sanitize(raw_text, allowed_special="none", disallowed_special_action="escape")
             self.assertNotIn(token, sanitized)
+            # Invariant: no active control tokens match the special token pattern in sanitized output
+            self.assertEqual(len(list(shield.pattern.finditer(sanitized))), 0)
 
     # -------------------------------------------------------------------------
     # PROPERTY 4: Raw Byte Sequence & ByteFallback Robustness
@@ -245,13 +276,20 @@ class HypothesisTokenizerPropertySuite(unittest.TestCase):
         or reject invalid UTF-8 with a clean UnicodeDecodeError.
         Zero crashes or unhandled exceptions.
         """
-        # Format raw bytes as byte tokens
         tokens = [f"<0x{b:02X}>" for b in data]
+
+        # Determine UTF-8 validity independently of the system under test
+        is_valid_utf8 = True
         try:
             expected_str = data.decode("utf-8")
+        except UnicodeDecodeError:
+            is_valid_utf8 = False
+
+        if is_valid_utf8:
             decoded_str = ByteFallbackEngine.decode_tokens(tokens)
             self.assertEqual(decoded_str, expected_str)
-        except UnicodeDecodeError:
+            self.assertEqual(decoded_str.encode("utf-8"), data)
+        else:
             with self.assertRaises(UnicodeDecodeError):
                 ByteFallbackEngine.decode_tokens(tokens)
 

@@ -23,7 +23,25 @@ const SEG_CACHE_MAX_CHUNK_BYTES: usize = 1024;
 /// Real corpora are Zipfian — a handful of distinct words make up most chunks —
 /// so a cache hit (hash lookup + Arc clone) replaces the whole trie walk + DP.
 /// `max_edges_per_node` pruning is NOT cacheable; callers pass `None` here.
+#[cfg(any(test, feature = "fuzzing"))]
 pub fn decode_cached(
+    text: &str,
+    trie: &RustPrefixTrie,
+    byte_fallback: bool,
+) -> Result<CachedSegmentation, String> {
+    decode_cached_inner(text, trie, byte_fallback)
+}
+
+#[cfg(not(any(test, feature = "fuzzing")))]
+pub(crate) fn decode_cached(
+    text: &str,
+    trie: &RustPrefixTrie,
+    byte_fallback: bool,
+) -> Result<CachedSegmentation, String> {
+    decode_cached_inner(text, trie, byte_fallback)
+}
+
+fn decode_cached_inner(
     text: &str,
     trie: &RustPrefixTrie,
     byte_fallback: bool,
@@ -206,7 +224,27 @@ pub fn rust_diagnostic_viterbi(
     Ok((t_trie, t_dp, edges, states))
 }
 
+#[cfg(any(test, feature = "fuzzing"))]
 pub fn viterbi_decode_chars(
+    chars: &[char],
+    trie: &RustPrefixTrie,
+    byte_fallback: bool,
+    max_edges_per_node: Option<usize>,
+) -> Result<Vec<ViterbiSpan>, String> {
+    viterbi_decode_chars_inner(chars, trie, byte_fallback, max_edges_per_node)
+}
+
+#[cfg(not(any(test, feature = "fuzzing")))]
+pub(crate) fn viterbi_decode_chars(
+    chars: &[char],
+    trie: &RustPrefixTrie,
+    byte_fallback: bool,
+    max_edges_per_node: Option<usize>,
+) -> Result<Vec<ViterbiSpan>, String> {
+    viterbi_decode_chars_inner(chars, trie, byte_fallback, max_edges_per_node)
+}
+
+fn viterbi_decode_chars_inner(
     chars: &[char],
     trie: &RustPrefixTrie,
     byte_fallback: bool,
