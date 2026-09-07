@@ -368,6 +368,35 @@ tok.export_to_huggingface("hf_export/")
 tok.export_to_gguf("model.gguf", model_name="llama")
 ```
 
+### Use the native HuggingFace ``PreTrainedTokenizerFast`` adapter
+
+UniqToken ships a drop-in ``transformers.PreTrainedTokenizerFast`` subclass so a
+trained tokenizer gets the full standard fast-tokenizer surface —
+``save_pretrained`` / ``from_pretrained``, padding & truncation strategies,
+``return_tensors`` (``"np"``, ``"pt"``, ``"tf"``), batched encoding, offset
+mappings, and ``Trainer`` compatibility — with no custom glue code.
+
+```python
+from uniqtoken import CustomTokenizer, UniqTokenizerFast
+
+tok = CustomTokenizer.train_from_corpus(corpus, target_vocab_size=8000, verbose=False)
+
+# Wrap the trained tokenizer as a native HF fast tokenizer.
+hf_tok = UniqTokenizerFast.from_custom_tokenizer(tok)
+
+# save_pretrained writes tokenizer.json + tokenizer_config.json (with the
+# auto_map entry that points back at UniqTokenizerFast), so the repo round-trips
+# through the standard HF loaders on any machine with uniqtoken installed.
+hf_tok.save_pretrained("uniqtok_export/")
+
+# Reload directly, or let AutoTokenizer discover the custom class.
+reloaded = UniqTokenizerFast.from_pretrained("uniqtok_export/")
+auto = AutoTokenizer.from_pretrained("uniqtok_export/")   # -> UniqTokenizerFast
+```
+
+Importing ``uniqtoken.hf_adapter`` (or accessing ``uniqtoken.UniqTokenizerFast``)
+registers the class with ``transformers.AutoTokenizer`` automatically.
+
 ### Streaming decode
 
 ```python

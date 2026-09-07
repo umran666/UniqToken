@@ -209,6 +209,13 @@ class HuggingFaceExporter:
     def save_hf_pretrained(cls, tokenizer: CustomTokenizer, output_dir: Union[str, Path]) -> None:
         """
         Saves tokenizer.json and tokenizer_config.json into output_dir.
+
+        ``tokenizer_config.json`` declares ``tokenizer_class:
+        "UniqTokenizerFast"`` and an ``auto_map`` entry pointing at
+        ``uniqtoken.hf_adapter.UniqTokenizerFast``, so ``AutoTokenizer`` /
+        ``UniqTokenizerFast.from_pretrained`` can reinstate the custom fast
+        tokenizer from the exported files on any machine that has ``uniqtoken``
+        installed.
         """
         out_path = Path(output_dir)
         out_path.mkdir(parents=True, exist_ok=True)
@@ -217,14 +224,35 @@ class HuggingFaceExporter:
         with open(out_path / "tokenizer.json", "w", encoding="utf-8") as f:
             json.dump(hf_json, f, ensure_ascii=False, indent=2)
 
-        config_json = {
-            "tokenizer_class": "PreTrainedTokenizerFast",
-            "model_type": "unigram",
-            "unk_token": tokenizer.model.unk_token,
-            "bos_token": "<|bos|>" if "<|bos|>" in tokenizer.model.token_to_id else None,
-            "eos_token": "<|eos|>" if "<|eos|>" in tokenizer.model.token_to_id else None,
-            "pad_token": "<|pad|>" if "<|pad|>" in tokenizer.model.token_to_id else None,
+        specials = tokenizer.model.special_tokens
+        named = {
+            tokenizer.model.unk_token,
+            "<|bos|>" if "<|bos|>" in specials else ("<s>" if "<s>" in specials else None),
+            "<|eos|>" if "<|eos|>" in specials else ("</s>" if "</s>" in specials else None),
+            "<|pad|>" if "<|pad|>" in specials else ("<pad>" if "<pad>" in specials else None),
         }
+        config_json = {
+            # The custom fast tokenizer class is reinstated on load; fallbacks
+            # (PreTrainedTokenizerFast / generic backends) can still read the
+            # repo if uniqtoken is missing.
+            "tokenizer_class": "UniqTokenizerFast",
+            "model_type": "uniqtoken",
+            "auto_map": {
+                "AutoTokenizer": ["uniqtoken.hf_adapter", "UniqTokenizerFast"],
+            },
+            "unk_token": tokenizer.model.unk_token,
+            "bos_token": "<|bos|>" if "<|bos|>" in specials else ("<s>" if "<s>" in specials else None),
+            "eos_token": "<|eos|>" if "<|eos|>" in specials else ("</s>" if "</s>" in specials else None),
+            "pad_token": "<|pad|>" if "<|pad|>" in specials else ("<pad>" if "<pad>" in specials else None),
+            "additional_special_tokens": [tok for tok in specials if tok not in named and tok is not None],
+            "clean_up_tokenization_spaces": False,
+            "model_max_length": 4096,
+        }
+        chat_template = getattr(tokenizer, "chat_template", None)
+        if chat_template:
+            from .chat_template import BUILTIN_TEMPLATES
+
+            config_json["chat_template"] = BUILTIN_TEMPLATES.get(chat_template, chat_template)
 
         with open(out_path / "tokenizer_config.json", "w", encoding="utf-8") as f:
             json.dump(config_json, f, ensure_ascii=False, indent=2)

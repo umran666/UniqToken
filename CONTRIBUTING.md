@@ -68,6 +68,7 @@ python benchmarks/benchmark_suite.py
 - `bpe_trainer.py`: SuperBPE cross-word merge engine.
 - `vocab_adapter.py`: Dynamic online vocabulary expansion and lossless ID compaction adapter.
 - `hf_exporter.py`: HuggingFace `PreTrainedTokenizerFast` schema exporter.
+- `hf_adapter.py`: Native `PreTrainedTokenizerFast` subclass (`UniqTokenizerFast`) that round-trips a trained tokenizer through the HuggingFace ecosystem.
 - `streaming_decoder.py`: Incremental token streaming decoder with UTF-8 byte accumulation.
 - `benchmarks/`: Empirical evaluation suite across diverse scripts and languages.
 

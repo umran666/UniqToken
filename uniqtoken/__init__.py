@@ -53,6 +53,9 @@ _LAZY_COMPAT = {
     "import_sentencepiece": "sentencepiece_importer",
     "load_sentencepiece_model": "sentencepiece_importer",
     "parse_sentencepiece_proto": "sentencepiece_importer",
+    "UniqTokenizerFast": "hf_adapter",
+    "HAS_TRANSFORMERS": "hf_adapter",
+    "register_tokenizer": "hf_adapter",
 }
 
 
@@ -62,7 +65,9 @@ def __getattr__(name: str):
         raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
     import importlib
 
-    value = getattr(importlib.import_module(module_name), name)
+    # Resolve against this package so bare submodule names (e.g. "hf_adapter")
+    # map to "uniqtoken.hf_adapter" rather than a non-existent top-level module.
+    value = getattr(importlib.import_module("." + module_name, package=__name__), name)
     globals()[name] = value
     return value
 
@@ -130,4 +135,7 @@ __all__ = [
     "import_sentencepiece",
     "load_sentencepiece_model",
     "parse_sentencepiece_proto",
+    "UniqTokenizerFast",
+    "HAS_TRANSFORMERS",
+    "register_tokenizer",
 ]

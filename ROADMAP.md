@@ -72,7 +72,7 @@ Contributors and maintainers can pick up tasks from the structured queue below. 
 - [ ] **[#33](https://github.com/umran666/UniqToken/issues/33)** [P1-high] Zero-copy PyBuffer borrowing in Rust batch encoder.
 
 ### Stage 5: Hugging Face Ecosystem Integration
-- [ ] **[#45](https://github.com/umran666/UniqToken/issues/45)** `[P1-high]` Implement native `uniqtoken.hf.UniqTokenizer` matching `PreTrainedTokenizerFast` conventions with public compatibility matrix.
+- [x] **[#45](https://github.com/umran666/UniqToken/issues/45)** `[P1-high]` Implement native `uniqtoken.hf_adapter.UniqTokenizerFast` matching `PreTrainedTokenizerFast` conventions with public compatibility matrix. (Resolved: `uniqtoken/hf_adapter.py` + `tests/test_hf_adapter.py`)
 - [x] **[#44](https://github.com/umran666/UniqToken/issues/44)** `[P1-high]` Jinja2 chat template engine and `apply_chat_template` API. (Resolved in PR #53)
 - [x] **[#24](https://github.com/umran666/UniqToken/issues/24)** `[P2-medium]` Direct `push_to_hub()` publishing utility. (Resolved in PR #54)
 
