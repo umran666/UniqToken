@@ -205,7 +205,6 @@ impl RustPrefixTrie {
         results
     }
 
-<<<<<<< HEAD
     /// ASCII-specialized prefix search operating on raw `&[u8]` byte slices.
     ///
     /// For pure-ASCII text (`str::is_ascii()`), every byte maps 1:1 to a
