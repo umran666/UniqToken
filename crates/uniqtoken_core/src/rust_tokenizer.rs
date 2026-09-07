@@ -55,7 +55,7 @@ impl RustTokenizer {
     }
 
     fn encode_batch(&self, py: Python<'_>, texts: Vec<String>) -> CoreResult<Vec<Vec<String>>> {
-        py.allow_threads(|| {
+        py.detach(|| {
             texts.par_iter().map(|text| {
                 let norm = rust_normalize(text, self.space_char, true, true, false, false, false, false)?;
                 let re = crate::pipeline::get_full_pretok_regex();
@@ -88,7 +88,7 @@ impl RustTokenizer {
     }
 
     fn encode_ids_batch(&self, py: Python<'_>, texts: Vec<String>) -> CoreResult<Vec<Vec<u32>>> {
-        py.allow_threads(|| {
+        py.detach(|| {
             texts.par_iter().map(|text| {
                 let norm = rust_normalize(text, self.space_char, true, true, false, false, false, false)?;
                 let re = crate::pipeline::get_full_pretok_regex();
@@ -127,7 +127,7 @@ pub fn rust_diagnostic_batch(
     let mut total_tokens = 0usize;
     let mut total_edges = 0usize;
     let mut total_states = 0usize;
-    let diagnostic_result: CoreResult<()> = py.allow_threads(|| {
+    let diagnostic_result: CoreResult<()> = py.detach(|| {
         let re = crate::pipeline::get_full_pretok_regex();
         for text in &texts {
             let t0 = Instant::now();

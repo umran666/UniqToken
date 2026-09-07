@@ -245,7 +245,7 @@ pub fn rust_encode_text_batch(
     if matches!(space_char, '\u{E000}' | '\u{E001}') {
         return core_error("space_char conflicts with reserved metaspace escape characters");
     }
-    py.allow_threads(|| {
+    py.detach(|| {
         texts
             .par_iter()
             .enumerate()
@@ -419,7 +419,7 @@ pub fn rust_encode_text_native_batch(
             })
             .collect();
     }
-    py.allow_threads(|| {
+    py.detach(|| {
         texts
             .par_iter()
             .map(|text| {
@@ -547,7 +547,7 @@ pub fn rust_encode_text_native_ids_batch(
             })
             .collect();
     }
-    py.allow_threads(|| {
+    py.detach(|| {
         texts
             .par_iter()
             .map(|text| {
