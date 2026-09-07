@@ -117,10 +117,25 @@ class TokenizerBenchmarkSuite:
             "Ugawaji sahihi wa vipande vya maneno unahitajika ili kuwezesha miundo ya lugha kuelewa miundo ya kisarufi bila kupoteza maana.\n"
         )
         * 30,
-        "Yoruba": (
+        "Tonal_Yoruba": (
             "Nínú ìmọ̀ ẹ̀rọ ìṣirò àti ìtúpalẹ̀ èdè àdánidá, pínpín àwọn ọ̀rọ̀ sí wẹ́wẹ́ jẹ́ kókó pàtàkì fún àwọn àwòṣe kọ̀mpútà. "
             "Èdè Yorùbá ní àwọn àmì ohùn àti àwọn àmì ìsàlẹ̀ tí ó ń fi ìyàtọ̀ sí ìtumọ̀ ọ̀rọ̀, pẹ̀lú àwọn àfòmọ́ tí ó ń so mọ́ orí ọ̀rọ̀. "
             "Pínpín ọ̀rọ̀ ní ọ̀nà tó péye ń mú kí ẹ̀rọ mọ bí a ṣe ń lo àwọn ìsọ̀rí ọ̀rọ̀ láìsí àdánù kankan nínú ìtumọ̀.\n"
+        )
+        * 30,
+        "Agglutinative_Malayalam": (
+            "സ്വാഭാവിക ഭാഷാ പ്രക്രിയയിലും കമ്പ്യൂട്ടർ ശാസ്ത്രത്തിലും ടോക്കണൈസേഷൻ പ്രധാനപ്പെട്ട ഒരു ഘടകമാണ്. "
+            "മലയാളം ദ്രാവിഡ ഭാഷാ കുടുംബത്തിലെ പ്രധാനപ്പെട്ട ഒരു ഭാഷയാണ്. "
+            "ഈ ഭാഷയിൽ വാക്കുകൾ ചേർത്തുണ്ടാക്കുന്ന രീതിയും വിഭക്തിയും വളരെ സങ്കീർണ്ണമാണ്. "
+            "ശരിയായ ടോക്കൺ വിഭജനം ഭാഷാ മോഡലുകളുടെ കൃത്യത വർദ്ധിപ്പിക്കുന്നു.\n"
+        )
+        * 30,
+        "Geez_Amharic": (
+            "በተፈጥሮ ቋንቋ ሂደት እና በኮምፒውተር ሳይንስ ውስጥ የቃላት መከፋፈል በጣም አስፈላጊ አካል ነው። "
+            "የአማርኛ ቋንቋ በግዕዝ ፊደላት የሚጻፍ ሲሆን የበለጸገ የስነ-ቅርጽ እና የቅጥያ አወቃቀር አለው። "
+            "ቃላት ከስርወ-ግስ ተነስተው በርካታ ቅድመ-ቅጥያዎች፣ ውስጠ-ቅጥያዎች እና ድህረ-ቅጥያዎችን በማጣመር ይገነባሉ። "
+            "ትክክለኛ የንዑስ ቃላት ክፍፍል የቋንቋ ሞዴሎችን የማስታወስ ብቃት እና የትርጉም ጥራትን ያሻሽላል። "
+            "ይህም የፊደላት ውህደት ሳይዛባ የቃላት ፍቺ በትክክል እንዲጠበቅ እና የባይት ብክነትን ለመቀነስ ያስችላል።\n"
         )
         * 30,
     }
@@ -613,6 +628,7 @@ class TokenizerBenchmarkSuite:
                     corpus=corpus,
                     target_vocab_size=vs,
                     min_frequency=1,
+                    byte_fallback=(vs >= 650),
                     verbose=False,
                 )
                 t0 = time.perf_counter()
