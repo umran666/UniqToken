@@ -65,7 +65,7 @@ Contributors and maintainers can pick up tasks from the structured queue below. 
 
 ### Stage 3: Differential Compatibility & Exception Matrix
 - [x] **[#51](https://github.com/umran666/UniqToken/issues/51)** [P1-high] Automated differential test suite against tiktoken and HuggingFace with documented exception matrix (COMPATIBILITY_EXCEPTIONS.md). (Resolved in PR #62)
-- [ ] **[#46](https://github.com/umran666/UniqToken/issues/46)** [P1-high] Property-based fuzz testing suite using Hypothesis and LibFuzzer.
+- [x] **[#46](https://github.com/umran666/UniqToken/issues/46)** [P1-high] Property-based fuzz testing suite using Hypothesis and LibFuzzer. (Resolved in PR #74)
 
 ### Stage 4: Standalone C-ABI & System Bindings
 - [ ] **[#22](https://github.com/umran666/UniqToken/issues/22)** [P1-high] C-ABI shared library export (libuniqtoken.so / .dll / .dylib) and C/C++ header (uniqtoken.h).

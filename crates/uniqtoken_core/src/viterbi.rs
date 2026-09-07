@@ -23,7 +23,7 @@ const SEG_CACHE_MAX_CHUNK_BYTES: usize = 1024;
 /// Real corpora are Zipfian — a handful of distinct words make up most chunks —
 /// so a cache hit (hash lookup + Arc clone) replaces the whole trie walk + DP.
 /// `max_edges_per_node` pruning is NOT cacheable; callers pass `None` here.
-pub(crate) fn decode_cached(
+pub fn decode_cached(
     text: &str,
     trie: &RustPrefixTrie,
     byte_fallback: bool,
@@ -206,7 +206,7 @@ pub fn rust_diagnostic_viterbi(
     Ok((t_trie, t_dp, edges, states))
 }
 
-pub(crate) fn viterbi_decode_chars(
+pub fn viterbi_decode_chars(
     chars: &[char],
     trie: &RustPrefixTrie,
     byte_fallback: bool,

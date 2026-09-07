@@ -1,0 +1,23 @@
+[package]
+name = "uniqtoken-core-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+
+[dependencies.uniqtoken_core]
+package = "uniqtoken-core"
+path = ".."
+default-features = false
+features = ["c_abi"]
+
+[[bin]]
+name = "fuzz_viterbi"
+path = "fuzz_targets/fuzz_viterbi.rs"
+test = false
+doc = false

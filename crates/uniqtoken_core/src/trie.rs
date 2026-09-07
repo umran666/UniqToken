@@ -7,7 +7,7 @@ use pyo3::prelude::*;
 use std::sync::{Arc, Mutex};
 
 /// Cached Viterbi segmentation of one chunk: (token, token_id, start, end) triples.
-pub(crate) type CachedSegmentation = Arc<Vec<(String, Option<u32>, usize, usize)>>;
+pub type CachedSegmentation = Arc<Vec<(String, Option<u32>, usize, usize)>>;
 
 /// ponytail: cap is clear-all, not LRU; upgrade if eviction churn shows up.
 const SEG_CACHE_CAP: usize = 100_000;
@@ -62,9 +62,43 @@ pub(crate) fn insert_token(
 
 #[cfg(not(feature = "python"))]
 impl RustPrefixTrie {
+    pub fn new(max_subword_len: Option<usize>) -> Self {
+        Self {
+            root: TrieNode::default(),
+            max_subword_len,
+            seg_cache: Arc::new(Mutex::new(AHashMap::with_capacity(8192))),
+        }
+    }
+
     /// Plain insert for non-Python bindings (e.g. WebAssembly vocab loading).
     pub fn insert(&mut self, token: &str, log_p: f64, token_id: Option<u32>) -> CoreResult<()> {
         insert_token(self, token, log_p, token_id)
+    }
+
+    pub fn common_prefix_search(&self, text: &str) -> Vec<(String, Option<u32>, f64, usize)> {
+        let mut results = Vec::with_capacity(8);
+        let mut curr = &self.root;
+        let mut char_count = 0;
+        let max_len = self.max_subword_len.unwrap_or(usize::MAX);
+
+        for ch in text.chars() {
+            if char_count >= max_len {
+                break;
+            }
+            if let Some(next_node) = curr.children.get(&ch) {
+                curr = next_node;
+                char_count += 1;
+                if curr.is_terminal {
+                    if let Some(ref tok) = curr.token {
+                        results.push((tok.clone(), curr.token_id, curr.log_p, char_count));
+                    }
+                }
+            } else {
+                break;
+            }
+        }
+
+        results
     }
 }
 
@@ -146,7 +180,7 @@ impl RustPrefixTrie {
 }
 
 impl RustPrefixTrie {
-    pub(crate) fn common_prefix_search_chars(
+    pub fn common_prefix_search_chars(
         &self,
         chars: &[char],
         start: usize,
@@ -171,6 +205,7 @@ impl RustPrefixTrie {
         results
     }
 
+<<<<<<< HEAD
     /// ASCII-specialized prefix search operating on raw `&[u8]` byte slices.
     ///
     /// For pure-ASCII text (`str::is_ascii()`), every byte maps 1:1 to a
@@ -210,7 +245,7 @@ impl RustPrefixTrie {
         results
     }
 
-    pub(crate) fn exact_metadata(&self, token: &str) -> Option<(Option<u32>, f64)> {
+    pub fn exact_metadata(&self, token: &str) -> Option<(Option<u32>, f64)> {
         let mut current = &self.root;
         if token.is_ascii() {
             for &b in token.as_bytes() {
