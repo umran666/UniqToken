@@ -113,6 +113,7 @@ Key empirical observations:
 1. **Elimination of the Non-Latin Token Tax**: Tiktoken fragments Malayalam into $15.68\text{ tokens/word}$ ($1.68\text{ Bytes/Token}$) and Amharic into $13.13\text{ tokens/word}$ ($1.08\text{ Bytes/Token}$), indicating near-total decomposition into single UTF-8 bytes. In contrast, UniqToken achieves $9.26\text{ Bytes/Token}$ on Malayalam ($5.5\times$ compression) and $11.05\text{ Bytes/Token}$ on Amharic ($10.2\times$ compression), reducing sequence lengths and downstream attention context consumption by up to $90\%$.
 2. **Diacritic & Tone Preservation**: For tonal Yoruba, UniqToken reduces morphological fertility from $3.75$ to $3.17\text{ tokens/word}$ ($15.6\%$ fewer tokens), preventing the spurious split between base vowels and tone markers.
 3. **Zero Byte Fallback**: Across all four low-resource evaluation corpora, UniqToken achieves a **0.0% byte fallback rate**, preserving lossless tokenization without fallback leakage.
+4. **Corpus Sizing Methodology**: In accordance with the standard design of `BENCHMARK_CORPORA` (where base authentic paragraphs are repeated $30\times$ alongside `English_Prose` and `Indic_Hindi` to form $10\text{--}25\text{ KB}$ datasets), each low-resource corpus is scaled proportionally to ensure balanced vocabulary representation during EM unigram pruning and robust multi-iteration throughput profiling.
 
 ---
 
