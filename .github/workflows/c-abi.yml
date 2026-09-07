@@ -1,0 +1,72 @@
+name: C ABI
+
+on:
+  push:
+    branches: [main, master]
+    paths:
+      - crates/uniqtoken_core/**
+      - tests/c_harness.c
+      - .github/workflows/c-abi.yml
+  pull_request:
+    branches: [main, master]
+    paths:
+      - crates/uniqtoken_core/**
+      - tests/c_harness.c
+      - .github/workflows/c-abi.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: c-abi-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  c-api:
+    name: C API (Linux)
+    runs-on: ubuntu-latest
+    steps:
+      # Third-party actions are pinned to full commit SHAs and the checkout
+      # token is not persisted, so later steps never see repository credentials.
+      - name: Checkout code
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # pinned v4
+        with:
+          persist-credentials: false
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # pinned stable
+        with:
+          components: clippy
+
+      - name: Clippy (default features)
+        run: cargo clippy --manifest-path crates/uniqtoken_core/Cargo.toml --all-targets -- -D warnings
+
+      - name: Rust unit tests
+        run: cargo test --manifest-path crates/uniqtoken_core/Cargo.toml --features c_abi
+
+      - name: Install cbindgen
+        run: cargo install cbindgen --version 0.29.4
+
+      - name: Header freshness check
+        working-directory: crates/uniqtoken_core
+        run: |
+          cbindgen --config cbindgen.toml --crate uniqtoken-core --output /tmp/uniqtoken.h
+          diff /tmp/uniqtoken.h include/uniqtoken.h
+
+      - name: Build C shared library
+        run: cargo build --manifest-path crates/uniqtoken_core/Cargo.toml --release --no-default-features --features c_abi
+
+      - name: Compile C harness
+        run: >
+          cc -std=c99 -Wall -Wextra -Werror tests/c_harness.c -o /tmp/c_harness
+          -Icrates/uniqtoken_core/include
+          -Lcrates/uniqtoken_core/target/release -luniqtoken_core
+          -Wl,-rpath,$PWD/crates/uniqtoken_core/target/release
+
+      - name: Run C harness
+        run: /tmp/c_harness
+
+      - name: Leak check C harness
+        run: |
+          sudo apt-get install -y valgrind
+          valgrind --leak-check=full --show-leak-kinds=definite --errors-for-leaks=yes --error-exitcode=99 /tmp/c_harness --loop 1000
