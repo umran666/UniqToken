@@ -18,6 +18,8 @@ class ImagePatch:
     grid_w: int
     norm_bbox: Tuple[float, float, float, float]  # (y1, x1, y2, x2) in [0.0, 1.0]
     pixels: List[float]  # Flattened normalized pixel values (P * P * C)
+    scale: float = 1.0  # Normalization scale used at extraction: raw = norm * scale + offset
+    offset: float = 0.0  # Normalization offset used at extraction
 
 
 class DynamicImagePatcher:
@@ -56,6 +58,9 @@ class DynamicImagePatcher:
         """
         Extracts non-overlapping patches from a 3D pixel array [H][W][C].
         Returns (list_of_patches, (grid_h, grid_w)).
+
+        Each patch is stamped with the (scale, offset) normalization actually
+        applied, so `reconstruct_image` can invert it exactly.
         """
         if not image_pixels:
             return [], (0, 0)
@@ -148,6 +153,8 @@ class DynamicImagePatcher:
                             round(x2, 4),
                         ),
                         pixels=patch_data,
+                        scale=scale,
+                        offset=offset,
                     )
                 )
                 patch_idx += 1
@@ -159,9 +166,17 @@ class DynamicImagePatcher:
         patches: List[ImagePatch],
         grid_h: int,
         grid_w: int,
+        *,
+        scale: Optional[float] = None,
+        offset: Optional[float] = None,
     ) -> List[List[List[float]]]:
         """
         Reconstructs the 2D image matrix [H][W][C] from a sequence of ImagePatch instances.
+
+        Normalization is inverted per patch (`raw = norm * scale + offset`):
+        explicit keyword arguments win, otherwise each patch's own stamped
+        values are used, so an extract/reconstruct roundtrip restores the
+        original pixel range exactly.
         """
         if not patches:
             return []
@@ -181,12 +196,14 @@ class DynamicImagePatcher:
             row_start = patch.row * p
             col_start = patch.col * p
             pix_idx = 0
+            patch_scale = scale if scale is not None else patch.scale
+            patch_offset = offset if offset is not None else patch.offset
 
             for r in range(row_start, min(row_start + p, h)):
                 for col in range(col_start, min(col_start + p, w)):
                     for ch in range(c):
                         if pix_idx < len(patch.pixels):
-                            canvas[r][col][ch] = patch.pixels[pix_idx]
+                            canvas[r][col][ch] = patch.pixels[pix_idx] * patch_scale + patch_offset
                             pix_idx += 1
 
         return canvas

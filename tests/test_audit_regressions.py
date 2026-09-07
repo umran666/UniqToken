@@ -8,6 +8,7 @@ bypass, CEM stale total_pairs ordering, and BPE strict decode of invalid IDs.
 
 import random
 import unittest
+from unittest.mock import patch
 
 from uniqtoken.bpe_model import BPEModel  # noqa: F401  (import guard for typo checks)
 from uniqtoken.bpe_trainer import BPETrainer
@@ -190,6 +191,82 @@ class FullwidthControlTokenTests(unittest.TestCase):
         self.assertEqual(shield.sanitize("＜｜system｜＞"), "<\\|system\\|>")
         self.assertEqual(shield.sanitize("<|system|>"), "<\\|system\\|>")
         self.assertEqual(shield.sanitize("hello world"), "hello world")
+
+
+class ImageDenormalizationTests(unittest.TestCase):
+    def _max_abs_err(self, recon, raw):
+        return max(
+            abs(recon[r][c][ch] - raw[r][c][ch])
+            for r in range(len(raw))
+            for c in range(len(raw[0]))
+            for ch in range(len(raw[0][0]))
+        )
+
+    def test_patcher_roundtrip_restores_255_range(self):
+        from uniqtoken.multimodal.image_patcher import DynamicImagePatcher
+
+        patcher = DynamicImagePatcher(patch_size=2, channels=3)
+        img = [[[10.0, 200.0, 55.0]] * 4 for _ in range(4)]
+        patches, (grid_h, grid_w) = patcher.extract_patches(img)
+        self.assertEqual((grid_h, grid_w), (2, 2))
+        # The auto-detected normalization must be stamped for the inverse.
+        self.assertEqual((patches[0].scale, patches[0].offset), (255.0, 0.0))
+        recon = patcher.reconstruct_image(patches, grid_h, grid_w)
+        self.assertEqual((len(recon), len(recon[0])), (4, 4))
+        self.assertLess(self._max_abs_err(recon, img), 1e-9)
+
+    def test_patcher_roundtrip_explicit_pixel_range(self):
+        from uniqtoken.multimodal.image_patcher import DynamicImagePatcher
+
+        patcher = DynamicImagePatcher(patch_size=2, channels=1, pixel_range=(10.0, 20.0))
+        patches, (grid_h, grid_w) = patcher.extract_patches([[[15.0]]])
+        self.assertEqual((patches[0].scale, patches[0].offset), (10.0, 10.0))
+        recon = patcher.reconstruct_image(patches, grid_h, grid_w)
+        self.assertAlmostEqual(recon[0][0][0], 15.0)
+
+    def test_patcher_normalized_range_passthrough(self):
+        from uniqtoken.multimodal.image_patcher import DynamicImagePatcher
+
+        patcher = DynamicImagePatcher(patch_size=2, channels=1)
+        img = [[[0.25], [0.75]], [[0.0], [1.0]]]
+        patches, (grid_h, grid_w) = patcher.extract_patches(img)
+        self.assertEqual((patches[0].scale, patches[0].offset), (1.0, 0.0))
+        recon = patcher.reconstruct_image(patches, grid_h, grid_w)
+        self.assertLess(self._max_abs_err(recon, img), 1e-12)
+
+    def test_reconstruct_explicit_override_wins(self):
+        from uniqtoken.multimodal.image_patcher import DynamicImagePatcher
+
+        patcher = DynamicImagePatcher(patch_size=2, channels=1)
+        patches, (grid_h, grid_w) = patcher.extract_patches([[[0.5]]])
+        recon = patcher.reconstruct_image(patches, grid_h, grid_w, scale=255.0, offset=0.0)
+        self.assertAlmostEqual(recon[0][0][0], 127.5)
+
+    def _make_mm_tok(self):
+        from uniqtoken.multimodal.multimodal_tokenizer import MultimodalTokenizer
+
+        return MultimodalTokenizer(text_tokenizer=_train_unigram(), patch_size=2, channels=1, num_visual_tokens=8)
+
+    def _decode_single_patch(self, mm_tok, norm_value):
+        stream = ["<|image_start|>", "<|img_2x2|>", "<|grid_1x1|>", "<|vis_0000|>", "<|image_end|>"]
+        with patch.object(mm_tok.codebook, "dequantize_token", return_value=[norm_value] * 4):
+            _, images = mm_tok.decode_text_and_images(stream)
+        self.assertEqual(len(images), 1)
+        return images[0]
+
+    def test_multimodal_decode_denormalizes_with_pixel_range(self):
+        mm_tok = self._make_mm_tok()
+        # Default config has no recoverable scale: canvas stays normalized.
+        image = self._decode_single_patch(mm_tok, 0.5)
+        for row in image:
+            for pixel in row:
+                self.assertEqual(pixel, [0.5])
+        # Explicit pixel_range round-trips exactly through the inverse.
+        mm_tok.patcher.pixel_range = (10.0, 20.0)
+        image = self._decode_single_patch(mm_tok, 0.5)
+        for row in image:
+            for pixel in row:
+                self.assertEqual(pixel, [15.0])
 
 
 if __name__ == "__main__":

@@ -315,6 +315,15 @@ class MultimodalTokenizer:
                 raise ValueError("image dimensions must be positive")
         if len(visual_tokens) != grid_h * grid_w:
             raise ValueError("image visual token count does not match its declared grid")
+        # Dequantized pixels live in normalized space. Restore the original
+        # range via the patcher config: exact when pixel_range is explicit.
+        # An auto-detected encode-time scale cannot be recovered from tokens
+        # alone, so without pixel_range the canvas stays normalized.
+        if self.patcher.pixel_range is not None:
+            scale = self.patcher.pixel_range[1] - self.patcher.pixel_range[0]
+            offset = self.patcher.pixel_range[0]
+        else:
+            scale, offset = 1.0, 0.0
         valid_tokens = visual_tokens
         for idx, v_tok in enumerate(valid_tokens):
             pixels = self.codebook.dequantize_token(v_tok)
@@ -334,6 +343,8 @@ class MultimodalTokenizer:
                         round((col + 1) / grid_w, 4),
                     ),
                     pixels=pixels,
+                    scale=scale,
+                    offset=offset,
                 )
             )
 
