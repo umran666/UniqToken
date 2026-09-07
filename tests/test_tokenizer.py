@@ -15,7 +15,11 @@ from uniqtoken.tokenizer import CustomTokenizer, TokenizationReport
 from uniqtoken.unigram_trainer import UnigramModel, UnigramTrainer
 from uniqtoken.unigram_lattice import UnigramLattice
 from uniqtoken.vocab_adapter import VocabularyAdapter
-from uniqtoken.multimodal.multimodal_tokenizer import MultimodalTokenizer, ImageElement
+from uniqtoken.multimodal.multimodal_tokenizer import (
+    ImageElement,
+    MultimodalTokenizer,
+    TextElement,
+)
 from uniqtoken.multimodal.visual_codebook import VisualCodebook
 from uniqtoken.multimodal.audio_codec import ResidualVectorQuantizer, AudioSegment
 from uniqtoken.trie import PrefixTrie
@@ -414,6 +418,51 @@ class MultimodalTests(unittest.TestCase):
             self.assertEqual(loaded.embedding_dim, cb.embedding_dim)
             self.assertEqual(loaded._update_count, cb._update_count)
             self.assertEqual(loaded._ema_cluster_size, cb._ema_cluster_size)
+
+    def test_empty_image_element_raises_value_error(self):
+        with self.assertRaises(ValueError):
+            ImageElement(pixels=[])
+        with self.assertRaises(ValueError):
+            ImageElement(pixels=[[]])
+        with self.assertRaises(TypeError):
+            ImageElement(pixels="not a list")  # type: ignore[arg-type]
+        with self.assertRaises(TypeError):
+            ImageElement(pixels=[[[1.0, 2.0, 3.0]]], metadata="not a dict")  # type: ignore[arg-type]
+
+    def test_encode_image_rejects_empty_and_invalid(self):
+        with self.assertRaises(ValueError):
+            self.mm_tok.encode_image([])
+        with self.assertRaises(ValueError):
+            self.mm_tok.encode_image([[]])
+        with self.assertRaises(TypeError):
+            self.mm_tok.encode_image("not a list")  # type: ignore[arg-type]
+
+    def test_interleaved_rejects_empty_image_element(self):
+        # Reproducer for Issue #15: empty ImageElement must not silently vanish
+        with self.assertRaises(ValueError):
+            self.mm_tok.encode_interleaved(
+                [
+                    TextElement("a"),
+                    ImageElement(pixels=[]),
+                    TextElement("b"),
+                ]
+            )
+
+    def test_interleaved_with_text_element(self):
+        img = [[[0.5, 0.5, 0.5] for _ in range(16)] for _ in range(16)]
+        img_elem = ImageElement(pixels=img)
+
+        seq_str = self.mm_tok.encode_interleaved(["test", img_elem, "test"])
+        seq_elem = self.mm_tok.encode_interleaved([TextElement("test"), img_elem, TextElement("test")])
+
+        self.assertEqual(seq_str.token_strings, seq_elem.token_strings)
+        self.assertEqual(seq_str.token_ids, seq_elem.token_ids)
+        self.assertEqual(seq_str.modality_mask, seq_elem.modality_mask)
+
+        with self.assertRaises(TypeError):
+            TextElement(text=123)  # type: ignore[arg-type]
+        with self.assertRaises(TypeError):
+            TextElement(text="ok", metadata="not a dict")  # type: ignore[arg-type]
 
 
 class TrieTests(unittest.TestCase):
@@ -843,6 +892,13 @@ class AudioCodecTests(unittest.TestCase):
         self.assertIn(0, seq.modality_mask)  # Text
         self.assertIn(2, seq.modality_mask)  # Audio
         self.assertIn(3, seq.modality_mask)  # Special
+
+    def test_empty_audio_segment_and_encode_rejects_empty(self):
+        rvq = ResidualVectorQuantizer(num_quantizers=4, codebook_size=64, frame_size=320)
+        with self.assertRaises(ValueError):
+            AudioSegment(samples=[])
+        with self.assertRaises(ValueError):
+            rvq.encode_audio([])
 
 
 class NeuralCodecTests(unittest.TestCase):
