@@ -27,6 +27,7 @@ tokenizer::
 from __future__ import annotations
 
 import json
+import os
 from typing import Any, Dict, List, Optional, Union
 
 from .hf_exporter import HuggingFaceExporter
@@ -148,7 +149,7 @@ if HAS_TRANSFORMERS:
         @classmethod
         def from_pretrained(  # type: ignore[override]
             cls,
-            pretrained_model_name_or_path: Union[str, bytes],
+            pretrained_model_name_or_path: Union[str, os.PathLike],
             *init_inputs: Any,
             **kwargs: Any,
         ) -> "UniqTokenizerFast":

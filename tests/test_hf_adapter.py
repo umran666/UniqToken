@@ -74,13 +74,12 @@ def _train_tiny_tokenizer(chat_template=None) -> CustomTokenizer:
 class UniqTokenizerFastIntegrationTests(unittest.TestCase):
     """Core fast-tokenizer surface (mirrors TokenizerTesterMixin coverage)."""
 
-    @classmethod
-    def setUpClass(cls) -> None:
-        cls.ct = _train_tiny_tokenizer()
-        cls.tokenizer = UniqTokenizerFast.from_custom_tokenizer(cls.ct)
-        cls.tmp_dir = tempfile.mkdtemp(prefix="uniqtoken_hf_")
-        cls.tokenizer.save_pretrained(cls.tmp_dir)
-        cls.reloaded = UniqTokenizerFast.from_pretrained(cls.tmp_dir)
+    def setUp(self) -> None:
+        self.ct = _train_tiny_tokenizer()
+        self.tokenizer = UniqTokenizerFast.from_custom_tokenizer(self.ct)
+        self.tmp_dir = tempfile.mkdtemp(prefix="uniqtoken_hf_")
+        self.tokenizer.save_pretrained(self.tmp_dir)
+        self.reloaded = UniqTokenizerFast.from_pretrained(self.tmp_dir)
 
     # -- adapter construction --------------------------------------------
 
@@ -112,6 +111,7 @@ class UniqTokenizerFastIntegrationTests(unittest.TestCase):
 
     def test_means_id_consistency(self) -> None:
         for token in ("<|bos|>", "<|eos|>", "<|pad|>", "<|unk|>"):
+            assert self.tokenizer._tokenizer is not None
             self.assertEqual(self.tokenizer.convert_tokens_to_ids(token), self.tokenizer._tokenizer.token_to_id(token))
 
     # -- encoding parity with the native tokenizer -----------------------
@@ -247,9 +247,9 @@ class UniqTokenizerFastIntegrationTests(unittest.TestCase):
                 return {"loss": self.head(self.embed(input_ids)).mean()}
 
         args = TrainingArguments(output_dir=tempfile.mkdtemp(), report_to=[], num_train_epochs=0)
-        trainer = Trainer(model=TinyModel(self.tokenizer.vocab_size), args=args, tokenizer=self.tokenizer)
+        trainer = Trainer(model=TinyModel(self.tokenizer.vocab_size), args=args, tokenizer=self.tokenizer)  # type: ignore[call-arg]
         train_ids = self.tokenizer(TEXTS, padding="max_length", max_length=16, truncation=True, return_tensors="pt")
-        self.assertEqual(trainer.tokenizer, self.tokenizer)
+        self.assertEqual(trainer.tokenizer, self.tokenizer)  # type: ignore[attr-defined]
         self.assertEqual(train_ids["input_ids"].shape[1], 16)
 
     # -- chat template ---------------------------------------------------
