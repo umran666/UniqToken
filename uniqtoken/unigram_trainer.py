@@ -42,18 +42,67 @@ class UnigramModel:
     byte_fallback: bool = True
     unk_token: str = "<|unk|>"
 
+    def __post_init__(self) -> None:
+        self._validate_invariants()
+
+    def _validate_invariants(self) -> None:
+        """Reject model states whose IDs or scores cannot be decoded exactly."""
+        if not isinstance(self.vocab, Mapping):
+            raise TypeError("vocab must be a mapping of token strings to finite scores")
+        if not isinstance(self.token_to_id, Mapping) or not isinstance(self.id_to_token, Mapping):
+            raise TypeError("token ID mappings must be mappings")
+        if not isinstance(self.special_tokens, list) or any(not isinstance(token, str) for token in self.special_tokens):
+            raise TypeError("special_tokens must be a list of strings")
+        if len(set(self.special_tokens)) != len(self.special_tokens):
+            raise ValueError("special_tokens must not contain duplicates")
+        if not isinstance(self.max_subword_len, int) or isinstance(self.max_subword_len, bool) or self.max_subword_len < 1:
+            raise ValueError("max_subword_len must be a positive integer")
+        if not isinstance(self.byte_fallback, bool):
+            raise TypeError("byte_fallback must be a bool")
+        if not isinstance(self.unk_token, str):
+            raise TypeError("unk_token must be a string")
+
+        vocab_tokens = set(self.vocab)
+        id_tokens = set(self.token_to_id)
+        if any(not isinstance(token, str) for token in vocab_tokens):
+            raise TypeError("vocab tokens must be strings")
+        if vocab_tokens != id_tokens:
+            raise ValueError("vocab and token_to_id must contain exactly the same tokens")
+        for token, score in self.vocab.items():
+            if isinstance(score, bool) or not isinstance(score, (int, float)) or not math.isfinite(score):
+                raise ValueError(f"vocabulary score for {token!r} must be finite")
+        ids = list(self.token_to_id.values())
+        if any(not isinstance(token_id, int) or isinstance(token_id, bool) or token_id < 0 for token_id in ids):
+            raise ValueError("token IDs must be non-negative integers")
+        if len(set(ids)) != len(ids):
+            raise ValueError("token_to_id must assign a unique ID to each token")
+        expected_inverse = {token_id: token for token, token_id in self.token_to_id.items()}
+        if dict(self.id_to_token) != expected_inverse:
+            raise ValueError("id_to_token must be the exact inverse of token_to_id")
+        if any(token not in vocab_tokens for token in self.special_tokens):
+            raise ValueError("every special token must be in the vocabulary")
+
     @property
     def vocab_size(self) -> int:
         # IDs may contain holes when importing SentencePiece or HF models;
         # embedding tables must cover the highest assigned ID.
         return max(self.token_to_id.values(), default=-1) + 1
 
-    def _cache_signature(self) -> Tuple[int, int]:
-        # ponytail: assumes vocab dict replaced not mutated in-place; add version counter if external mutation needed
-        return (id(self.vocab), len(self.vocab))
+    def _cache_signature(self) -> Tuple[object, ...]:
+        """Fingerprint mutable public state that changes segmentation semantics."""
+        return (
+            frozenset(self.vocab.items()),
+            frozenset(self.token_to_id.items()),
+            frozenset(self.id_to_token.items()),
+            tuple(self.special_tokens),
+            self.max_subword_len,
+            self.byte_fallback,
+            self.unk_token,
+        )
 
     def _sync_cache(self) -> None:
-        """Invalidates caches if the vocab object or size changed since they were built."""
+        """Invalidates caches after any externally visible model-state mutation."""
+        self._validate_invariants()
         sig = self._cache_signature()
         if self.__dict__.get("_cache_sig") != sig:
             self.clear_cache()
@@ -556,7 +605,10 @@ class UnigramTrainer:
                                 total_corpus_log_lik += chunk_log_lik * count
                                 for tok, exp_val in chunk_exp.items():
                                     expected_counts[tok] = expected_counts.get(tok, 0.0) + (exp_val * count)
-                        except Exception:
+                        except (ImportError, AttributeError):
+                            # Only an unavailable/incompatible optional extension may
+                            # use the Python implementation. Native computation errors
+                            # must remain visible to avoid silently changing training.
                             can_use_rust_em = False
                             expected_counts.clear()
                             total_corpus_log_lik = 0.0

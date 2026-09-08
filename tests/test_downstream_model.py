@@ -37,6 +37,8 @@ class DownstreamTransformerTests(unittest.TestCase):
         )
         self.assertGreater(metrics.total_tokens, 0)
         self.assertGreater(metrics.compression_ratio, 0.0)
+        self.assertGreater(metrics.validation_evaluated_tokens, 0)
+        self.assertTrue(math.isfinite(metrics.validation_loss))
         self.assertGreater(metrics.final_loss, 0.0)
         self.assertTrue(math.isfinite(metrics.final_loss))
         self.assertTrue(math.isfinite(metrics.bits_per_byte))
@@ -46,10 +48,13 @@ class DownstreamTransformerTests(unittest.TestCase):
 
     def test_duplicate_documents_do_not_cross_validation_boundary(self):
         corpus = ["alpha", "beta", "gamma", "alpha", "beta", "gamma"]
-        train_docs, validation_docs = _split_documents(corpus)
+        train_docs, validation_docs, test_docs = _split_documents(corpus)
         self.assertTrue(train_docs)
         self.assertTrue(validation_docs)
+        self.assertTrue(test_docs)
         self.assertTrue(set(train_docs).isdisjoint(validation_docs))
+        self.assertTrue(set(train_docs).isdisjoint(test_docs))
+        self.assertTrue(set(validation_docs).isdisjoint(test_docs))
 
     def test_rejects_invalid_benchmark_inputs(self):
         tokenizers = create_tokenizers(target_vocab=500)
@@ -58,6 +63,8 @@ class DownstreamTransformerTests(unittest.TestCase):
             train_toy_transformer(tok, "test", [], steps=1)
         with self.assertRaises(ValueError):
             train_toy_transformer(tok, "test", ["text"], steps=0)
+        with self.assertRaises(ValueError):
+            _split_documents(["same", "same"])
 
 
 if __name__ == "__main__":

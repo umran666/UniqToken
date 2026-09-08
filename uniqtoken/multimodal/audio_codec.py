@@ -28,11 +28,11 @@ class AudioSegment:
 
 class ResidualVectorQuantizer:
     """
-    Multi-Stage Residual Vector Quantizer (RVQ) for 1D Continuous Audio Signals.
+    Experimental multi-stage residual vector quantizer for 1D audio signals.
 
-    Implements hierarchical multi-codebook quantization (EnCodec / SoundStream / Whisper style).
-    Slices 1D audio waveforms into temporal frames and quantizes each frame through N_q
-    sequential residual codebooks, yielding high acoustic fidelity at low bitrates.
+    This utility initializes random centroids and provides no fitting routine;
+    it is not a trained codec and is deliberately excluded from
+    :class:`MultimodalTokenizer`'s supported input types.
     """
 
     def __init__(
@@ -54,7 +54,7 @@ class ResidualVectorQuantizer:
         self.seed = seed
 
         self._rng = random.Random(seed)
-        # N_q independent codebooks, each with codebook_size centroids of dimension frame_size
+        # N_q independent random codebooks, each with codebook_size centroids.
         self.codebooks: List[List[List[float]]] = [
             [
                 [self._rng.gauss(0.0, 1.0 / math.sqrt(frame_size)) for _ in range(frame_size)]

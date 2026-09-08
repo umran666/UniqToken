@@ -10,39 +10,41 @@ from typing import Dict, List, Optional, Tuple, Union
 
 from uniqtoken.multimodal.image_patcher import DynamicImagePatcher, ImagePatch
 from uniqtoken.multimodal.visual_codebook import VisualCodebook
-from uniqtoken.multimodal.audio_codec import ResidualVectorQuantizer, AudioSegment
+from uniqtoken.multimodal.audio_codec import AudioSegment
 from uniqtoken.tokenizer import CustomTokenizer
 
 
 @dataclass
 class MultimodalSequence:
     """
-    Unified representation of an interleaved text + vision + audio sequence.
+    Unified representation of an interleaved text and vision sequence.
     """
 
     token_strings: List[str]
     token_ids: List[int]
     image_patches: List[ImagePatch]
-    modality_mask: List[int]  # 0: Text, 1: Vision, 2: Audio, 3: Special
+    modality_mask: List[int]  # 0: Text, 1: Vision, 3: Special
 
 
 class MultimodalTokenizer:
     """
-    Unified Discrete & Continuous Multimodal Tokenizer.
+    Unified text and image tokenizer.
 
     Supports:
     1. Natural Language & Source Code (Unigram + UTF-8 Byte Fallback).
     2. 2D Visual Images (Dynamic Patching + Discrete VQ Codebook Tokenization).
     3. Spatial Grid & Coordinate Anchors (<|image_start|>, <|image_end|>, <|vis_XXXX|>).
-    4. Interleaved Multimodal Document Processing.
+    4. Interleaved text and image document processing.
+
+    Audio inputs are rejected. The bundled residual audio codebook has no
+    training path, so treating its random centroids as a supported codec would
+    produce non-semantic token IDs.
     """
 
     MULTIMODAL_SPECIAL_TOKENS = [
         "<|image_start|>",
         "<|image_end|>",
         "<|image_patch|>",
-        "<|audio_start|>",
-        "<|audio_end|>",
     ]
 
     _IMAGE_SIZE_RE = re.compile(r"^<\|img_(\d+)x(\d+)\|>$")
@@ -68,19 +70,12 @@ class MultimodalTokenizer:
             seed=seed,
             ema_decay=ema_decay,
         )
-        self.audio_quantizer = ResidualVectorQuantizer(
-            num_quantizers=4,
-            codebook_size=256,
-            frame_size=320,
-            seed=seed,
-        )
         self.multimodal_specials = list(self.MULTIMODAL_SPECIAL_TOKENS)
         self.visual_tokens = self.codebook.get_special_tokens()
-        self.audio_tokens = self.audio_quantizer.get_special_tokens()
         self._image_element_type = "list"  # Explicit type for image detection
         self._frozen = False
 
-        # Unified ID space: text -> multimodal specials -> visual tokens -> audio tokens
+        # Unified ID space: text -> multimodal specials -> visual tokens.
         self._token_to_id: Dict[str, int] = dict(text_tokenizer.model.token_to_id)
         self._next_id = max(self._token_to_id.values(), default=-1) + 1
         self._id_lock = threading.Lock()
@@ -89,10 +84,6 @@ class MultimodalTokenizer:
                 self._token_to_id[tok] = self._next_id
                 self._next_id += 1
         for tok in self.visual_tokens:
-            if tok not in self._token_to_id:
-                self._token_to_id[tok] = self._next_id
-                self._next_id += 1
-        for tok in self.audio_tokens:
             if tok not in self._token_to_id:
                 self._token_to_id[tok] = self._next_id
                 self._next_id += 1
@@ -158,10 +149,10 @@ class MultimodalTokenizer:
 
     def encode_interleaved(
         self,
-        elements: List[Union[str, "TextElement", "ImageElement", AudioSegment]],
+        elements: List[Union[str, "TextElement", "ImageElement"]],
     ) -> MultimodalSequence:
         """
-        Encodes a mixed stream of text, images, and audio into a unified multimodal token stream.
+        Encodes a mixed stream of text and images into a unified token stream.
         """
         all_tokens: List[str] = []
         all_patches: List[ImagePatch] = []
@@ -193,20 +184,12 @@ class MultimodalTokenizer:
                     else:
                         modality_mask.append(1)  # Vision modality
             elif isinstance(element, AudioSegment):
-                if not element.samples:
-                    raise ValueError("AudioSegment samples cannot be empty")
-                aud_toks, _ = self.audio_quantizer.encode_audio(element.samples)
-                if not aud_toks:
-                    raise ValueError("AudioSegment produced no tokens; audio cannot be empty")
-                for t in aud_toks:
-                    all_tokens.append(t)
-                    if t in {"<|audio_start|>", "<|audio_end|>"} or t.startswith("<|aud_len_"):
-                        modality_mask.append(3)
-                    else:
-                        modality_mask.append(2)  # Audio modality
+                raise NotImplementedError(
+                    "Audio tokenization is unsupported because this distribution does not include a trained audio codebook."
+                )
             else:
                 raise TypeError(
-                    f"elements must contain str, TextElement, ImageElement, or AudioSegment, got {type(element).__name__}"
+                    f"elements must contain str, TextElement, or ImageElement, got {type(element).__name__}"
                 )
 
         token_ids = [self._assign_id(t) for t in all_tokens]
@@ -276,13 +259,11 @@ class MultimodalTokenizer:
         if in_image:
             raise ValueError("unterminated image stream: missing image_end marker")
 
-        # Filter out visual and audio tokens that might have leaked into text
+        # Filter out visual tokens that might have leaked into text.
         filtered_text = [
             t
             for t in text_segments
             if not (t.startswith("<|vis_") and t.endswith("|>"))
-            and not (t.startswith("<|aud_") and t.endswith("|>"))
-            and t not in {"<|audio_start|>", "<|audio_end|>"}
         ]
 
         # Decode text using the text tokenizer — a missing token means the stream
@@ -387,7 +368,6 @@ class MultimodalTokenizer:
             "visual_tokens": self.visual_tokens,
             "token_to_id": self._token_to_id,
             "codebook_state": self.codebook.get_codebook_state(),
-            "audio_codebook_state": self.audio_quantizer.get_state(),
             "frozen": self._frozen,
         }
 
@@ -426,10 +406,6 @@ class MultimodalTokenizer:
         # Restore codebook state
         mm_tok.codebook = VisualCodebook.from_state(mm_config["codebook_state"])
         mm_tok.visual_tokens = mm_tok.codebook.get_special_tokens()
-        if "audio_codebook_state" in mm_config:
-            mm_tok.audio_quantizer = ResidualVectorQuantizer.from_state(mm_config["audio_codebook_state"])
-            mm_tok.audio_tokens = mm_tok.audio_quantizer.get_special_tokens()
-
         # Restore token mappings
         mm_tok._token_to_id = {str(token): int(token_id) for token, token_id in mm_config["token_to_id"].items()}
         mm_tok._next_id = max(mm_tok._token_to_id.values(), default=-1) + 1
@@ -442,7 +418,7 @@ class MultimodalTokenizer:
 class TextElement:
     """
     Explicit container for text data in interleaved sequences.
-    Complements ImageElement and AudioSegment.
+    Complements ImageElement.
     """
 
     text: str

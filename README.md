@@ -165,7 +165,7 @@ All downstream language model pretraining benchmarks were executed on an **NVIDI
 
 Trained an identical architecture `MiniCausalLM` directly on GPU across tokenizer variants under matched training iterations ([`benchmarks/train_toy_transformer.py`](benchmarks/train_toy_transformer.py)):
 
-| Tokenizer | Vocab Size | Total Tokens | Bytes / Token ↑ | Val CE Loss (nats) ↓ | Bits-Per-Byte (BPB) ↓ | Training Speed (tok/s) |
+| Tokenizer | Vocab Size | Total Tokens | Bytes / Token ↑ | Test CE Loss (nats) ↓ | Bits-Per-Byte (BPB) ↓ | Training Speed (tok/s) |
 |:---|:---:|:---:|:---:|:---:|:---:|:---:|
 | **UniqToken (SuperBPE)** | 530 | 9,312 | **3.567** | **10.778** | **14.307** | 14,702.0 |
 | **Standard BPE** | 500 | 15,392 | 2.158 | 12.590 | 14.648 | **14,873.3** |
@@ -177,7 +177,7 @@ Trained an identical architecture `MiniCausalLM` directly on GPU across tokenize
 
 Under a strictly matched vocabulary budget of 400 subwords ([`benchmarks/vocab_quality_race.py`](benchmarks/vocab_quality_race.py)), candidate tokenizers were trained from scratch and evaluated on identical downstream Transformer language models on GPU:
 
-| Tokenizer | Category | Vocab Size | Bytes / Token ↑ | Val Loss (nats) ↓ | Bits-Per-Byte (BPB) ↓ | GPU Throughput (tok/s) |
+| Tokenizer | Category | Vocab Size | Bytes / Token ↑ | Test Loss (nats) ↓ | Bits-Per-Byte (BPB) ↓ | GPU Throughput (tok/s) |
 |:---|:---|:---:|:---:|:---:|:---:|:---:|
 | **UniqToken (SuperBPE)** | Native Trainable | 400 | 1.368 | **5.6265** | **8.1144** | **11,337.8** |
 | **UniqToken (Unigram)** | Native Trainable | 400 | 1.368 | **5.6265** | **8.1144** | 5,235.6 |
@@ -192,14 +192,14 @@ Under a strictly matched vocabulary budget of 400 subwords ([`benchmarks/vocab_q
 
 Evaluated against standard production tokenizers on multilingual, code, and mathematical corpora ([`benchmarks/downstream_eval.py`](benchmarks/downstream_eval.py)):
 
-| Tokenizer | Vocab Size | Evaluated Tokens | Bytes / Token ↑ | Tokens / Word ↓ | 2K Context Window (Effective Bytes) ↑ | Theoretical Bits / Byte ↓ |
-|:---|:---:|:---:|:---:|:---:|:---:|:---:|
-| **UniqToken (SuperBPE)** | 1,020 | 1,437 | **3.614** | **2.779** | **7,401 B** | **2.766** |
-| **UniqToken (Unigram)** | 1,000 | 1,512 | 3.435 | 2.925 | 7,033 B | 2.902 |
-| **tiktoken (cl100k_base)** | 100,277 | 1,658 | 3.132 | 3.207 | 6,414 B | 5.304 |
-| **HuggingFace (GPT-2)** | 50,257 | 2,307 | 2.251 | 4.462 | 4,609 B | 6.938 |
+| Tokenizer | Vocab Size | Evaluated Tokens | Bytes / Token ↑ | Tokens / Word ↓ | 2K Context Window (Effective Bytes) ↑ |
+|:---|:---:|:---:|:---:|:---:|:---:|
+| **UniqToken (SuperBPE)** | 1,020 | 1,437 | **3.614** | **2.779** | **7,401 B** |
+| **UniqToken (Unigram)** | 1,000 | 1,512 | 3.435 | 2.925 | 7,033 B |
+| **tiktoken (cl100k_base)** | 100,277 | 1,658 | 3.132 | 3.207 | 6,414 B |
+| **HuggingFace (GPT-2)** | 50,257 | 2,307 | 2.251 | 4.462 | 4,609 B |
 
-- UniqToken-SuperBPE packs **7,401 effective bytes** into a 2,048-token context window (+15.4% over tiktoken cl100k_base, +60.6% over GPT-2) with the lowest theoretical bit entropy per byte.
+- UniqToken-SuperBPE packs **7,401 effective bytes** into a 2,048-token context window (+15.4% over tiktoken cl100k_base, +60.6% over GPT-2). The former uniform-vocabulary-code-length column was removed because it is not a language-model BPB measurement.
 
 #### 4. Multilingual Compression & Throughput Suite
 
@@ -529,11 +529,11 @@ UniqToken/
 │   ├── uniqtoken_core.pyi         # Static typing stub for PyO3 native extension
 │   └── multimodal/                # Multimodal tokenization package
 │       ├── __init__.py
-│       ├── multimodal_tokenizer.py  # MultimodalTokenizer — text + image + audio
+│       ├── multimodal_tokenizer.py  # MultimodalTokenizer — text + image
 │       ├── visual_codebook.py       # VisualCodebook — VQ codebook for image patches
 │       ├── image_patcher.py         # DynamicImagePatcher — grid-based patch extraction
-│       ├── audio_codec.py           # ResidualVectorQuantizer — RVQ for audio
-│       └── neural_codecs.py         # NeuralVisualCodec / NeuralAudioCodec (PyTorch)
+│       ├── audio_codec.py           # Experimental untrained RVQ utility (not supported API)
+│       └── neural_codecs.py         # Experimental neural codec building blocks (PyTorch)
 │
 ├── crates/
 │   └── uniqtoken_core/            # Native Rust acceleration crate (PyO3 C-extension)
@@ -708,7 +708,7 @@ ids = tok.encode_to_ids("hello world")  # IDs preserved; leading-word may differ
 | `test_downstream_model.py` | 4 | End-to-end downstream mini-transformer pretraining and Bits-Per-Byte (BPB) convergence validation |
 | `test_fuzz_properties.py` | 7 | Property-based fuzzing: roundtrip integrity, offset validity, Unicode resilience, determinism |
 | `test_hf_importer.py` | 10 | HF tokenizer.json importer: differential vocab/ID/encode parity vs real `tokenizers` package (Unigram + ByteLevel BPE), unsupported-component warnings |
-| `test_metric_audit.py` | 2 | Metric accounting invariants (TID-BPB formula, byte/token sums) and 12-script vocabulary distribution audit |
+| `test_metric_audit.py` | 2 | Byte/token accounting invariants and 12-script vocabulary distribution audit |
 | `test_native_pipeline.py` | 9 | Native Rust pipeline verification: fused normalize+pretokenize+Viterbi, zero-copy IDs, error handling, thread safety |
 | `test_rust_parity.py` | 2 | Rust native extension / Python fallback parity |
 | `test_sentencepiece_importer.py` | 11 | SentencePiece `.model` importer: dependency-free protobuf parser, differential vocab/ID/encode parity vs real `sentencepiece` package (Unigram + byte fallback), `add_dummy_prefix` warning, decode round-trip, BPE rejection |
@@ -751,15 +751,15 @@ python benchmarks/downstream_eval.py            # downstream LLM eval
 
 ## Multimodal
 
-The `multimodal/` package extends UniqToken to handle text, image, and audio inputs through a unified `MultimodalTokenizer`:
+The `multimodal/` package extends UniqToken to handle text and image inputs through a unified `MultimodalTokenizer`. Audio tokenization is not supported because this distribution does not include a trained audio codebook.
 
 | Module | Purpose |
 |:-------|:--------|
-| `multimodal_tokenizer.py` | `MultimodalTokenizer` — unified text + image + audio tokenization with cross-modal token interleaving |
+| `multimodal_tokenizer.py` | `MultimodalTokenizer` — unified text + image tokenization with cross-modal token interleaving |
 | `visual_codebook.py` | `VisualCodebook` — vector-quantized codebook for mapping image patches to discrete tokens |
 | `image_patcher.py` | `DynamicImagePatcher` — grid-based patch extraction from pixel arrays |
-| `audio_codec.py` | `ResidualVectorQuantizer` — multi-layer residual VQ for audio waveform discretization |
-| `neural_codecs.py` | `NeuralVisualCodec` / `NeuralAudioCodec` — PyTorch-based learned codecs (requires `[torch]` extra) |
+| `audio_codec.py` | Experimental random-initialized RVQ utility; excluded from the supported tokenizer API |
+| `neural_codecs.py` | Experimental neural codec building blocks; no trained checkpoint is bundled |
 
 ---
 

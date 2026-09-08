@@ -167,19 +167,13 @@ class TestBinaryMmapModel(unittest.TestCase):
         """Verifies binary export rejects models with inconsistent vocab and token_to_id."""
         with tempfile.TemporaryDirectory() as tmpdir:
             bin_path = Path(tmpdir) / "inconsistent.uniqtok"
-            inconsistent_model = UnigramModel(
-                vocab={"a": 0.0},
-                token_to_id={"a": 0, "b": 1},
-                id_to_token={0: "a", 1: "b"},
-                special_tokens=[],
-            )
-            bad_tok = CustomTokenizer(
-                model=inconsistent_model,
-                normalizer=self.normalizer,
-                pre_tokenizer=self.pre_tokenizer,
-            )
             with self.assertRaises(ValueError):
-                export_binary(bad_tok, bin_path)
+                UnigramModel(
+                    vocab={"a": 0.0},
+                    token_to_id={"a": 0, "b": 1},
+                    id_to_token={0: "a", 1: "b"},
+                    special_tokens=[],
+                )
 
     def test_corrupted_space_codepoint_raises(self):
         """Verifies binary loader rejects invalid Unicode space codepoints."""

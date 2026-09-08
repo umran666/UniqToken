@@ -28,8 +28,6 @@ from .vocab_adapter import VocabularyAdapter
 __version__ = "1.0.0"
 
 _LAZY_MULTIMODAL = {
-    "AudioSegment": "multimodal.audio_codec",
-    "ResidualVectorQuantizer": "multimodal.audio_codec",
     "DynamicImagePatcher": "multimodal.image_patcher",
     "ImagePatch": "multimodal.image_patcher",
     "ImageElement": "multimodal.multimodal_tokenizer",
@@ -37,8 +35,6 @@ _LAZY_MULTIMODAL = {
     "MultimodalTokenizer": "multimodal.multimodal_tokenizer",
     "TextElement": "multimodal.multimodal_tokenizer",
     "HAS_TORCH": "multimodal.neural_codecs",
-    "NeuralAudioCodec": "multimodal.neural_codecs",
-    "NeuralCodecFacade": "multimodal.neural_codecs",
     "NeuralVisualCodec": "multimodal.neural_codecs",
     "VisualCodebook": "multimodal.visual_codebook",
 }
@@ -128,11 +124,7 @@ __all__ = [
     "DynamicImagePatcher",
     "ImagePatch",
     "VisualCodebook",
-    "ResidualVectorQuantizer",
-    "AudioSegment",
-    "NeuralCodecFacade",
     "NeuralVisualCodec",
-    "NeuralAudioCodec",
     "HAS_TORCH",
     "TiktokenEncoding",
     "load_tiktoken_ranks",

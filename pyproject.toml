@@ -99,8 +99,8 @@ Repository = "https://github.com/umran666/uniqtoken"
 [project.scripts]
 uniqtoken = "uniqtoken.cli:main"
 
-[tool.setuptools]
-packages = ["uniqtoken", "uniqtoken.multimodal", "uniqtoken.integrations", "benchmarks"]
+[tool.setuptools.packages.find]
+include = ["uniqtoken*", "benchmarks*"]
 
 [tool.ruff]
 line-length = 120

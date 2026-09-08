@@ -11,7 +11,6 @@ Evaluates tokenizers on downstream language model efficiency:
 from __future__ import annotations
 
 import argparse
-import math
 import sys
 import time
 import warnings
@@ -21,8 +20,8 @@ from typing import Any, Dict, List, Optional
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from uniqtoken.cem_merger import CrossEntropyMerging
 from uniqtoken.tokenizer import CustomTokenizer
+from benchmarks.train_toy_transformer import train_superbpe_tokenizer
 
 
 @dataclass
@@ -37,7 +36,6 @@ class DownstreamMetrics:
     effective_bytes_in_2k_context: int
     effective_bytes_in_4k_context: int
     effective_bytes_in_8k_context: int
-    estimated_bits_per_byte: float
     encode_time_sec: float
 
 
@@ -99,19 +97,7 @@ class DownstreamEvaluator:
             verbose=False,
         )
 
-        # Extended SuperBPE model
-        pretok_chunks: List[str] = []
-        for doc in self.corpus:
-            norm = base_tok.normalizer.normalize(doc)
-            pretok_chunks.extend(base_tok.pre_tokenizer.pre_tokenize(norm))
-
-        superbpe = CrossEntropyMerging(max_merges=self.max_merges, cross_word=True, verbose=False)
-        sbp_model = superbpe.optimize(base_tok.model, chunks=pretok_chunks)
-        sbp_tok = CustomTokenizer(
-            normalizer=base_tok.normalizer,
-            pre_tokenizer=base_tok.pre_tokenizer,
-            model=sbp_model,
-        )
+        sbp_tok = train_superbpe_tokenizer(self.corpus, self.vocab_size, self.max_merges)
 
         return {
             "UniqToken (Unigram)": base_tok,
@@ -130,12 +116,6 @@ class DownstreamEvaluator:
         bytes_per_tok = self.raw_bytes / max(num_tokens, 1)
         tokens_per_word = num_tokens / self.raw_words
 
-        # Theoretical Entropy / Bits Per Byte
-        # BPC estimate based on vocabulary uniform bit cost
-        bits_per_token = math.log2(max(vocab_size, 2))
-        total_bits = num_tokens * bits_per_token
-        bits_per_byte = total_bits / max(self.raw_bytes, 1)
-
         return DownstreamMetrics(
             tokenizer_name=name,
             vocab_size=vocab_size,
@@ -147,7 +127,6 @@ class DownstreamEvaluator:
             effective_bytes_in_2k_context=int(2048 * bytes_per_tok),
             effective_bytes_in_4k_context=int(4096 * bytes_per_tok),
             effective_bytes_in_8k_context=int(8192 * bytes_per_tok),
-            estimated_bits_per_byte=round(bits_per_byte, 3),
             encode_time_sec=round(t_enc, 4),
         )
 
@@ -269,7 +248,7 @@ class DownstreamEvaluator:
         print("=" * 110)
         print("DOWNSTREAM LLM CONTEXT EFFICIENCY & INFORMATION DENSITY BENCHMARK")
         print("=" * 110)
-        header = f"{'Tokenizer':<24} | {'Vocab':<7} | {'Tokens':<7} | {'Bytes/Tok':<10} | {'Tok/Word':<9} | {'2K Window (Bytes)':<18} | {'Bits/Byte':<10}"
+        header = f"{'Tokenizer':<24} | {'Vocab':<7} | {'Tokens':<7} | {'Bytes/Tok':<10} | {'Tok/Word':<9} | {'2K Window (Bytes)':<18}"
         print(header)
         print("-" * len(header))
 
@@ -277,7 +256,7 @@ class DownstreamEvaluator:
             print(
                 f"{r.tokenizer_name:<24} | {r.vocab_size:<7} | {r.total_tokens:<7} | "
                 f"{r.bytes_per_token:<10} | {r.tokens_per_word:<9} | "
-                f"{r.effective_bytes_in_2k_context:<18} | {r.estimated_bits_per_byte:<10}"
+                f"{r.effective_bytes_in_2k_context:<18}"
             )
         print("=" * 110)
 

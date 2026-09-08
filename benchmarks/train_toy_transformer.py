@@ -7,7 +7,7 @@ Evaluates tokenizer efficiency in end-to-end Transformer Language Model training
    - UniqToken SuperBPE
    - Standard BPE
 2. Measures:
-   - Validation Cross-Entropy Loss
+    - Validation and test Cross-Entropy Loss
    - Bits-Per-Byte (BPB): Loss * Tokens / (Bytes * ln(2))
    - Effective context window utilization
    - Training step throughput (tokens/sec and bytes/sec)
@@ -29,6 +29,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import uniqtoken.bpe_trainer as bpe_trainer
 from uniqtoken.cem_merger import CrossEntropyMerging
+from uniqtoken.pre_tokenizer import Normalizer, RegexPreTokenizer
+from uniqtoken.seed_builder import SeedVocabularyBuilder
 from uniqtoken.tokenizer import CustomTokenizer
 
 
@@ -41,6 +43,8 @@ class PretrainingMetrics:
     evaluated_tokens: int
     evaluated_bytes: int
     compression_ratio: float  # bytes per token
+    validation_loss: float
+    validation_evaluated_tokens: int
     final_loss: float
     bits_per_byte: float
     tokens_per_sec: float
@@ -91,6 +95,47 @@ class BPETokenizerAdapter:
         return self.model.decode(token_ids)
 
 
+def train_superbpe_tokenizer(
+    corpus: List[str], target_vocab: int, max_merges: int = 30
+) -> CustomTokenizer:
+    """Train a budget-matched SuperBPE model with actual CEM merge capacity."""
+    if target_vocab < 2:
+        raise ValueError("target_vocab must be at least 2")
+    normalizer = Normalizer()
+    pre_tokenizer = RegexPreTokenizer()
+    chunks = [
+        chunk
+        for document in corpus
+        for chunk in pre_tokenizer.pre_tokenize(normalizer.normalize(document))
+    ]
+    seed_builder = SeedVocabularyBuilder(
+        target_vocab_size=target_vocab,
+        min_frequency=1,
+        ranking_strategy="pmi",
+    )
+    required_floor = sum(
+        token.is_required for token in seed_builder.build_seed_vocab(chunks, enforce_target_floor=False)
+    )
+    merge_capacity = min(max_merges, target_vocab - required_floor)
+    if merge_capacity < 1:
+        raise ValueError(
+            f"target_vocab={target_vocab} cannot reserve a SuperBPE merge above the required token floor "
+            f"({required_floor})"
+        )
+    base = CustomTokenizer.train_from_corpus(
+        corpus=corpus,
+        target_vocab_size=target_vocab - merge_capacity,
+        ranking_strategy="pmi",
+        min_frequency=1,
+        verbose=False,
+    )
+    cem = CrossEntropyMerging(max_merges=merge_capacity, cross_word=True, verbose=False)
+    model = cem.optimize(base.model, chunks=chunks)
+    if len(model.vocab) > target_vocab:
+        raise RuntimeError("SuperBPE training exceeded the requested vocabulary budget")
+    return CustomTokenizer(normalizer=base.normalizer, pre_tokenizer=base.pre_tokenizer, model=model)
+
+
 def create_tokenizers(target_vocab: int = 500, corpus: Optional[List[str]] = None) -> Dict[str, Any]:
     """Builds and returns calibrated tokenizers for downstream comparison."""
     tokenizers: Dict[str, Any] = {}
@@ -106,18 +151,9 @@ def create_tokenizers(target_vocab: int = 500, corpus: Optional[List[str]] = Non
     )
     tokenizers["UniqToken (Unigram)"] = unigram_tok
 
-    # 2. UniqToken SuperBPE
-    pretok_chunks: List[str] = []
-    for doc in training_corpus:
-        norm = unigram_tok.normalizer.normalize(doc)
-        pretok_chunks.extend(unigram_tok.pre_tokenizer.pre_tokenize(norm))
-    cem = CrossEntropyMerging(max_merges=30, cross_word=True, verbose=False)
-    sbp_model = cem.optimize(unigram_tok.model, chunks=pretok_chunks)
-    tokenizers["UniqToken (SuperBPE)"] = CustomTokenizer(
-        normalizer=unigram_tok.normalizer,
-        pre_tokenizer=unigram_tok.pre_tokenizer,
-        model=sbp_model,
-    )
+    # 2. UniqToken SuperBPE. Train a smaller base model so CEM has actual
+    # capacity to add merges while the final model remains budget-matched.
+    tokenizers["UniqToken (SuperBPE)"] = train_superbpe_tokenizer(training_corpus, target_vocab)
 
     # 3. Standard BPE — trained and applied on the same pre-tokenized chunks
     #    as the UniqToken variants so the baseline is directly comparable.
@@ -139,16 +175,20 @@ def create_tokenizers(target_vocab: int = 500, corpus: Optional[List[str]] = Non
     return tokenizers
 
 
-def _split_documents(corpus: List[str]) -> Tuple[List[str], List[str]]:
-    """Splits by document identity so exact duplicates cannot cross the boundary."""
+def _split_documents(corpus: List[str]) -> Tuple[List[str], List[str], List[str]]:
+    """Create disjoint train, validation, and test documents by identity."""
     unique_documents = list(dict.fromkeys(corpus))
-    if len(unique_documents) < 2:
-        return list(corpus), list(corpus)
-    validation_size = max(1, len(unique_documents) // 5)
-    validation_documents = set(unique_documents[-validation_size:])
-    train_documents = [doc for doc in corpus if doc not in validation_documents]
-    held_out_documents = [doc for doc in corpus if doc in validation_documents]
-    return train_documents, held_out_documents
+    if len(unique_documents) < 3:
+        raise ValueError("benchmark corpus must contain at least three distinct documents for train/validation/test separation")
+    held_out_size = max(1, len(unique_documents) // 5)
+    if held_out_size * 2 >= len(unique_documents):
+        held_out_size = 1
+    test_documents = set(unique_documents[-held_out_size:])
+    validation_documents = set(unique_documents[-2 * held_out_size : -held_out_size])
+    train_documents = [doc for doc in corpus if doc not in validation_documents and doc not in test_documents]
+    validation_docs = [doc for doc in corpus if doc in validation_documents]
+    test_docs = [doc for doc in corpus if doc in test_documents]
+    return train_documents, validation_docs, test_docs
 
 
 def train_toy_transformer(
@@ -181,8 +221,9 @@ def train_toy_transformer(
     if device not in ("auto", "cpu", "cuda"):
         raise ValueError(f"device must be 'auto', 'cpu', or 'cuda' (got {device!r})")
 
-    # Keep exact duplicate documents entirely on one side of the split.
-    train_docs, val_docs = _split_documents(corpus)
+    # Keep exact duplicates within one split. Validation and test are both
+    # held out; headline metrics use only the never-trained-on test documents.
+    train_docs, validation_docs, test_docs = _split_documents(corpus)
 
     def _flatten_ids(docs: List[str]) -> List[int]:
         flat: List[int] = []
@@ -192,12 +233,21 @@ def train_toy_transformer(
 
     flat_tokens = _flatten_ids(corpus)
     train_flat = _flatten_ids(train_docs)
-    val_flat = _flatten_ids(val_docs)
+    validation_flat = _flatten_ids(validation_docs)
+    test_flat = _flatten_ids(test_docs)
 
     total_tokens = len(flat_tokens)
     total_bytes = sum(len(doc.encode("utf-8")) for doc in corpus)
-    validation_bytes = sum(len(doc.encode("utf-8")) for doc in val_docs)
-    if total_tokens == 0 or total_bytes == 0 or not val_flat or validation_bytes == 0:
+    validation_bytes = sum(len(doc.encode("utf-8")) for doc in validation_docs)
+    test_bytes = sum(len(doc.encode("utf-8")) for doc in test_docs)
+    if (
+        total_tokens == 0
+        or total_bytes == 0
+        or len(validation_flat) < 2
+        or validation_bytes == 0
+        or len(test_flat) < 2
+        or test_bytes == 0
+    ):
         raise ValueError("corpus must produce non-empty token and byte sequences")
     compression = total_bytes / total_tokens
     token_to_id = getattr(getattr(tok, "model", None), "token_to_id", None)
@@ -262,7 +312,6 @@ def train_toy_transformer(
         data_tensor = torch.tensor(train_flat, dtype=torch.long)
         max_start = len(train_flat) - seq_len - 1
 
-        last_train_loss = 0.0
         model.train()
         for step in range(steps):
             optimizer.zero_grad()
@@ -282,51 +331,57 @@ def train_toy_transformer(
             loss = loss_fn(logits.view(-1, vocab_size), targets.view(-1))
             loss.backward()
             optimizer.step()
-            last_train_loss = float(loss.item())
 
-        # Evaluate on held-out validation windows
-        model.eval()
-        final_loss = last_train_loss
-        evaluated_tokens = 0
-        if len(val_flat) >= 2:
-            val_tensor = torch.tensor(val_flat, dtype=torch.long)
-            weighted_validation_loss = 0.0
+        def _held_out_loss(tokens: List[int]) -> Tuple[float, int]:
+            token_tensor = torch.tensor(tokens, dtype=torch.long)
+            weighted_loss = 0.0
+            count = 0
             with torch.no_grad():
-                for start in range(0, len(val_flat) - 1, seq_len):
-                    chunk = val_tensor[start : start + seq_len + 1].to(target_device)
+                for start in range(0, len(tokens) - 1, seq_len):
+                    chunk = token_tensor[start : start + seq_len + 1].to(target_device)
                     prediction_count = len(chunk) - 1
                     if prediction_count == 0:
                         continue
-                    vlogits = model(chunk[:-1].unsqueeze(0))
-                    vloss = loss_fn(vlogits.view(-1, vocab_size), chunk[1:].view(-1))
-                    weighted_validation_loss += float(vloss.item()) * prediction_count
-                    evaluated_tokens += prediction_count
-            if evaluated_tokens:
-                final_loss = weighted_validation_loss / evaluated_tokens
+                    logits = model(chunk[:-1].unsqueeze(0))
+                    loss = loss_fn(logits.view(-1, vocab_size), chunk[1:].view(-1))
+                    weighted_loss += float(loss.item()) * prediction_count
+                    count += prediction_count
+            if count == 0:
+                raise ValueError("held-out data must contain at least one predictable token")
+            return weighted_loss / count, count
+
+        # Record validation independently; final metrics remain test-only.
+        model.eval()
+        validation_loss, validation_evaluated_tokens = _held_out_loss(validation_flat)
+        final_loss, evaluated_tokens = _held_out_loss(test_flat)
         processed_tokens = steps * batch_size * seq_len
     else:
         # Fit a Laplace-smoothed unigram model on training data and evaluate it
-        # only on held-out tokens. This is a real held-out baseline, not entropy
-        # estimated from the validation distribution itself.
+        # only on held-out test tokens. This is a real held-out baseline, not
+        # entropy estimated from the evaluation distribution itself.
         start_time = time.perf_counter()
         train_counts: Dict[int, int] = {}
         for token_id in train_flat:
             train_counts[token_id] = train_counts.get(token_id, 0) + 1
         denominator = len(train_flat) + vocab_size
-        final_loss = sum(-math.log((train_counts.get(token_id, 0) + 1) / denominator) for token_id in val_flat) / len(
-            val_flat
-        )
-        evaluated_tokens = len(val_flat)
-        processed_tokens = len(train_flat) + len(val_flat)
+        validation_loss = sum(
+            -math.log((train_counts.get(token_id, 0) + 1) / denominator) for token_id in validation_flat
+        ) / len(validation_flat)
+        validation_evaluated_tokens = len(validation_flat)
+        final_loss = sum(
+            -math.log((train_counts.get(token_id, 0) + 1) / denominator) for token_id in test_flat
+        ) / len(test_flat)
+        evaluated_tokens = len(test_flat)
+        processed_tokens = len(train_flat) + len(test_flat)
 
     elapsed = max(time.perf_counter() - start_time, 1e-6)
     tok_per_sec = processed_tokens / elapsed
     bytes_per_sec = processed_tokens * compression / elapsed
 
     if evaluated_tokens == 0:
-        raise ValueError("validation data must contain at least one predictable token")
+        raise ValueError("test data must contain at least one predictable token")
     # Use the same held-out population for loss and byte accounting.
-    bits_per_byte = (final_loss * evaluated_tokens) / (validation_bytes * math.log(2.0))
+    bits_per_byte = (final_loss * evaluated_tokens) / (test_bytes * math.log(2.0))
 
     return PretrainingMetrics(
         model_name=model_label,
@@ -334,8 +389,10 @@ def train_toy_transformer(
         total_tokens=total_tokens,
         total_bytes=total_bytes,
         evaluated_tokens=evaluated_tokens,
-        evaluated_bytes=validation_bytes,
+        evaluated_bytes=test_bytes,
         compression_ratio=compression,
+        validation_loss=validation_loss,
+        validation_evaluated_tokens=validation_evaluated_tokens,
         final_loss=final_loss,
         bits_per_byte=bits_per_byte,
         tokens_per_sec=tok_per_sec,
@@ -345,14 +402,14 @@ def train_toy_transformer(
 
 def run_pretraining_benchmark(steps: int = 40, export_json: Optional[str] = None) -> List[PretrainingMetrics]:
     """Runs downstream mini-transformer pretraining benchmark across tokenizers."""
-    train_docs, _ = _split_documents(PRETRAINING_CORPUS)
+    train_docs, _, _ = _split_documents(PRETRAINING_CORPUS)
     tokenizers = create_tokenizers(target_vocab=500, corpus=train_docs)
     results: List[PretrainingMetrics] = []
 
     print("\n" + "=" * 110)
     print("DOWNSTREAM TRANSFORMER PRETRAINING & BITS-PER-BYTE (BPB) CONVERGENCE")
     print("=" * 110)
-    header = f"{'Tokenizer':<24} | {'Vocab':<6} | {'Tokens':<7} | {'Bytes/Tok':<10} | {'Loss':<8} | {'Bits/Byte (BPB)':<16} | {'Tok/Sec':<10}"
+    header = f"{'Tokenizer':<24} | {'Vocab':<6} | {'Tokens':<7} | {'Bytes/Tok':<10} | {'Val CE':<8} | {'Test CE':<8} | {'Bits/Byte (BPB)':<16} | {'Tok/Sec':<10}"
     print(header)
     print("-" * 110)
 
@@ -364,6 +421,7 @@ def run_pretraining_benchmark(steps: int = 40, export_json: Optional[str] = None
             f"{metrics.vocab_size:<6} | "
             f"{metrics.total_tokens:<7} | "
             f"{metrics.compression_ratio:<10.3f} | "
+            f"{metrics.validation_loss:<8.4f} | "
             f"{metrics.final_loss:<8.4f} | "
             f"{metrics.bits_per_byte:<16.4f} | "
             f"{metrics.tokens_per_sec:<10.1f}"
@@ -382,6 +440,8 @@ def run_pretraining_benchmark(steps: int = 40, export_json: Optional[str] = None
                 "evaluated_tokens": m.evaluated_tokens,
                 "evaluated_bytes": m.evaluated_bytes,
                 "bytes_per_token": m.compression_ratio,
+                "validation_loss": m.validation_loss,
+                "validation_evaluated_tokens": m.validation_evaluated_tokens,
                 "final_loss": m.final_loss,
                 "bits_per_byte": m.bits_per_byte,
                 "tokens_per_sec": m.tokens_per_sec,

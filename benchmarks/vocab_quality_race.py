@@ -6,7 +6,7 @@ candidate tokenizers on the same corpus and feed each one through
 they can be compared on:
 
 - bytes/token (compression)
-- held-out validation cross-entropy
+- held-out test cross-entropy
 - bits-per-byte (BPB)
 - tokens/sec and bytes/sec (training throughput; GPU is used when
   available — the underlying ``train_toy_transformer`` already
@@ -54,6 +54,7 @@ from benchmarks.train_toy_transformer import (  # noqa: E402
     PRETRAINING_CORPUS,
     BPETokenizerAdapter,
     _split_documents,
+    train_superbpe_tokenizer,
     train_toy_transformer,
 )
 
@@ -163,28 +164,7 @@ def _train_uniqtoken_bpe(budget: int, normalizer, pre_tokenizer, corpus: List[st
 
 def _train_uniqtoken_superbpe(budget: int, corpus: List[str]):
     """UniqToken Unigram + CEM cross-word merging (SuperBPE)."""
-    from uniqtoken.cem_merger import CrossEntropyMerging
-    from uniqtoken.tokenizer import CustomTokenizer
-
-    base = CustomTokenizer.train_from_corpus(
-        corpus=corpus,
-        target_vocab_size=budget,
-        ranking_strategy="pmi",
-        min_frequency=1,
-        verbose=False,
-    )
-    chunks: List[str] = []
-    for doc in corpus:
-        norm = base.normalizer.normalize(doc)
-        chunks.extend(base.pre_tokenizer.pre_tokenize(norm))
-    merge_budget = max(0, budget - len(base.model.vocab))
-    cem = CrossEntropyMerging(max_merges=min(30, merge_budget), cross_word=True, verbose=False)
-    sbp_model = cem.optimize(base.model, chunks=chunks)
-    return CustomTokenizer(
-        normalizer=base.normalizer,
-        pre_tokenizer=base.pre_tokenizer,
-        model=sbp_model,
-    )
+    return train_superbpe_tokenizer(corpus, budget)
 
 
 def _train_sentencepiece(budget: int, corpus: List[str]):
@@ -192,8 +172,9 @@ def _train_sentencepiece(budget: int, corpus: List[str]):
     import it into UniqToken for inference so the harness sees a uniform
     ``encode_to_ids`` interface.
 
-    SPM is allowed to shrink the requested vocab to its observed
-    vocabulary floor; we report the actual vocab size in the row.
+    SentencePiece is trained at exactly the requested vocabulary size. If it
+    cannot satisfy that request, the baseline is unavailable rather than being
+    silently replaced with a different model.
     """
     import sentencepiece as spm
     from uniqtoken.sentencepiece_importer import import_sentencepiece
@@ -203,31 +184,21 @@ def _train_sentencepiece(budget: int, corpus: List[str]):
         prefix = os.path.join(t, "sp")
         with open(cpath, "w", encoding="utf-8") as f:
             f.write("\n".join(corpus))
-        target = budget
-        for _ in range(5):
-            try:
-                spm.SentencePieceTrainer.Train(
-                    input=cpath,
-                    model_prefix=prefix,
-                    vocab_size=target,
-                    model_type="unigram",
-                    character_coverage=0.9999,
-                    byte_fallback=True,
-                    normalization_rule_name="nfkc",
-                    pad_id=0,
-                    unk_id=1,
-                    bos_id=-1,
-                    eos_id=-1,
-                    pad_piece="<pad>",
-                    unk_piece="<unk>",
-                )
-                break
-            except RuntimeError as exc:
-                if "Vocabulary size too high" not in str(exc):
-                    raise
-                target = max(64, target - 25)
-        else:
-            raise RuntimeError(f"SentencePiece could not fit a Unigram at any budget (started at {budget})")
+        spm.SentencePieceTrainer.Train(
+            input=cpath,
+            model_prefix=prefix,
+            vocab_size=budget,
+            model_type="unigram",
+            character_coverage=0.9999,
+            byte_fallback=True,
+            normalization_rule_name="nfkc",
+            pad_id=0,
+            unk_id=1,
+            bos_id=-1,
+            eos_id=-1,
+            pad_piece="<pad>",
+            unk_piece="<unk>",
+        )
         sp = spm.SentencePieceProcessor()
         sp.Load(prefix + ".model")
         actual_size = sp.GetPieceSize()
@@ -305,7 +276,7 @@ def run_vocab_quality_race(
     train_kwargs.setdefault("device", device)
     train_kwargs.setdefault("seed", seed)
     corpus_bytes = sum(len(d.encode("utf-8")) for d in PRETRAINING_CORPUS)
-    train_corpus, _ = _split_documents(PRETRAINING_CORPUS)
+    train_corpus, _, _ = _split_documents(PRETRAINING_CORPUS)
     report = RaceReport(
         budget=budget,
         corpus_size_documents=len(PRETRAINING_CORPUS),
@@ -338,7 +309,8 @@ def run_vocab_quality_race(
                 **train_kwargs,
             )
             entry.actual_vocab = actual
-            entry.notes = f"SPM trained vocab capped at {actual} due to observed piece count" if actual < budget else ""
+            if actual != budget:
+                raise RuntimeError(f"SentencePiece returned {actual} pieces for requested budget {budget}")
             report.entries.append(entry)
         except Exception as exc:
             warnings.warn(f"SentencePiece baseline unavailable ({exc}); skipping")
@@ -429,7 +401,7 @@ def print_report(report: RaceReport, device: str = "auto") -> None:
     print("=" * 110)
     header = (
         f"{'Tokenizer':<26} | {'Cat':<18} | {'Vocab':<6} | "
-        f"{'Bytes/Tok':<10} | {'Loss':<8} | {'BPB':<8} | {'Tok/Sec':<10}"
+        f"{'Bytes/Tok':<10} | {'Test CE':<8} | {'BPB':<8} | {'Tok/Sec':<10}"
     )
     print(header)
     print("-" * len(header))

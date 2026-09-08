@@ -265,18 +265,12 @@ class MultimodalTests(unittest.TestCase):
         img = [[[0.5, 0.5, 0.5] for _ in range(16)] for _ in range(16)]
         img_elem = ImageElement(pixels=img)
         seq = self.mm_tok.encode_interleaved(["test", img_elem, "test"])
-        self.mm_tok.audio_quantizer.codebooks[0][0][0] = 123.0
-
         with TemporaryDirectory() as directory:
             self.mm_tok.save(directory)
             loaded = MultimodalTokenizer.load(directory)
 
             self.assertEqual(loaded.vocab_size, self.mm_tok.vocab_size)
             self.assertEqual(loaded.codebook.num_embeddings, self.mm_tok.codebook.num_embeddings)
-            self.assertEqual(
-                loaded.audio_quantizer.codebooks[0][0][0],
-                123.0,
-            )
             seq2 = loaded.encode_interleaved(["test", img_elem, "test"])
             self.assertEqual(len(seq2.token_strings), len(seq.token_strings))
 
@@ -862,7 +856,7 @@ class StreamingDecoderTests(unittest.TestCase):
 
 
 class AudioCodecTests(unittest.TestCase):
-    def test_audio_rvq_and_multimodal_interleaving(self):
+    def test_audio_rvq_is_not_a_supported_multimodal_input(self):
         rvq = ResidualVectorQuantizer(num_quantizers=4, codebook_size=64, frame_size=320)
         synthetic_audio = [0.1 * math.sin(i * 0.1) for i in range(640)]
 
@@ -887,11 +881,8 @@ class AudioCodecTests(unittest.TestCase):
         mm_tok = MultimodalTokenizer(base_tok, patch_size=16, channels=3, num_visual_tokens=64)
 
         aud_segment = AudioSegment(samples=synthetic_audio)
-        seq = mm_tok.encode_interleaved(["audio", aud_segment, "audio"])
-
-        self.assertIn(0, seq.modality_mask)  # Text
-        self.assertIn(2, seq.modality_mask)  # Audio
-        self.assertIn(3, seq.modality_mask)  # Special
+        with self.assertRaises(NotImplementedError):
+            mm_tok.encode_interleaved(["audio", aud_segment, "audio"])
 
     def test_empty_audio_segment_and_encode_rejects_empty(self):
         rvq = ResidualVectorQuantizer(num_quantizers=4, codebook_size=64, frame_size=320)
@@ -1271,6 +1262,9 @@ class SuperBPETests(unittest.TestCase):
         _, _, _, base_tok, _, _ = self._make_pipeline()
         # Simulate extreme negative log-probs
         base_tok.model.vocab["rare_token"] = -1000.0
+        rare_id = max(base_tok.model.token_to_id.values()) + 1
+        base_tok.model.token_to_id["rare_token"] = rare_id
+        base_tok.model.id_to_token[rare_id] = "rare_token"
         adapted = VocabularyAdapter.expand_vocabulary(
             base_tok, ["xyzabc xyzabc xyzabc"], num_new_tokens=5, min_frequency=1, verbose=False
         )

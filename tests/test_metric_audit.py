@@ -2,17 +2,15 @@
 Metric Accounting & Vocabulary Allocation Audit.
 
 Mechanically verifies:
-1. Invariant: TID-BPB == log2(V) * (token_count / raw_byte_count) for every language
-2. Invariant: sum(language bytes) == total evaluation bytes
-3. Invariant: sum(language tokens) == total evaluation tokens
-4. Invariant: aggregate TID-BPB == (log2(V) * sum_tokens) / sum_bytes
-5. Vocabulary script allocation distribution (how many tokens out of V are Latin vs CJK vs Indic vs Cyrillic vs Arabic)
-6. Token sequence inspection across languages
+1. Invariant: sum(language bytes) == total evaluation bytes
+2. Invariant: sum(language tokens) == total evaluation tokens
+3. Invariant: aggregate tokens-per-byte is byte-weighted
+4. Vocabulary script allocation distribution (how many tokens out of V are Latin vs CJK vs Indic vs Cyrillic vs Arabic)
+5. Token sequence inspection across languages
 """
 
 from __future__ import annotations
 
-import math
 import sys
 import unittest
 from collections import Counter
@@ -145,8 +143,6 @@ class LanguageAuditEntry:
     token_count: int
     tokens_per_byte: float
     bytes_per_token: float
-    log2_vocab: float
-    computed_tid_bpb: float
     sample_tokens: List[str]
 
 
@@ -195,8 +191,6 @@ class MetricAccountingAuditTests(unittest.TestCase):
     def test_metric_accounting_invariants(self):
         """Mechanically verifies arithmetic consistency across all languages and totals."""
         entries: List[LanguageAuditEntry] = []
-        log2_v = math.log2(self.vocab_size)
-
         total_bytes = 0
         total_tokens = 0
         total_chars = 0
@@ -221,12 +215,6 @@ class MetricAccountingAuditTests(unittest.TestCase):
 
             tpb = num_tok / max(raw_b, 1)
             bpt = raw_b / max(num_tok, 1)
-            bpb = (log2_v * num_tok) / max(raw_b, 1)
-
-            # Invariant: BPB must strictly equal log2(V) * tpb
-            expected_bpb = log2_v * (num_tok / raw_b)
-            self.assertAlmostEqual(bpb, expected_bpb, places=6, msg=f"TID-BPB formula mismatch in {lang}")
-
             # Invariant: tpb * bpt == 1.0
             self.assertAlmostEqual(tpb * bpt, 1.0, places=6, msg=f"tpb * bpt reciprocal invariant failed in {lang}")
 
@@ -239,23 +227,26 @@ class MetricAccountingAuditTests(unittest.TestCase):
                     token_count=num_tok,
                     tokens_per_byte=tpb,
                     bytes_per_token=bpt,
-                    log2_vocab=log2_v,
-                    computed_tid_bpb=bpb,
                     sample_tokens=tokens[:10],
                 )
             )
 
-        # Aggregate Check
-        aggregate_bpb = (log2_v * total_tokens) / total_bytes
-        sum_weighted_bpb = sum((e.raw_byte_count / total_bytes) * e.computed_tid_bpb for e in entries)
-
-        # Invariant: Aggregate BPB must exactly equal the byte-weighted sum of language BPBs
-        self.assertAlmostEqual(aggregate_bpb, sum_weighted_bpb, places=6, msg="Aggregate TID-BPB weighting mismatch")
+        # Aggregate token density must equal the byte-weighted language values.
+        aggregate_tokens_per_byte = total_tokens / total_bytes
+        sum_weighted_tokens_per_byte = sum(
+            (e.raw_byte_count / total_bytes) * e.tokens_per_byte for e in entries
+        )
+        self.assertAlmostEqual(
+            aggregate_tokens_per_byte,
+            sum_weighted_tokens_per_byte,
+            places=6,
+            msg="Aggregate tokens-per-byte weighting mismatch",
+        )
 
         print("\n" + "=" * 115)
         print("LANGUAGE-BY-LANGUAGE METRIC ACCOUNTING AUDIT")
         print("=" * 115)
-        hdr = f"{'Language':<12} | {'Bytes':<8} | {'Chars':<8} | {'Tokens':<8} | {'B/Tok':<7} | {'Tok/Byte':<9} | {'TID-BPB':<9} | Sample First Tokens"
+        hdr = f"{'Language':<12} | {'Bytes':<8} | {'Chars':<8} | {'Tokens':<8} | {'B/Tok':<7} | {'Tok/Byte':<9} | Sample First Tokens"
         print(hdr)
         print("-" * len(hdr))
 
@@ -263,12 +254,12 @@ class MetricAccountingAuditTests(unittest.TestCase):
             sample_str = " | ".join(repr(t) for t in e.sample_tokens[:5])
             print(
                 f"{e.language:<12} | {e.raw_byte_count:<8} | {e.char_count:<8} | {e.token_count:<8} | "
-                f"{e.bytes_per_token:<7.2f} | {e.tokens_per_byte:<9.4f} | {e.computed_tid_bpb:<9.3f} | {sample_str}"
+                f"{e.bytes_per_token:<7.2f} | {e.tokens_per_byte:<9.4f} | {sample_str}"
             )
         print("=" * 115)
         print(f"Total Evaluation Bytes : {total_bytes:,}")
         print(f"Total Evaluation Tokens: {total_tokens:,}")
-        print(f"Aggregate TID-BPB      : {aggregate_bpb:.3f}")
+        print(f"Aggregate Tokens/Byte  : {aggregate_tokens_per_byte:.3f}")
         print("=" * 115 + "\n")
 
 
