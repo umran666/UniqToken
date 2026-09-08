@@ -38,10 +38,17 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-import matplotlib
+try:
+    import matplotlib
 
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    HAS_MATPLOTLIB = True
+except ImportError:
+    matplotlib = None
+    plt = None
+    HAS_MATPLOTLIB = False
 import numpy as np
 
 try:
@@ -765,6 +772,10 @@ def generate_tradeoff_plots(
     Panel C: Total Model Parameters & Embedding Memory Footprint
     Panel D: Microsecond Encoding Latency vs Vocabulary Budget
     """
+    if not HAS_MATPLOTLIB:
+        warnings.warn("matplotlib not installed; skipping plot generation.", stacklevel=2)
+        return output_prefix.with_suffix(".png"), output_prefix.with_suffix(".svg")
+
     fig, axes = plt.subplots(2, 2, figsize=(16, 12), dpi=300)
     colors = {
         "SentencePiece-Unigram": "#1f77b4",
