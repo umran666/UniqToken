@@ -70,5 +70,11 @@ jobs:
 
       - name: Run Viterbi LibFuzzer
         working-directory: crates/uniqtoken_core
+        env:
+          FUZZ_SECONDS_INPUT: ${{ github.event.inputs.fuzz_seconds }}
         run: |
-          cargo +nightly fuzz run fuzz_viterbi -- -max_total_time=${{ github.event.inputs.fuzz_seconds || 300 }} -print_final_stats=1
+          FUZZ_SECONDS="300"
+          if [[ "${FUZZ_SECONDS_INPUT}" =~ ^[0-9]+$ ]]; then
+            FUZZ_SECONDS="${FUZZ_SECONDS_INPUT}"
+          fi
+          cargo +nightly fuzz run fuzz_viterbi -- "-max_total_time=${FUZZ_SECONDS}" -print_final_stats=1

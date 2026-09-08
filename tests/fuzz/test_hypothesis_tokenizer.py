@@ -6,7 +6,7 @@ import unicodedata
 import unittest
 from math import log
 
-from hypothesis import HealthCheck, given, settings, strategies as st
+from hypothesis import HealthCheck, errors, given, settings, strategies as st
 
 from uniqtoken.byte_codec import ByteFallbackEngine
 from uniqtoken.multimodal.audio_codec import ResidualVectorQuantizer
@@ -49,7 +49,7 @@ settings.register_profile(
 active_profile = os.getenv("HYPOTHESIS_PROFILE", "default")
 try:
     settings.load_profile(active_profile)
-except (KeyError, ValueError):
+except (KeyError, ValueError, errors.InvalidArgument):
     settings.load_profile("default")
 
 # Reusable custom hypothesis strategies
