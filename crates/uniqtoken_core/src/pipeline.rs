@@ -11,6 +11,10 @@ use crate::viterbi::decode_cached;
 #[cfg(feature = "python")]
 use pyo3::prelude::*;
 #[cfg(feature = "python")]
+use pyo3::pybacked::PyBackedStr;
+#[cfg(feature = "python")]
+use pyo3::types::{PyBytes, PyList, PySequence, PyString, PyTuple};
+#[cfg(feature = "python")]
 use rayon::prelude::*;
 use regex::Regex;
 #[cfg(feature = "python")]
@@ -20,6 +24,59 @@ use std::sync::OnceLock;
 use unicode_normalization::UnicodeNormalization;
 #[cfg(feature = "python")]
 use unicode_segmentation::UnicodeSegmentation;
+
+/// Zero-copy PyBuffer borrowing: extracts borrowed `PyBackedStr` slices from incoming Python string collections
+/// (PyList, PyTuple, PySequence, and arbitrary Python iterables) referencing CPython's internal UTF-8 string byte buffers,
+/// eliminating intermediate `String` or `Vec<String>` heap allocations while retaining safe reference lifetime across threads.
+#[cfg(feature = "python")]
+pub fn extract_borrowed_strings<'py>(obj: &Bound<'py, PyAny>) -> CoreResult<Vec<PyBackedStr>> {
+    if obj.is_instance_of::<PyString>() || obj.is_instance_of::<PyBytes>() {
+        return core_error("batch input must be a list or sequence of strings, not a single string/bytes object");
+    }
+
+    if let Ok(py_list) = obj.cast::<PyList>() {
+        let mut out = Vec::with_capacity(py_list.len());
+        for item in py_list.iter() {
+            let py_backed = item
+                .extract::<PyBackedStr>()
+                .map_err(|e| CoreError(format!("batch elements must be strings: {}", e)))?;
+            out.push(py_backed);
+        }
+        Ok(out)
+    } else if let Ok(py_tuple) = obj.cast::<PyTuple>() {
+        let mut out = Vec::with_capacity(py_tuple.len());
+        for item in py_tuple.iter() {
+            let py_backed = item
+                .extract::<PyBackedStr>()
+                .map_err(|e| CoreError(format!("batch elements must be strings: {}", e)))?;
+            out.push(py_backed);
+        }
+        Ok(out)
+    } else if let Ok(py_seq) = obj.cast::<PySequence>() {
+        let len = py_seq.len().map_err(|e| CoreError(e.to_string()))?;
+        let mut out = Vec::with_capacity(len);
+        for i in 0..len {
+            let item = py_seq.get_item(i).map_err(|e| CoreError(e.to_string()))?;
+            let py_backed = item
+                .extract::<PyBackedStr>()
+                .map_err(|e| CoreError(format!("batch elements must be strings: {}", e)))?;
+            out.push(py_backed);
+        }
+        Ok(out)
+    } else if let Ok(iter) = obj.try_iter() {
+        let mut out = Vec::new();
+        for item in iter {
+            let item = item.map_err(|e| CoreError(e.to_string()))?;
+            let py_backed = item
+                .extract::<PyBackedStr>()
+                .map_err(|e| CoreError(format!("batch elements must be strings: {}", e)))?;
+            out.push(py_backed);
+        }
+        Ok(out)
+    } else {
+        core_error("batch input must be a list, tuple, or sequence of strings")
+    }
+}
 
 #[cfg(feature = "python")]
 static PRETOK_REGEX: OnceLock<Regex> = OnceLock::new();
@@ -235,9 +292,9 @@ pub fn pre_tokenize_native(text: &str, space_char: char) -> Vec<String> {
 #[cfg(feature = "python")]
 #[pyfunction]
 #[pyo3(signature = (texts, trie, byte_fallback=true, space_char=' '))]
-pub fn rust_encode_text_batch(
-    py: Python<'_>,
-    texts: Vec<String>,
+pub fn rust_encode_text_batch<'py>(
+    py: Python<'py>,
+    texts: &Bound<'py, PyAny>,
     trie: &RustPrefixTrie,
     byte_fallback: bool,
     space_char: char,
@@ -245,12 +302,13 @@ pub fn rust_encode_text_batch(
     if matches!(space_char, '\u{E000}' | '\u{E001}') {
         return core_error("space_char conflicts with reserved metaspace escape characters");
     }
+    let borrowed = extract_borrowed_strings(texts)?;
     py.detach(|| {
-        texts
+        borrowed
             .par_iter()
             .enumerate()
             .map(|(idx, raw_text)| {
-                let chunks = pre_tokenize_native(raw_text, space_char);
+                let chunks = pre_tokenize_native(raw_text.as_ref(), space_char);
                 let mut sentence_ids: Vec<u32> = Vec::with_capacity(chunks.len() * 2);
 
                 for chunk in chunks {
@@ -386,9 +444,9 @@ pub fn rust_encode_text_native(
 #[pyfunction]
 #[allow(clippy::too_many_arguments)]
 #[pyo3(signature = (texts, trie, byte_fallback=true, space_char='\u{2581}', normalize_unicode=true, normalize_unicode_spaces=true, normalize_punctuation=false, lowercase=false, collapse_whitespaces=false, strip_whitespace=false))]
-pub fn rust_encode_text_native_batch(
-    py: Python<'_>,
-    texts: Vec<String>,
+pub fn rust_encode_text_native_batch<'py>(
+    py: Python<'py>,
+    texts: &Bound<'py, PyAny>,
     trie: &RustPrefixTrie,
     byte_fallback: bool,
     space_char: char,
@@ -399,13 +457,14 @@ pub fn rust_encode_text_native_batch(
     collapse_whitespaces: bool,
     strip_whitespace: bool,
 ) -> CoreResult<Vec<Vec<String>>> {
+    let borrowed = extract_borrowed_strings(texts)?;
     // ponytail: same sequential-below-32 rule as the raw batch functions.
-    if texts.len() < 32 {
-        return texts
+    if borrowed.len() < 32 {
+        return borrowed
             .iter()
             .map(|text| {
                 encode_text_native_inner(
-                    text,
+                    text.as_ref(),
                     trie,
                     byte_fallback,
                     space_char,
@@ -420,11 +479,11 @@ pub fn rust_encode_text_native_batch(
             .collect();
     }
     py.detach(|| {
-        texts
+        borrowed
             .par_iter()
             .map(|text| {
                 encode_text_native_inner(
-                    text,
+                    text.as_ref(),
                     trie,
                     byte_fallback,
                     space_char,
@@ -515,9 +574,9 @@ pub fn rust_encode_text_native_ids(
 #[pyfunction]
 #[allow(clippy::too_many_arguments)]
 #[pyo3(signature = (texts, trie, byte_fallback=true, space_char='\u{2581}', normalize_unicode=true, normalize_unicode_spaces=true, normalize_punctuation=false, lowercase=false, collapse_whitespaces=false, strip_whitespace=false))]
-pub fn rust_encode_text_native_ids_batch(
-    py: Python<'_>,
-    texts: Vec<String>,
+pub fn rust_encode_text_native_ids_batch<'py>(
+    py: Python<'py>,
+    texts: &Bound<'py, PyAny>,
     trie: &RustPrefixTrie,
     byte_fallback: bool,
     space_char: char,
@@ -528,12 +587,13 @@ pub fn rust_encode_text_native_ids_batch(
     collapse_whitespaces: bool,
     strip_whitespace: bool,
 ) -> CoreResult<Vec<Vec<u32>>> {
-    if texts.len() < 32 {
-        return texts
+    let borrowed = extract_borrowed_strings(texts)?;
+    if borrowed.len() < 32 {
+        return borrowed
             .iter()
             .map(|text| {
                 encode_text_native_ids_inner(
-                    text,
+                    text.as_ref(),
                     trie,
                     byte_fallback,
                     space_char,
@@ -548,11 +608,11 @@ pub fn rust_encode_text_native_ids_batch(
             .collect();
     }
     py.detach(|| {
-        texts
+        borrowed
             .par_iter()
             .map(|text| {
                 encode_text_native_ids_inner(
-                    text,
+                    text.as_ref(),
                     trie,
                     byte_fallback,
                     space_char,

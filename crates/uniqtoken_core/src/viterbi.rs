@@ -23,7 +23,25 @@ const SEG_CACHE_MAX_CHUNK_BYTES: usize = 1024;
 /// Real corpora are Zipfian — a handful of distinct words make up most chunks —
 /// so a cache hit (hash lookup + Arc clone) replaces the whole trie walk + DP.
 /// `max_edges_per_node` pruning is NOT cacheable; callers pass `None` here.
+#[cfg(any(test, feature = "fuzzing"))]
+pub fn decode_cached(
+    text: &str,
+    trie: &RustPrefixTrie,
+    byte_fallback: bool,
+) -> Result<CachedSegmentation, String> {
+    decode_cached_inner(text, trie, byte_fallback)
+}
+
+#[cfg(not(any(test, feature = "fuzzing")))]
 pub(crate) fn decode_cached(
+    text: &str,
+    trie: &RustPrefixTrie,
+    byte_fallback: bool,
+) -> Result<CachedSegmentation, String> {
+    decode_cached_inner(text, trie, byte_fallback)
+}
+
+fn decode_cached_inner(
     text: &str,
     trie: &RustPrefixTrie,
     byte_fallback: bool,
@@ -206,7 +224,27 @@ pub fn rust_diagnostic_viterbi(
     Ok((t_trie, t_dp, edges, states))
 }
 
+#[cfg(any(test, feature = "fuzzing"))]
+pub fn viterbi_decode_chars(
+    chars: &[char],
+    trie: &RustPrefixTrie,
+    byte_fallback: bool,
+    max_edges_per_node: Option<usize>,
+) -> Result<Vec<ViterbiSpan>, String> {
+    viterbi_decode_chars_inner(chars, trie, byte_fallback, max_edges_per_node)
+}
+
+#[cfg(not(any(test, feature = "fuzzing")))]
 pub(crate) fn viterbi_decode_chars(
+    chars: &[char],
+    trie: &RustPrefixTrie,
+    byte_fallback: bool,
+    max_edges_per_node: Option<usize>,
+) -> Result<Vec<ViterbiSpan>, String> {
+    viterbi_decode_chars_inner(chars, trie, byte_fallback, max_edges_per_node)
+}
+
+fn viterbi_decode_chars_inner(
     chars: &[char],
     trie: &RustPrefixTrie,
     byte_fallback: bool,
@@ -468,9 +506,9 @@ pub fn rust_viterbi_decode(
 #[cfg(feature = "python")]
 #[pyfunction]
 #[pyo3(signature = (texts, trie, byte_fallback, max_edges_per_node=None))]
-pub fn rust_viterbi_decode_batch(
-    py: Python<'_>,
-    texts: Vec<String>,
+pub fn rust_viterbi_decode_batch<'py>(
+    py: Python<'py>,
+    texts: &Bound<'py, PyAny>,
     trie: &RustPrefixTrie,
     byte_fallback: bool,
     max_edges_per_node: Option<usize>,
@@ -478,6 +516,7 @@ pub fn rust_viterbi_decode_batch(
     if matches!(max_edges_per_node, Some(0)) {
         return core_error("max_edges_per_node must be greater than zero");
     }
+    let borrowed = crate::pipeline::extract_borrowed_strings(texts)?;
     let decode_item = |text: &str| -> Result<Vec<ViterbiSpan>, String> {
         if max_edges_per_node.is_none() {
             decode_cached(text, trie, byte_fallback).map(|seg| spans_from_cached(&seg))
@@ -491,16 +530,16 @@ pub fn rust_viterbi_decode_batch(
     // ponytail: rayon par_iter costs ~200us/call on Windows thread-pool wakeup;
     // below ~32 items sequential beats it ~4x. Upgrade path: work-estimate
     // (total bytes) instead of item count.
-    if texts.len() < 32 {
-        return texts
+    if borrowed.len() < 32 {
+        return borrowed
             .iter()
-            .map(|text| decode_item(text).map_err(CoreError))
+            .map(|text| decode_item(text.as_ref()).map_err(CoreError))
             .collect();
     }
     py.detach(|| {
-        texts
+        borrowed
             .par_iter()
-            .map(|text| decode_item(text).map_err(CoreError))
+            .map(|text| decode_item(text.as_ref()).map_err(CoreError))
             .collect()
     })
 }
@@ -509,9 +548,9 @@ pub fn rust_viterbi_decode_batch(
 #[cfg(feature = "python")]
 #[pyfunction]
 #[pyo3(signature = (texts, trie, byte_fallback, max_edges_per_node=None))]
-pub fn rust_encode_tokens_batch(
-    py: Python<'_>,
-    texts: Vec<String>,
+pub fn rust_encode_tokens_batch<'py>(
+    py: Python<'py>,
+    texts: &Bound<'py, PyAny>,
     trie: &RustPrefixTrie,
     byte_fallback: bool,
     max_edges_per_node: Option<usize>,
@@ -519,6 +558,7 @@ pub fn rust_encode_tokens_batch(
     if matches!(max_edges_per_node, Some(0)) {
         return core_error("max_edges_per_node must be greater than zero");
     }
+    let borrowed = crate::pipeline::extract_borrowed_strings(texts)?;
     let decode_item = |text: &str| -> Result<Vec<String>, String> {
         if max_edges_per_node.is_none() {
             decode_cached(text, trie, byte_fallback).map(|seg| tokens_from_cached(&seg))
@@ -534,16 +574,16 @@ pub fn rust_encode_tokens_batch(
     // ponytail: rayon par_iter costs ~200us/call on Windows thread-pool wakeup;
     // below ~32 items sequential beats it ~4x. Upgrade path: work-estimate
     // (total bytes) instead of item count.
-    if texts.len() < 32 {
-        return texts
+    if borrowed.len() < 32 {
+        return borrowed
             .iter()
-            .map(|text| decode_item(text).map_err(CoreError))
+            .map(|text| decode_item(text.as_ref()).map_err(CoreError))
             .collect();
     }
     py.detach(|| {
-        texts
+        borrowed
             .par_iter()
-            .map(|text| decode_item(text).map_err(CoreError))
+            .map(|text| decode_item(text.as_ref()).map_err(CoreError))
             .collect()
     })
 }
@@ -552,9 +592,9 @@ pub fn rust_encode_tokens_batch(
 #[cfg(feature = "python")]
 #[pyfunction]
 #[pyo3(signature = (texts, trie, byte_fallback, max_edges_per_node=None))]
-pub fn rust_encode_ids_batch(
-    py: Python<'_>,
-    texts: Vec<String>,
+pub fn rust_encode_ids_batch<'py>(
+    py: Python<'py>,
+    texts: &Bound<'py, PyAny>,
     trie: &RustPrefixTrie,
     byte_fallback: bool,
     max_edges_per_node: Option<usize>,
@@ -562,6 +602,7 @@ pub fn rust_encode_ids_batch(
     if matches!(max_edges_per_node, Some(0)) {
         return core_error("max_edges_per_node must be greater than zero");
     }
+    let borrowed = crate::pipeline::extract_borrowed_strings(texts)?;
     let decode_item = |text: &str| -> Result<Vec<u32>, String> {
         if max_edges_per_node.is_none() {
             decode_cached(text, trie, byte_fallback).and_then(|seg| ids_from_cached(&seg))
@@ -578,16 +619,16 @@ pub fn rust_encode_ids_batch(
     // ponytail: rayon par_iter costs ~200us/call on Windows thread-pool wakeup;
     // below ~32 items sequential beats it ~4x. Upgrade path: work-estimate
     // (total bytes) instead of item count.
-    if texts.len() < 32 {
-        return texts
+    if borrowed.len() < 32 {
+        return borrowed
             .iter()
-            .map(|text| decode_item(text).map_err(CoreError))
+            .map(|text| decode_item(text.as_ref()).map_err(CoreError))
             .collect();
     }
     py.detach(|| {
-        texts
+        borrowed
             .par_iter()
-            .map(|text| decode_item(text).map_err(CoreError))
+            .map(|text| decode_item(text.as_ref()).map_err(CoreError))
             .collect()
     })
 }

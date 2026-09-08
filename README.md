@@ -215,8 +215,10 @@ Evaluated against standard production tokenizers on multilingual, code, and math
 | **Arithmetic / Math** | 7,560 | 5,340 | 1.416 | 3.787 | 178,967 | 0.91 MB | **0.0%** |
 | **Agglutinative (Turkish)** | 9,510 | 2,280 | 4.171 | 2.375 | 110,460 | 1.01 MB | **0.0%** |
 | **Agglutinative (Finnish)** | 8,760 | 1,950 | 4.492 | 2.321 | 107,154 | 0.99 MB | **0.0%** |
-| **Agglutinative (Swahili)** | 12,840 | 3,480 | 3.690 | 1.841 | 112,476 | 1.49 MB | **0.0%** |
-| **Yoruba** | 16,050 | 6,690 | 2.399 | 3.097 | 170,547 | 1.27 MB | **0.0%** |
+| **Agglutinative (Swahili)** | 12,840 | 4,800 | 2.675 | 2.540 | 112,476 | 1.49 MB | **0.0%** |
+| **Tonal Yoruba** | 16,050 | 6,840 | 2.346 | 3.167 | 170,547 | 1.27 MB | **0.0%** |
+| **Agglutinative (Malayalam)** | 24,450 | 2,640 | 9.261 | 2.839 | 118,520 | 1.35 MB | **0.0%** |
+| **Ge'ez (Amharic)** | 25,530 | 2,310 | 11.052 | 1.283 | 124,180 | 1.42 MB | **0.0%** |
 
 #### 5. High-Throughput Tokenization Engine Parity
 

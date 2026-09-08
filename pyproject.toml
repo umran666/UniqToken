@@ -59,6 +59,7 @@ test = [
     "sentencepiece>=0.1.99",
     "tiktoken>=0.7.0",
     "jinja2>=3.1",
+    "hypothesis>=6.0.0",
 ]
 tiktoken = [
     "tiktoken>=0.7.0"
@@ -87,7 +88,8 @@ all = [
     "ruff>=0.4.0",
     "mypy>=1.8.0",
     "tqdm>=4.65.0",
-    "jinja2>=3.1"
+    "jinja2>=3.1",
+    "hypothesis>=6.0.0",
 ]
 
 [project.urls]
@@ -98,7 +100,7 @@ Repository = "https://github.com/umran666/uniqtoken"
 uniqtoken = "uniqtoken.cli:main"
 
 [tool.setuptools]
-packages = ["uniqtoken", "uniqtoken.multimodal", "benchmarks"]
+packages = ["uniqtoken", "uniqtoken.multimodal", "uniqtoken.integrations", "benchmarks"]
 
 [tool.ruff]
 line-length = 120

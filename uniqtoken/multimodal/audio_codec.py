@@ -18,6 +18,8 @@ class AudioSegment:
     def __post_init__(self) -> None:
         if not isinstance(self.samples, list):
             raise TypeError(f"samples must be a list of floats, got {type(self.samples).__name__}")
+        if not self.samples:
+            raise ValueError("samples cannot be empty")
         if not isinstance(self.sample_rate, int) or isinstance(self.sample_rate, bool) or self.sample_rate <= 0:
             raise ValueError("sample_rate must be a positive integer")
         if any(not isinstance(value, (int, float)) or not math.isfinite(value) for value in self.samples):
@@ -110,7 +112,7 @@ class ResidualVectorQuantizer:
         if any(not isinstance(value, (int, float)) or not math.isfinite(value) for value in samples):
             raise ValueError("samples must contain only finite numeric values")
         if not samples:
-            return [], 0
+            raise ValueError("samples cannot be empty")
 
         # Frame audio samples
         n_samples = len(samples)

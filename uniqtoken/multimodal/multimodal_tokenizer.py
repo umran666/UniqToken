@@ -129,12 +129,12 @@ class MultimodalTokenizer:
         """
         if not isinstance(image_pixels, list):
             raise TypeError(f"image_pixels must be a list, got {type(image_pixels).__name__}")
-        if not image_pixels:
-            return [], []
+        if not image_pixels or not image_pixels[0]:
+            raise ValueError("image_pixels cannot be empty")
 
         patches, (grid_h, grid_w) = self.patcher.extract_patches(image_pixels)
         if not patches:
-            return [], []
+            raise ValueError("image_pixels must contain at least one valid patch")
 
         # Quantize each patch to its discrete codebook token
         patch_vectors = [p.pixels for p in patches]
@@ -158,7 +158,7 @@ class MultimodalTokenizer:
 
     def encode_interleaved(
         self,
-        elements: List[Union[str, "ImageElement", AudioSegment]],
+        elements: List[Union[str, "TextElement", "ImageElement", AudioSegment]],
     ) -> MultimodalSequence:
         """
         Encodes a mixed stream of text, images, and audio into a unified multimodal token stream.
@@ -168,14 +168,19 @@ class MultimodalTokenizer:
         modality_mask: List[int] = []
 
         for element in elements:
-            if isinstance(element, str):
-                text_toks = self.text_tokenizer.encode(element, allowed_special=set(self.multimodal_specials))
+            if isinstance(element, (str, TextElement)):
+                raw_text = element.text if isinstance(element, TextElement) else element
+                text_toks = self.text_tokenizer.encode(raw_text, allowed_special=set(self.multimodal_specials))
                 for t in text_toks:
                     all_tokens.append(t)
                     is_special = t.startswith("<|") and t.endswith("|>")
                     modality_mask.append(3 if is_special else 0)
             elif isinstance(element, ImageElement):
+                if not element.pixels or not element.pixels[0]:
+                    raise ValueError("ImageElement pixels cannot be empty")
                 img_toks, patches = self.encode_image(element.pixels)
+                if not img_toks:
+                    raise ValueError("ImageElement produced no tokens; image cannot be empty")
                 all_patches.extend(patches)
                 for t in img_toks:
                     all_tokens.append(t)
@@ -188,7 +193,11 @@ class MultimodalTokenizer:
                     else:
                         modality_mask.append(1)  # Vision modality
             elif isinstance(element, AudioSegment):
+                if not element.samples:
+                    raise ValueError("AudioSegment samples cannot be empty")
                 aud_toks, _ = self.audio_quantizer.encode_audio(element.samples)
+                if not aud_toks:
+                    raise ValueError("AudioSegment produced no tokens; audio cannot be empty")
                 for t in aud_toks:
                     all_tokens.append(t)
                     if t in {"<|audio_start|>", "<|audio_end|>"} or t.startswith("<|aud_len_"):
@@ -197,7 +206,7 @@ class MultimodalTokenizer:
                         modality_mask.append(2)  # Audio modality
             else:
                 raise TypeError(
-                    f"elements must contain str, ImageElement, or AudioSegment, got {type(element).__name__}"
+                    f"elements must contain str, TextElement, ImageElement, or AudioSegment, got {type(element).__name__}"
                 )
 
         token_ids = [self._assign_id(t) for t in all_tokens]
@@ -430,6 +439,23 @@ class MultimodalTokenizer:
 
 
 @dataclass(frozen=True)
+class TextElement:
+    """
+    Explicit container for text data in interleaved sequences.
+    Complements ImageElement and AudioSegment.
+    """
+
+    text: str
+    metadata: Optional[dict[str, object]] = None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.text, str):
+            raise TypeError(f"text must be a str, got {type(self.text).__name__}")
+        if self.metadata is not None and not isinstance(self.metadata, dict):
+            raise TypeError(f"metadata must be a dict or None, got {type(self.metadata).__name__}")
+
+
+@dataclass(frozen=True)
 class ImageElement:
     """
     Explicit container for image data in interleaved sequences.
@@ -438,3 +464,11 @@ class ImageElement:
 
     pixels: List[List[List[float]]]
     metadata: Optional[dict[str, object]] = None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.pixels, list):
+            raise TypeError(f"pixels must be a list, got {type(self.pixels).__name__}")
+        if not self.pixels or not self.pixels[0]:
+            raise ValueError("image pixels cannot be empty")
+        if self.metadata is not None and not isinstance(self.metadata, dict):
+            raise TypeError(f"metadata must be a dict or None, got {type(self.metadata).__name__}")

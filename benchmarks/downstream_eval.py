@@ -193,6 +193,77 @@ class DownstreamEvaluator:
 
         return results
 
+    def evaluate_low_resource_languages(
+        self,
+        corpora: Optional[Dict[str, str]] = None,
+    ) -> List[Dict[str, Any]]:
+        """
+        Evaluates compression, fertility, and fallback rates across underrepresented
+        language corpora (Swahili, Yoruba, Malayalam, Amharic) against external baselines.
+
+        Args:
+            corpora: Optional mapping from language dataset name to text. If None,
+                loads the underrepresented corpora directly from TokenizerBenchmarkSuite.
+
+        Returns:
+            List of dictionaries containing evaluation metrics for each language.
+        """
+        if corpora is None:
+            from benchmarks.benchmark_suite import TokenizerBenchmarkSuite
+
+            corpora = {
+                k: v
+                for k, v in TokenizerBenchmarkSuite.BENCHMARK_CORPORA.items()
+                if k in ("Agglutinative_Swahili", "Tonal_Yoruba", "Agglutinative_Malayalam", "Geez_Amharic")
+            }
+
+        suite_models = self.train_uniqtoken_models()
+        tok = suite_models.get("UniqToken (SuperBPE)") or suite_models["UniqToken (Unigram)"]
+
+        try:
+            import tiktoken
+
+            enc = tiktoken.get_encoding("cl100k_base")
+        except Exception:
+            enc = None
+
+        results: List[Dict[str, Any]] = []
+        for name, text in corpora.items():
+            raw_bytes = len(text.encode("utf-8"))
+            words = max(len(text.split()), 1)
+
+            tokens_with_offsets = tok.encode_with_offsets(text)
+            tok_count = len(tokens_with_offsets)
+            bpt = round(raw_bytes / max(tok_count, 1), 2)
+            fertility = round(tok_count / words, 2)
+
+            fb_count = sum(1 for t in tokens_with_offsets if t.text.startswith("<0x") and t.text.endswith(">"))
+            fallback_pct = round((fb_count / max(tok_count, 1)) * 100.0, 2)
+
+            if enc is not None:
+                tt_tokens = len(enc.encode(text))
+                tt_bpt = round(raw_bytes / max(tt_tokens, 1), 2)
+                tt_fert = round(tt_tokens / words, 2)
+            else:
+                tt_tokens = 0
+                tt_bpt = 0.0
+                tt_fert = 0.0
+
+            results.append(
+                {
+                    "dataset": name,
+                    "raw_bytes": raw_bytes,
+                    "tokens": tok_count,
+                    "bytes_per_token": bpt,
+                    "fertility": fertility,
+                    "fallback_rate_pct": fallback_pct,
+                    "tiktoken_tokens": tt_tokens,
+                    "tiktoken_bytes_per_token": tt_bpt,
+                    "tiktoken_fertility": tt_fert,
+                }
+            )
+        return results
+
     def print_report(self, results: List[DownstreamMetrics]) -> None:
         """Formats and prints the downstream comparative report."""
         print("=" * 110)

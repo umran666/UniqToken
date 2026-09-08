@@ -35,6 +35,7 @@ _LAZY_MULTIMODAL = {
     "ImageElement": "multimodal.multimodal_tokenizer",
     "MultimodalSequence": "multimodal.multimodal_tokenizer",
     "MultimodalTokenizer": "multimodal.multimodal_tokenizer",
+    "TextElement": "multimodal.multimodal_tokenizer",
     "HAS_TORCH": "multimodal.neural_codecs",
     "NeuralAudioCodec": "multimodal.neural_codecs",
     "NeuralCodecFacade": "multimodal.neural_codecs",
@@ -58,9 +59,16 @@ _LAZY_COMPAT = {
     "register_tokenizer": "hf_adapter",
 }
 
+_LAZY_INTEGRATIONS = {
+    "UniqTokenVLLMAdapter": "integrations.vllm",
+    "VLLMDetokenizer": "integrations.vllm",
+    "VLLMStreamingState": "integrations.vllm",
+    "AsyncVLLMStreamingWorker": "integrations.vllm",
+}
+
 
 def __getattr__(name: str):
-    module_name = _LAZY_MULTIMODAL.get(name) or _LAZY_COMPAT.get(name)
+    module_name = _LAZY_MULTIMODAL.get(name) or _LAZY_COMPAT.get(name) or _LAZY_INTEGRATIONS.get(name)
     if module_name is None:
         raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
     import importlib
@@ -73,7 +81,7 @@ def __getattr__(name: str):
 
 
 def __dir__() -> list[str]:
-    return sorted(set(globals()) | set(_LAZY_MULTIMODAL) | set(_LAZY_COMPAT))
+    return sorted(set(globals()) | set(_LAZY_MULTIMODAL) | set(_LAZY_COMPAT) | set(_LAZY_INTEGRATIONS))
 
 
 __all__ = [
@@ -115,6 +123,7 @@ __all__ = [
     "load_binary",
     "MultimodalTokenizer",
     "MultimodalSequence",
+    "TextElement",
     "ImageElement",
     "DynamicImagePatcher",
     "ImagePatch",
@@ -138,4 +147,8 @@ __all__ = [
     "UniqTokenizerFast",
     "HAS_TRANSFORMERS",
     "register_tokenizer",
+    "UniqTokenVLLMAdapter",
+    "VLLMDetokenizer",
+    "VLLMStreamingState",
+    "AsyncVLLMStreamingWorker",
 ]

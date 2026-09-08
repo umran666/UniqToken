@@ -8,6 +8,7 @@ from uniqtoken.multimodal.multimodal_tokenizer import (
     ImageElement,
     MultimodalSequence,
     MultimodalTokenizer,
+    TextElement,
 )
 from uniqtoken.multimodal.neural_codecs import (
     HAS_TORCH,
@@ -20,6 +21,7 @@ from uniqtoken.multimodal.visual_codebook import VisualCodebook
 __all__ = [
     "MultimodalTokenizer",
     "MultimodalSequence",
+    "TextElement",
     "ImageElement",
     "DynamicImagePatcher",
     "ImagePatch",
