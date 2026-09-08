@@ -337,7 +337,15 @@ pub unsafe extern "C" fn uniqtoken_encode(
     out_ids: *mut *mut u32,
     out_len: *mut usize,
 ) -> i32 {
-    if handle.is_null() || text.is_null() || out_ids.is_null() || out_len.is_null() {
+    if out_ids.is_null() || out_len.is_null() {
+        return UNIQTOKEN_ERR_NULL_PTR;
+    }
+    // Initialize outputs first: every error path below must leave behind
+    // NULL + 0 (which `uniqtoken_free_tokens` accepts) rather than whatever
+    // the caller had in those slots, so unconditional cleanup is safe.
+    *out_ids = std::ptr::null_mut();
+    *out_len = 0;
+    if handle.is_null() || text.is_null() {
         return UNIQTOKEN_ERR_NULL_PTR;
     }
     let bytes = std::slice::from_raw_parts(text as *const u8, text_len);

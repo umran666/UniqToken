@@ -47,6 +47,7 @@ static UniqTokenHandle *make_tokenizer(void) {
 static int check_roundtrip(void) {
     static const char text[] = "hello world";
     static const uint32_t expected[] = {0, 1};
+    int before = failures;
     UniqTokenHandle *handle = make_tokenizer();
     if (handle == NULL) {
         return 1;
@@ -61,11 +62,14 @@ static int check_roundtrip(void) {
     }
     uniqtoken_free_tokens(ids, len);
     uniqtoken_destroy(handle);
-    printf("PASS roundtrip hello-world -> [0, 1]\n");
+    if (failures == before) {
+        printf("PASS roundtrip hello-world -> [0, 1]\n");
+    }
     return failures != 0;
 }
 
 static int check_edge_cases(void) {
+    int before = failures;
     UniqTokenHandle *handle = make_tokenizer();
     if (handle == NULL) {
         return 1;
@@ -82,18 +86,23 @@ static int check_edge_cases(void) {
     uniqtoken_free_tokens(NULL, 0);
     uniqtoken_destroy(NULL);
     uniqtoken_destroy(handle);
-    printf("PASS edge cases (empty input, null handle, null free)\n");
+    if (failures == before) {
+        printf("PASS edge cases (empty input, null handle, null free)\n");
+    }
     return failures != 0;
 }
 
 static int check_bad_vocab(void) {
     static const char *bad[] = {"not json", "[]", "[[]]", "[\"lonely\"]"};
+    int before = failures;
     size_t i;
     for (i = 0; i < sizeof(bad) / sizeof(bad[0]); ++i) {
         CHECK(uniqtoken_create(bad[i]) == NULL);
     }
     CHECK(uniqtoken_create(NULL) == NULL);
-    printf("PASS malformed vocabularies rejected\n");
+    if (failures == before) {
+        printf("PASS malformed vocabularies rejected\n");
+    }
     return failures != 0;
 }
 
