@@ -43,9 +43,19 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
-import torch
-import torch.nn as nn
-from torch.utils.data import DataLoader, Dataset
+
+try:
+    import torch
+    import torch.nn as nn
+    from torch.utils.data import DataLoader, Dataset
+
+    HAS_TORCH = True
+except ImportError:
+    torch = None
+    nn = None
+    DataLoader = None
+    Dataset = object
+    HAS_TORCH = False
 
 # Add project root to sys.path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -310,7 +320,6 @@ def train_sentencepiece_unigram(train_docs: List[str], target_vocab: int) -> Tok
     num_unique_chars = len(set(all_text))
     # If vocab size is smaller than unique characters + special tokens, SentencePiece requires lower coverage
     char_cov = 1.0 if target_vocab >= (num_unique_chars + 50) else 0.995
-    actual_target = max(target_vocab, min(num_unique_chars + 32, target_vocab))
 
     with tempfile.TemporaryDirectory() as tmp_dir:
         tmp = Path(tmp_dir)
@@ -321,14 +330,18 @@ def train_sentencepiece_unigram(train_docs: List[str], target_vocab: int) -> Tok
             input=str(sp_corpus),
             model_prefix=str(sp_prefix),
             model_type="unigram",
-            vocab_size=actual_target,
+            vocab_size=target_vocab,
             character_coverage=char_cov,
             byte_fallback=True,
-            hard_vocab_limit=False,
+            hard_vocab_limit=True,
             minloglevel=2,
         )
         sp_proc = spm.SentencePieceProcessor(model_file=str(sp_prefix) + ".model")
         actual_v = sp_proc.get_piece_size()
+        if actual_v != target_vocab:
+            raise ValueError(
+                f"SentencePiece produced {actual_v} pieces; strictly matched budget requires {target_vocab}"
+            )
 
         def _encode_ids(t: str) -> List[int]:
             return sp_proc.encode(t, out_type=int)
@@ -423,31 +436,39 @@ def calculate_analytical_flops_per_step(
     return p_total, p_non_embed, flops_per_step
 
 
-class CausalMiniTransformer(nn.Module):
-    def __init__(self, vocab_size: int, cfg: LMArchConfig, block_size: int = 64):
-        super().__init__()
-        self.block_size = block_size
-        self.embed = nn.Embedding(vocab_size, cfg.d_model)
-        self.pos = nn.Parameter(torch.randn(1, block_size, cfg.d_model) * 0.02)
+if HAS_TORCH:
 
-        layer = nn.TransformerEncoderLayer(
-            d_model=cfg.d_model,
-            nhead=cfg.num_heads,
-            dim_feedforward=cfg.d_ff,
-            batch_first=True,
-            norm_first=True,
-        )
-        self.encoder = nn.TransformerEncoder(layer, num_layers=cfg.num_layers)
-        self.ln_f = nn.LayerNorm(cfg.d_model)
-        self.head = nn.Linear(cfg.d_model, vocab_size, bias=False)
+    class CausalMiniTransformer(nn.Module):
+        def __init__(self, vocab_size: int, cfg: LMArchConfig, block_size: int = 64):
+            super().__init__()
+            self.block_size = block_size
+            self.embed = nn.Embedding(vocab_size, cfg.d_model)
+            self.pos = nn.Parameter(torch.randn(1, block_size, cfg.d_model) * 0.02)
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        b, t = x.size()
-        causal_mask = torch.triu(torch.full((t, t), float("-inf"), device=x.device), diagonal=1)
-        h = self.embed(x) + self.pos[:, :t, :]
-        h = self.encoder(h, mask=causal_mask, is_causal=True)
-        h = self.ln_f(h)
-        return self.head(h)
+            layer = nn.TransformerEncoderLayer(
+                d_model=cfg.d_model,
+                nhead=cfg.num_heads,
+                dim_feedforward=cfg.d_ff,
+                batch_first=True,
+                norm_first=True,
+            )
+            self.encoder = nn.TransformerEncoder(layer, num_layers=cfg.num_layers)
+            self.ln_f = nn.LayerNorm(cfg.d_model)
+            self.head = nn.Linear(cfg.d_model, vocab_size, bias=False)
+
+        def forward(self, x: torch.Tensor) -> torch.Tensor:
+            b, t = x.size()
+            causal_mask = torch.triu(torch.full((t, t), float("-inf"), device=x.device), diagonal=1)
+            h = self.embed(x) + self.pos[:, :t, :]
+            h = self.encoder(h, mask=causal_mask, is_causal=True)
+            h = self.ln_f(h)
+            return self.head(h)
+
+else:
+
+    class CausalMiniTransformer:  # type: ignore[no-redef]
+        def __init__(self, *args: Any, **kwargs: Any):
+            pass
 
 
 def train_and_eval_transformer(
@@ -458,7 +479,7 @@ def train_and_eval_transformer(
     total_val_bytes: int,
     target_flops: float,
     block_size: int = 64,
-    device: Optional[torch.device] = None,
+    device: Optional[Any] = None,
     seed: int = 42,
 ) -> Tuple[float, float, int, int, int, int, float, float, float]:
     """
@@ -466,6 +487,9 @@ def train_and_eval_transformer(
     Returns:
     (val_ce_loss, lm_bpb, p_total, p_non_embed, steps, tokens_processed, actual_flops, peak_vram_mb, wall_clock_sec)
     """
+    if not HAS_TORCH:
+        raise RuntimeError("PyTorch is required for Transformer LM evaluation. Install torch to execute benchmarks.")
+
     if device is None:
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -474,6 +498,9 @@ def train_and_eval_transformer(
     random.seed(seed)
 
     if device.type == "cuda":
+        torch.cuda.manual_seed_all(seed)
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
         torch.cuda.reset_peak_memory_stats(device)
 
     p_total, p_non_embed, flops_per_step = calculate_analytical_flops_per_step(tok.vocab_size, cfg, block_size)
@@ -482,10 +509,10 @@ def train_and_eval_transformer(
     tokens_processed = steps * cfg.batch_size * block_size
 
     class SeqDS(Dataset):
-        def __init__(self, ids: List[int], b_sz: int):
+        def __init__(self, ids: List[int], blk: int):
             self.chunks = []
-            for i in range(0, max(len(ids) - b_sz + 1, 0), b_sz):
-                self.chunks.append((ids[i : i + b_sz], ids[i + 1 : i + b_sz + 1]))
+            for i in range(0, max(len(ids) - blk, 0), blk):
+                self.chunks.append((ids[i : i + blk], ids[i + 1 : i + blk + 1]))
 
         def __len__(self):
             return max(len(self.chunks), 1)
@@ -645,7 +672,9 @@ def run_benchmark(
             tpb = 1.0 / bpt
             fert = len(val_pieces) / max(num_words, 1)
 
-            latency_us = measure_encoding_latency(tok, train_docs[:50])
+            # Stride so the latency sample spans every domain, not just the first.
+            stride = max(1, len(train_docs) // 50)
+            latency_us = measure_encoding_latency(tok, train_docs[::stride][:50])
 
             current_rss, peak_rss = tracemalloc.get_traced_memory()
             peak_rss_mb = peak_rss / (1024 * 1024)
@@ -713,8 +742,9 @@ def run_benchmark(
         "date": datetime.datetime.now().isoformat(),
         "device": str(target_device),
         "device_name": device_name,
-        "cuda_available": torch.cuda.is_available(),
-        "pytorch_version": torch.__version__,
+        "cuda_available": torch.cuda.is_available() if HAS_TORCH else False,
+        "pytorch_version": torch.__version__ if HAS_TORCH else "N/A",
+        "deterministic": True,
         "vocab_budgets": vocab_budgets,
         "lm_tiers": lm_tiers,
         "target_flops": target_flops,

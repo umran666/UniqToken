@@ -10,7 +10,14 @@ import tempfile
 from pathlib import Path
 
 import pytest
-import torch
+
+try:
+    import torch
+
+    HAS_TORCH = True
+except ImportError:
+    torch = None
+    HAS_TORCH = False
 
 from benchmarks.run_matched_budget_eval import (
     DEFAULT_VOCAB_BUDGETS,
@@ -35,6 +42,17 @@ def test_generate_balanced_multilingual_corpus():
         assert len(text) > 0, f"Validation text for {domain} is empty"
 
 
+def test_generate_1mib_corpus():
+    train_docs, val_by_domain = generate_balanced_multilingual_corpus(num_docs_per_lang=260, seed=42)
+    total_bytes = sum(len(d.encode("utf-8")) for d in train_docs) + sum(
+        len(v.encode("utf-8")) for v in val_by_domain.values()
+    )
+    # Check that corpus size scales to approximately 1 MiB (within 0.85 - 1.25 MiB)
+    assert 0.85 * 1024 * 1024 <= total_bytes <= 1.25 * 1024 * 1024, (
+        f"Expected approx 1 MiB corpus, got {total_bytes / (1024 * 1024):.2f} MiB"
+    )
+
+
 def test_analytical_flops_calculation():
     cfg = LM_CONFIGS["Small (2L-128d)"]
     p_total, p_non_embed, flops_per_step = calculate_analytical_flops_per_step(
@@ -56,6 +74,7 @@ def test_analytical_flops_calculation():
     assert flops_larger_vocab > flops_per_step
 
 
+@pytest.mark.skipif(not HAS_TORCH, reason="PyTorch is required for Transformer LM benchmarks")
 def test_run_benchmark_smoke_execution():
     device_str = "cuda" if torch.cuda.is_available() else "cpu"
     records, metadata = run_benchmark(
@@ -84,11 +103,12 @@ def test_run_benchmark_smoke_execution():
         assert r.encode_latency_us >= 0.0
         assert r.peak_rss_mb >= 0.0
         if device_str == "cuda":
-            assert r.peak_vram_mb >= 0.0
+            assert r.peak_vram_mb > 0.0
 
     assert metadata["cuda_available"] == torch.cuda.is_available()
 
 
+@pytest.mark.skipif(not HAS_TORCH, reason="PyTorch is required for Transformer LM benchmarks")
 def test_generate_tradeoff_plots_execution():
     device_str = "cuda" if torch.cuda.is_available() else "cpu"
     records, _ = run_benchmark(
