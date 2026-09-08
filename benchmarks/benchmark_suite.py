@@ -202,9 +202,7 @@ class TokenizerBenchmarkSuite:
         t_offsets = (time.perf_counter() - t0) / iterations
         offset_overhead = t_offsets / max(t_encode, 1e-6)
 
-        fallback_tokens = sum(
-            1 for t in tokens_with_offsets if t.text.startswith("<0x") and t.text.endswith(">") and len(t.text) == 6
-        )
+        fallback_tokens = sum(1 for t in tokens_with_offsets if t.text.startswith("<0x") and t.text.endswith(">"))
         fallback_rate_pct = (fallback_tokens / max(num_tokens, 1)) * 100.0
 
         bytes_per_token = num_bytes / max(num_tokens, 1)
@@ -659,7 +657,7 @@ class TokenizerBenchmarkSuite:
             if key not in self.BENCHMARK_CORPORA:
                 continue
             text = self.BENCHMARK_CORPORA[key]
-            metrics = self.evaluate_dataset(key, text, warmup=1, iterations=2)
+            metrics = self.evaluate_dataset(key, text, warmup=2, iterations=5)
             raw_bytes = metrics.num_bytes
             words = metrics.num_words
             uniq_toks = metrics.num_tokens
@@ -718,13 +716,24 @@ class TokenizerBenchmarkSuite:
 
         for vs in vocab_sizes:
             try:
-                tok = CustomTokenizer.train_from_corpus(
-                    corpus=corpus,
-                    target_vocab_size=vs,
-                    min_frequency=1,
-                    byte_fallback=(vs >= 650),
-                    verbose=False,
-                )
+                try:
+                    tok = CustomTokenizer.train_from_corpus(
+                        corpus=corpus,
+                        target_vocab_size=vs,
+                        min_frequency=1,
+                        byte_fallback=True,
+                        verbose=False,
+                    )
+                except ValueError:
+                    # If target_vocab_size is below the seed token floor (special + 256 bytes + alphabet),
+                    # fall back to training without byte fallback to evaluate subword scaling below the byte floor.
+                    tok = CustomTokenizer.train_from_corpus(
+                        corpus=corpus,
+                        target_vocab_size=vs,
+                        min_frequency=1,
+                        byte_fallback=False,
+                        verbose=False,
+                    )
                 t0 = time.perf_counter()
                 tokens = tok.encode(combined_text)
                 t_enc = max(time.perf_counter() - t0, 1e-6)
@@ -732,7 +741,7 @@ class TokenizerBenchmarkSuite:
                 num_words = max(len(combined_text.split()), 1)
                 num_tok = len(tokens)
 
-                fb_tokens = sum(1 for t in tokens if t.startswith("<0x") and t.endswith(">") and len(t) == 6)
+                fb_tokens = sum(1 for t in tokens if t.startswith("<0x") and t.endswith(">"))
                 results.append(
                     {
                         "target_vocab": vs,

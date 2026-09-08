@@ -237,9 +237,7 @@ class DownstreamEvaluator:
             bpt = round(raw_bytes / max(tok_count, 1), 2)
             fertility = round(tok_count / words, 2)
 
-            fb_count = sum(
-                1 for t in tokens_with_offsets if t.text.startswith("<0x") and t.text.endswith(">") and len(t.text) == 6
-            )
+            fb_count = sum(1 for t in tokens_with_offsets if t.text.startswith("<0x") and t.text.endswith(">"))
             fallback_pct = round((fb_count / max(tok_count, 1)) * 100.0, 2)
 
             if enc is not None:
