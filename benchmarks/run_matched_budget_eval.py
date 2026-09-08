@@ -21,7 +21,6 @@ import argparse
 import datetime
 import json
 import math
-import os
 import random
 import sys
 import tempfile
@@ -667,19 +666,26 @@ def run_benchmark(
     num_words = len(val_words)
 
     records: List[BenchmarkRecord] = []
+    skipped: List[str] = []
 
     for V in vocab_budgets:
         if verbose:
             print(f"\n---> Training Tokenizer Triplet at Matched Vocab Budget V = {V:,}")
 
-        # 1. SentencePiece-Unigram
-        sp_tok = train_sentencepiece_unigram(train_docs, V)
-        # 2. Boundary-BPE
-        bpe_tok = train_boundary_bpe(train_docs, V)
-        # 3. UniqToken-SuperBPE
-        sbp_tok = train_uniqtoken_superbpe(train_docs, V)
-
-        tok_list = [sp_tok, bpe_tok, sbp_tok]
+        # Train each tokenizer independently: one failure (e.g. a strict
+        # vocab-budget shortfall) must skip only its own conditions, never
+        # abort the remaining budgets/tiers of a multi-hour run.
+        tok_list = []
+        for train_fn, label in (
+            (train_sentencepiece_unigram, "SentencePiece-Unigram"),
+            (train_boundary_bpe, "Boundary-BPE"),
+            (train_uniqtoken_superbpe, "UniqToken-SuperBPE"),
+        ):
+            try:
+                tok_list.append(train_fn(train_docs, V))
+            except Exception as e:
+                skipped.append(f"{label}@V={V}: {type(e).__name__}: {e}")
+                print(f"     [V={V:,}] {label:<22} training failed, skipping its tiers: {e}", flush=True)
 
         for tok in tok_list:
             # Tokenizer evaluation metrics
@@ -709,16 +715,23 @@ def run_benchmark(
                         flush=True,
                     )
 
-                val_ce, lm_bpb, p_tot, p_non, steps, tok_proc, flops, peak_vram, wall_sec = train_and_eval_transformer(
-                    tok=tok,
-                    cfg=cfg,
-                    train_texts=train_docs,
-                    val_text=combined_val,
-                    total_val_bytes=total_val_bytes,
-                    target_flops=target_flops,
-                    device=target_device,
-                    seed=seed,
-                )
+                try:
+                    val_ce, lm_bpb, p_tot, p_non, steps, tok_proc, flops, peak_vram, wall_sec = (
+                        train_and_eval_transformer(
+                            tok=tok,
+                            cfg=cfg,
+                            train_texts=train_docs,
+                            val_text=combined_val,
+                            total_val_bytes=total_val_bytes,
+                            target_flops=target_flops,
+                            device=target_device,
+                            seed=seed,
+                        )
+                    )
+                except Exception as e:
+                    skipped.append(f"{tok.name}@{lm_tier_name}@V={V}: {type(e).__name__}: {e}")
+                    print(f"     [V={V:,}] {tok.name:<22} on {lm_tier_name:<18} FAILED, skipping: {e}", flush=True)
+                    continue
 
                 m_embed_mb = (2 * tok.vocab_size * cfg.d_model * 4) / (1024 * 1024)
 
@@ -757,6 +770,11 @@ def run_benchmark(
 
     tracemalloc.stop()
 
+    if skipped:
+        print(f"WARNING: {len(skipped)} condition(s) skipped due to errors:")
+        for entry in skipped:
+            print(f"  - {entry}")
+
     metadata = {
         "benchmark": "Matched-Budget Subword Efficiency & Downstream LM Benchmark",
         "date": datetime.datetime.now().isoformat(),
@@ -769,6 +787,7 @@ def run_benchmark(
         "lm_tiers": lm_tiers,
         "target_flops": target_flops,
         "seed": seed,
+        "skipped_conditions": skipped,
     }
 
     return records, metadata
