@@ -1,5 +1,5 @@
-#ifndef uniqtoken
-#define uniqtoken
+#ifndef UNIQTOKEN_H
+#define UNIQTOKEN_H
 
 /* Generated with cbindgen:0.29.4 */
 
@@ -179,4 +179,4 @@ void uniqtoken_free_tokens(uint32_t *ids, size_t len);
  */
 void uniqtoken_destroy(struct UniqTokenHandle *handle);
 
-#endif  /* uniqtoken */
+#endif  /* UNIQTOKEN_H */
