@@ -197,9 +197,7 @@ class CustomTokenizer:
         if rust_trie is None:
             return None
         try:
-            return _native_core.rust_encode_text_native_batch(
-                texts, rust_trie, self.model.byte_fallback, **kwargs
-            )
+            return _native_core.rust_encode_text_native_batch(texts, rust_trie, self.model.byte_fallback, **kwargs)
         except (ValueError, TypeError, AttributeError):
             return None
 
@@ -214,9 +212,7 @@ class CustomTokenizer:
         if rust_trie is None:
             return None
         try:
-            return _native_core.rust_encode_text_native_ids_batch(
-                texts, rust_trie, self.model.byte_fallback, **kwargs
-            )
+            return _native_core.rust_encode_text_native_ids_batch(texts, rust_trie, self.model.byte_fallback, **kwargs)
         except (ValueError, TypeError, AttributeError):
             return None
 

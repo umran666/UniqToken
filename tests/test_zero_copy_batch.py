@@ -55,7 +55,7 @@ class ZeroCopyBatchTests(unittest.TestCase):
             ("izer", -1.4, 8),
             ("\u4f60\u597d", -1.0, 9),  # 你好
             ("\u4e16\u754c", -1.0, 10),  # 世界
-            ("\U0001F600", -2.0, 11),  # 😀
+            ("\U0001f600", -2.0, 11),  # 😀
         ]
         for tok, score, tid in vocab:
             self.trie.insert(tok, score, tid)
