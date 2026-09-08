@@ -1,4 +1,9 @@
 //! C-ABI exports for native GGUF vocabulary table loading and C++ integration (Issue #52).
+use crate::error::CoreError;
+use crate::normalizer::normalize_inner;
+use crate::pipeline::get_full_pretok_regex;
+use crate::trie::{insert_token, RustPrefixTrie};
+use crate::viterbi::decode_cached;
 use std::ffi::CStr;
 use std::fs;
 use std::os::raw::{c_char, c_void};
@@ -246,5 +251,161 @@ pub unsafe extern "C" fn uniqtoken_export_gguf_vocab(
 pub unsafe extern "C" fn uniqtoken_free_buffer(buffer: *mut c_void, size: usize) {
     if !buffer.is_null() && size > 0 {
         let _ = Vec::from_raw_parts(buffer as *mut u8, size, size);
+    }
+}
+
+/// Opaque tokenizer handle. Always created by [`uniqtoken_create`] and
+/// destroyed by [`uniqtoken_destroy`]; never constructed or inspected
+/// directly from C.
+pub struct UniqTokenHandle {
+    trie: RustPrefixTrie,
+    unk_id: u32,
+}
+
+/// Return code indicating invalid UTF-8 input text.
+pub const UNIQTOKEN_ERR_INVALID_UTF8: i32 = -6;
+/// Return code indicating tokenization failure (e.g. disconnected lattice).
+pub const UNIQTOKEN_ERR_ENCODE: i32 = -7;
+
+const UNK_TOKEN: &str = "<|unk|>";
+const SPACE_CHAR: char = '\u{2581}';
+
+/// Builds a tokenizer handle from a `[[token, logprob, id], ...]` JSON
+/// vocabulary (same shape as `demo_vocab.json`). IDs must be contiguous from
+/// 0 and an `<|unk|>` entry must be present (unknown tokens resolve to it);
+/// otherwise null is returned. The caller owns a successful handle and must
+/// release it with [`uniqtoken_destroy`].
+///
+/// # Safety
+/// `vocab_json` must be non-null and point to a valid NUL-terminated C string.
+#[no_mangle]
+pub unsafe extern "C" fn uniqtoken_create(vocab_json: *const c_char) -> *mut UniqTokenHandle {
+    if vocab_json.is_null() {
+        return std::ptr::null_mut();
+    }
+    let json_text = match CStr::from_ptr(vocab_json).to_str() {
+        Ok(text) => text,
+        Err(_) => return std::ptr::null_mut(),
+    };
+    let triples: Vec<(String, f64, u32)> = match serde_json::from_str(json_text) {
+        Ok(triples) => triples,
+        Err(_) => return std::ptr::null_mut(),
+    };
+    if triples.is_empty() {
+        return std::ptr::null_mut();
+    }
+    // Without contiguous IDs the integer mapping is ambiguous, and without
+    // <|unk|> every unknown span would silently resolve to ID 0 (see encode).
+    let mut seen = vec![false; triples.len()];
+    let mut has_unk = false;
+    for (token, _, id) in &triples {
+        let index = *id as usize;
+        if index >= triples.len() || std::mem::replace(&mut seen[index], true) {
+            return std::ptr::null_mut();
+        }
+        has_unk |= token == UNK_TOKEN;
+    }
+    if !has_unk || seen.iter().any(|seen| !seen) {
+        return std::ptr::null_mut();
+    }
+    let mut trie = RustPrefixTrie::default();
+    let mut unk_id = 0u32;
+    for (token, log_prob, id) in &triples {
+        if insert_token(&mut trie, token, *log_prob, Some(*id)).is_err() {
+            return std::ptr::null_mut();
+        }
+        if token == UNK_TOKEN {
+            unk_id = *id;
+        }
+    }
+    Box::into_raw(Box::new(UniqTokenHandle { trie, unk_id }))
+}
+
+/// Encodes `text` (`text_len` bytes, need not be NUL-terminated) into token
+/// IDs, writing a freshly allocated array to `*out_ids` with its length in
+/// `*out_len`. Returns [`UNIQTOKEN_OK`] on success; the caller owns the array
+/// and must release it with [`uniqtoken_free_tokens`].
+///
+/// # Safety
+/// `handle`, `out_ids`, and `out_len` must be non-null and valid; `text` must
+/// point to `text_len` readable bytes.
+#[no_mangle]
+pub unsafe extern "C" fn uniqtoken_encode(
+    handle: *mut UniqTokenHandle,
+    text: *const c_char,
+    text_len: usize,
+    out_ids: *mut *mut u32,
+    out_len: *mut usize,
+) -> i32 {
+    if out_ids.is_null() || out_len.is_null() {
+        return UNIQTOKEN_ERR_NULL_PTR;
+    }
+    // Initialize outputs first: every error path below must leave behind
+    // NULL + 0 (which `uniqtoken_free_tokens` accepts) rather than whatever
+    // the caller had in those slots, so unconditional cleanup is safe.
+    *out_ids = std::ptr::null_mut();
+    *out_len = 0;
+    if handle.is_null() || text.is_null() {
+        return UNIQTOKEN_ERR_NULL_PTR;
+    }
+    let bytes = std::slice::from_raw_parts(text as *const u8, text_len);
+    let text_str = match std::str::from_utf8(bytes) {
+        Ok(text) => text,
+        Err(_) => return UNIQTOKEN_ERR_INVALID_UTF8,
+    };
+    let tokenizer = &(*handle);
+    let normalized = match normalize_inner(text_str, SPACE_CHAR, true, true, false, false, false, false) {
+        Ok(normalized) => normalized,
+        Err(_) => return UNIQTOKEN_ERR_ENCODE,
+    };
+    let pretokenizer = get_full_pretok_regex();
+    let mut ids: Vec<u32> = Vec::new();
+    for chunk in pretokenizer.find_iter(&normalized).map(|m| m.as_str()) {
+        let spans = match decode_cached(chunk, &tokenizer.trie, true).map_err(CoreError) {
+            Ok(spans) => spans,
+            Err(_) => return UNIQTOKEN_ERR_ENCODE,
+        };
+        for (_, token_id, ..) in spans.iter() {
+            ids.push(token_id.unwrap_or(tokenizer.unk_id));
+        }
+    }
+    if ids.is_empty() {
+        // Never hand out a dangling allocation: empty results are NULL + 0,
+        // which `uniqtoken_free_tokens` accepts.
+        *out_ids = std::ptr::null_mut();
+        *out_len = 0;
+        return UNIQTOKEN_OK;
+    }
+    // Boxed slice: exact-length allocation with no spare capacity, so the
+    // thin pointer + length round-trips through `uniqtoken_free_tokens`
+    // without any capacity bookkeeping.
+    let boxed: Box<[u32]> = ids.into_boxed_slice();
+    *out_len = boxed.len();
+    *out_ids = Box::into_raw(boxed) as *mut u32;
+    UNIQTOKEN_OK
+}
+
+/// Releases an ID array produced by [`uniqtoken_encode`]. Accepts null.
+///
+/// # Safety
+/// `ids`/`len` must be the thin pointer + length produced by
+/// [`uniqtoken_encode`] (a boxed-slice round-trip) and must not have been
+/// freed before.
+#[no_mangle]
+pub unsafe extern "C" fn uniqtoken_free_tokens(ids: *mut u32, len: usize) {
+    if !ids.is_null() {
+        let _ = Box::from_raw(std::ptr::slice_from_raw_parts_mut(ids, len));
+    }
+}
+
+/// Destroys a handle created by [`uniqtoken_create`]. Accepts null.
+///
+/// # Safety
+/// `handle` must have been allocated by [`uniqtoken_create`] and must not
+/// have been destroyed before.
+#[no_mangle]
+pub unsafe extern "C" fn uniqtoken_destroy(handle: *mut UniqTokenHandle) {
+    if !handle.is_null() {
+        let _ = Box::from_raw(handle);
     }
 }
