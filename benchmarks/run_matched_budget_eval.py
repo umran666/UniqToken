@@ -46,8 +46,8 @@ try:
 
     HAS_MATPLOTLIB = True
 except ImportError:
-    matplotlib = None
-    plt = None
+    matplotlib = None  # type: ignore[assignment]
+    plt = None  # type: ignore[assignment]
     HAS_MATPLOTLIB = False
 import numpy as np
 
@@ -58,10 +58,10 @@ try:
 
     HAS_TORCH = True
 except ImportError:
-    torch = None
-    nn = None
-    DataLoader = None
-    Dataset = object
+    torch = None  # type: ignore[assignment]
+    nn = None  # type: ignore[assignment]
+    DataLoader = None  # type: ignore[misc,assignment]
+    Dataset = object  # type: ignore[misc,assignment]
     HAS_TORCH = False
 
 # Add project root to sys.path
@@ -72,7 +72,7 @@ from uniqtoken.cem_merger import CrossEntropyMerging
 from uniqtoken.tokenizer import CustomTokenizer
 
 DEFAULT_VOCAB_BUDGETS = [8192, 16384, 32768, 65536, 131072]
-DEFAULT_TRAINING_FLOPS = 2.0e11  # Analytical FLOP budget per condition
+DEFAULT_TRAINING_FLOPS = 1.0e12  # Analytical FLOP budget per condition (1.0 TFLOPs)
 
 
 @dataclass
@@ -369,6 +369,8 @@ def train_boundary_bpe(train_docs: List[str], target_vocab: int) -> TokenizerAda
     chunks = [w for doc in train_docs for w in doc.split() if w]
     model = bpe.train(chunks, verbose=False)
     actual_v = len(model.vocab)
+    if actual_v != target_vocab:
+        raise ValueError(f"Boundary-BPE produced {actual_v} pieces; strictly matched budget requires {target_vocab}")
 
     return TokenizerAdapter(
         name="Boundary-BPE",
@@ -406,6 +408,10 @@ def train_uniqtoken_superbpe(train_docs: List[str], target_vocab: int) -> Tokeni
         model=sbp_model,
     )
     actual_v = len(sbp_tok.model.vocab)
+    if actual_v != target_vocab:
+        raise ValueError(
+            f"UniqToken-SuperBPE produced {actual_v} pieces; strictly matched budget requires {target_vocab}"
+        )
 
     return TokenizerAdapter(
         name="UniqToken-SuperBPE",
@@ -429,8 +435,8 @@ def calculate_analytical_flops_per_step(
     d_ff = cfg.d_ff
     b_sz = cfg.batch_size
 
-    params_per_layer = 4 * (d_m**2) + 2 * d_m * d_ff + 4 * d_m
-    p_non_embed = l_cnt * params_per_layer + 2 * d_m
+    params_per_layer = 4 * (d_m**2) + 2 * d_m * d_ff + d_ff + 9 * d_m
+    p_non_embed = l_cnt * params_per_layer + seq_len * d_m + 2 * d_m
     p_embed = vocab_size * d_m
     p_head = vocab_size * d_m
     p_total = p_non_embed + p_embed + p_head
@@ -511,6 +517,10 @@ def train_and_eval_transformer(
         torch.cuda.reset_peak_memory_stats(device)
 
     p_total, p_non_embed, flops_per_step = calculate_analytical_flops_per_step(tok.vocab_size, cfg, block_size)
+    if flops_per_step > target_flops * 1.5:
+        raise ValueError(
+            f"Configuration requires {flops_per_step:.2e} FLOPs per step, which exceeds requested target budget {target_flops:.2e} beyond 50% tolerance."
+        )
     steps = max(1, int(round(target_flops / flops_per_step)))
     actual_flops = steps * flops_per_step
     tokens_processed = steps * cfg.batch_size * block_size
@@ -623,6 +633,9 @@ def run_benchmark(
     seed: int = 42,
     verbose: bool = True,
 ) -> Tuple[List[BenchmarkRecord], Dict[str, Any]]:
+    if not HAS_TORCH:
+        raise RuntimeError("PyTorch is required for Transformer LM evaluation. Install torch to execute benchmarks.")
+
     # Device selection
     if device_str == "auto":
         target_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")

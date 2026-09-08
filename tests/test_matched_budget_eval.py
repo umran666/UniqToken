@@ -15,7 +15,7 @@ try:
 
     HAS_TORCH = True
 except ImportError:
-    torch = None
+    torch = None  # type: ignore[assignment]
     HAS_TORCH = False
 
 try:
@@ -23,7 +23,7 @@ try:
 
     HAS_MATPLOTLIB = True
 except ImportError:
-    matplotlib = None
+    matplotlib = None  # type: ignore[assignment]
     HAS_MATPLOTLIB = False
 
 from benchmarks.run_matched_budget_eval import (
@@ -89,7 +89,7 @@ class MatchedBudgetBenchmarkTests(unittest.TestCase):
             vocab_budgets=[1024],
             lm_tiers=["Small (2L-128d)"],
             device_str=device_str,
-            target_flops=2.0e9,
+            target_flops=1.0e10,
             num_docs_per_lang=25,
             seed=123,
             verbose=False,
@@ -122,7 +122,7 @@ class MatchedBudgetBenchmarkTests(unittest.TestCase):
             vocab_budgets=[1024],
             lm_tiers=["Small (2L-128d)"],
             device_str=device_str,
-            target_flops=1.0e9,
+            target_flops=1.0e10,
             num_docs_per_lang=15,
             seed=42,
             verbose=False,
