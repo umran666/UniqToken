@@ -14,8 +14,6 @@ from __future__ import annotations
 
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
-from math import log
-import os
 from tempfile import TemporaryDirectory
 import unittest
 
@@ -23,12 +21,8 @@ from uniqtoken.integrations.vllm import (
     AsyncVLLMStreamingWorker,
     UniqTokenVLLMAdapter,
     VLLMDetokenizer,
-    VLLMStreamingState,
 )
-from uniqtoken.pre_tokenizer import Normalizer, RegexPreTokenizer
-from uniqtoken.streaming_decoder import StreamingDecoder
 from uniqtoken.tokenizer import CustomTokenizer
-from uniqtoken.unigram_trainer import UnigramModel
 
 
 def _build_test_tokenizer() -> CustomTokenizer:
@@ -224,6 +218,7 @@ class VLLMIntegrationTests(unittest.TestCase):
 
         self.assertTrue(is_stopped)
         self.assertEqual("".join(deltas).strip(), "Hello world")
+        self.assertEqual(self.adapter.active_streaming_requests, 0)
 
     def test_concurrent_multithreaded_streaming(self) -> None:
         """50 concurrent worker threads streaming tokens into the adapter."""

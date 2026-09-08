@@ -14,6 +14,7 @@ import asyncio
 import collections
 import concurrent.futures
 import threading
+import time
 from pathlib import Path
 from typing import (
     Any,
@@ -497,11 +498,11 @@ class UniqTokenVLLMAdapter:
                     stop_strings=stop_strings,
                     skip_special_tokens=skip_special_tokens,
                 )
-        delta, is_finished = state.step(token_id)
-        if is_finished:
-            with self._states_lock:
+            delta, is_finished = state.step(token_id)
+            if is_finished:
+                self._streaming_states.pop(request_id, None)
                 self._mark_finished(request_id)
-        return delta, is_finished
+            return delta, is_finished
 
     def step_streaming_batch(
         self,
@@ -661,6 +662,7 @@ class AsyncVLLMStreamingWorker:
         self.request_id = request_id
         self.queue: asyncio.Queue[Optional[int]] = queue if queue is not None else asyncio.Queue()
         self._closed: asyncio.Event = asyncio.Event()
+        self.step_latencies_us: List[float] = []
         self.adapter.init_streaming_request(request_id, stop_strings=stop_strings)
 
     async def put_token(self, token_id: Optional[int]) -> None:
@@ -696,7 +698,10 @@ class AsyncVLLMStreamingWorker:
                             yield final_delta
                         break
 
+                    t0 = time.perf_counter()
                     delta, is_finished = self.adapter.step_streaming(self.request_id, token_id)
+                    t1 = time.perf_counter()
+                    self.step_latencies_us.append((t1 - t0) * 1_000_000.0)
                     if delta:
                         yield delta
                     if is_finished:

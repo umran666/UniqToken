@@ -108,17 +108,12 @@ async def run_streaming_benchmark(
     async def simulate_stream(stream_idx: int) -> Tuple[str, List[float]]:
         req_id = f"stream_{stream_idx}"
         worker = AsyncVLLMStreamingWorker(adapter, request_id=req_id)
-        local_latencies: List[float] = []
 
         async with sem:
             # Produce tokens in background
             async def producer():
                 for tid in stream_token_ids:
-                    t_start = time.perf_counter()
                     await worker.put_token(tid)
-                    await worker.queue.join()
-                    t_end = time.perf_counter()
-                    local_latencies.append((t_end - t_start) * 1_000_000.0)  # microseconds
                 await worker.put_token(None)  # EOF
 
             prod_task = asyncio.create_task(producer())
@@ -129,7 +124,7 @@ async def run_streaming_benchmark(
                 received_chunks.append(delta)
 
             await prod_task
-            return "".join(received_chunks), local_latencies
+            return "".join(received_chunks), worker.step_latencies_us
 
     # Start event loop jitter monitor
     monitor = EventLoopJitterMonitor(interval_sec=0.002)
