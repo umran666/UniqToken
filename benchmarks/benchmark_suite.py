@@ -633,7 +633,8 @@ class TokenizerBenchmarkSuite:
     def evaluate_cross_linguistic_baselines(self) -> List[Dict[str, Any]]:
         """
         Evaluates compression and morphological fertility across low-resource African and Indic
-        corpora against external production BPE tokenizers (tiktoken cl100k_base).
+        corpora against external production BPE tokenizers (tiktoken cl100k_base) using the
+        suite's canonical iteration budget (warmup=2, iterations=5).
 
         Returns:
             List of dictionaries containing comparative metrics for Table 3.
