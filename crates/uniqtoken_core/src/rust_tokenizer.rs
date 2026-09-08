@@ -54,10 +54,11 @@ impl RustTokenizer {
         Ok(out)
     }
 
-    fn encode_batch(&self, py: Python<'_>, texts: Vec<String>) -> CoreResult<Vec<Vec<String>>> {
+    fn encode_batch<'py>(&self, py: Python<'py>, texts: &Bound<'py, PyAny>) -> CoreResult<Vec<Vec<String>>> {
+        let borrowed = crate::pipeline::extract_borrowed_strings(texts)?;
         py.detach(|| {
-            texts.par_iter().map(|text| {
-                let norm = rust_normalize(text, self.space_char, true, true, false, false, false, false)?;
+            borrowed.par_iter().map(|text| {
+                let norm = rust_normalize(text.as_ref(), self.space_char, true, true, false, false, false, false)?;
                 let re = crate::pipeline::get_full_pretok_regex();
                 let mut out = Vec::new();
                 for chunk in crate::pipeline::snapped_pretokens(&norm, re) {
@@ -87,10 +88,11 @@ impl RustTokenizer {
         Ok(out)
     }
 
-    fn encode_ids_batch(&self, py: Python<'_>, texts: Vec<String>) -> CoreResult<Vec<Vec<u32>>> {
+    fn encode_ids_batch<'py>(&self, py: Python<'py>, texts: &Bound<'py, PyAny>) -> CoreResult<Vec<Vec<u32>>> {
+        let borrowed = crate::pipeline::extract_borrowed_strings(texts)?;
         py.detach(|| {
-            texts.par_iter().map(|text| {
-                let norm = rust_normalize(text, self.space_char, true, true, false, false, false, false)?;
+            borrowed.par_iter().map(|text| {
+                let norm = rust_normalize(text.as_ref(), self.space_char, true, true, false, false, false, false)?;
                 let re = crate::pipeline::get_full_pretok_regex();
                 let mut out = Vec::new();
                 for chunk in crate::pipeline::snapped_pretokens(&norm, re) {
@@ -110,14 +112,15 @@ impl RustTokenizer {
 
 #[cfg(feature = "python")]
 #[pyfunction]
-pub fn rust_diagnostic_batch(
-    py: Python<'_>,
-    texts: Vec<String>,
+pub fn rust_diagnostic_batch<'py>(
+    py: Python<'py>,
+    texts: &Bound<'py, PyAny>,
     trie: &RustPrefixTrie,
     byte_fallback: bool,
 ) -> CoreResult<HashMap<String, f64>> {
     use std::collections::HashMap;
     use std::time::Instant;
+    let borrowed = crate::pipeline::extract_borrowed_strings(texts)?;
     let start_total = Instant::now();
     let mut t_norm = 0.0;
     let mut t_pre = 0.0;
@@ -129,9 +132,9 @@ pub fn rust_diagnostic_batch(
     let mut total_states = 0usize;
     let diagnostic_result: CoreResult<()> = py.detach(|| {
         let re = crate::pipeline::get_full_pretok_regex();
-        for text in &texts {
+        for text in &borrowed {
             let t0 = Instant::now();
-            let norm = crate::normalizer::rust_normalize(text, '\u{2581}', true, true, false, false, false, false)?;
+            let norm = crate::normalizer::rust_normalize(text.as_ref(), '\u{2581}', true, true, false, false, false, false)?;
             t_norm += t0.elapsed().as_secs_f64();
             let t0 = Instant::now();
             let chunks: Vec<&str> = re.find_iter(&norm).map(|m| m.as_str()).collect();

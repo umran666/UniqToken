@@ -197,9 +197,7 @@ class CustomTokenizer:
         if rust_trie is None:
             return None
         try:
-            return _native_core.rust_encode_text_native_batch(
-                list(texts), rust_trie, self.model.byte_fallback, **kwargs
-            )
+            return _native_core.rust_encode_text_native_batch(texts, rust_trie, self.model.byte_fallback, **kwargs)
         except (ValueError, TypeError, AttributeError):
             return None
 
@@ -214,9 +212,7 @@ class CustomTokenizer:
         if rust_trie is None:
             return None
         try:
-            return _native_core.rust_encode_text_native_ids_batch(
-                list(texts), rust_trie, self.model.byte_fallback, **kwargs
-            )
+            return _native_core.rust_encode_text_native_ids_batch(texts, rust_trie, self.model.byte_fallback, **kwargs)
         except (ValueError, TypeError, AttributeError):
             return None
 
@@ -881,6 +877,7 @@ class CustomTokenizer:
         _validate_dropout_prob(dropout_prob)
         if not texts:
             return []
+        texts = list(texts) if not isinstance(texts, (list, tuple)) else texts
         if num_workers is not None and num_workers < 1:
             raise ValueError(f"num_workers must be >= 1 (or None), got {num_workers}")
 
@@ -938,6 +935,7 @@ class CustomTokenizer:
         _validate_dropout_prob(dropout_prob)
         if not texts:
             return []
+        texts = list(texts) if not isinstance(texts, (list, tuple)) else texts
         if num_workers is not None and num_workers < 1:
             raise ValueError(f"num_workers must be >= 1 (or None), got {num_workers}")
 
@@ -1002,6 +1000,7 @@ class CustomTokenizer:
         _validate_dropout_prob(dropout_prob)
         if not texts:
             return []
+        texts = list(texts) if not isinstance(texts, (list, tuple)) else texts
         if num_workers is not None and num_workers < 1:
             raise ValueError(f"num_workers must be >= 1 (or None), got {num_workers}")
         if len(texts) <= 64 or num_workers == 1:
