@@ -27,6 +27,7 @@ default = ["python", "c_abi"]
 python = ["dep:pyo3"]
 c_abi = ["dep:serde_json"]
 wasm = ["dep:wasm-bindgen", "dep:js-sys", "dep:serde_json"]
+fuzzing = []
 
 # WebAssembly only: route OS randomness through the browser crypto API.
 # Host builds keep the default getrandom backend untouched.

@@ -1,0 +1,83 @@
+name: Continuous Fuzzing & Property Verification
+
+permissions:
+  contents: read
+
+on:
+  schedule:
+    - cron: '0 3 * * 0'  # Weekly on Sunday at 03:00 UTC
+  workflow_dispatch:
+    inputs:
+      fuzz_seconds:
+        description: 'Duration (in seconds) to run cargo-fuzz'
+        required: false
+        default: '300'
+      hypothesis_profile:
+        description: 'Hypothesis profile to run (ci or fuzz)'
+        required: false
+        default: 'fuzz'
+
+jobs:
+  hypothesis-fuzz:
+    name: Hypothesis Property Fuzzing (Deep Profile)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip setuptools wheel maturin
+          python -m pip install ruff mypy pytest coverage regex tokenizers transformers sentencepiece tiktoken jinja2 hypothesis
+
+      - name: Build & Install Native Extension
+        run: |
+          python -c "import shutil; shutil.rmtree('dist', ignore_errors=True)"
+          python -m maturin build --release --manifest-path crates/uniqtoken_core/Cargo.toml -o dist
+          python -c "import glob, subprocess, sys; wheels = glob.glob('dist/*.whl'); subprocess.check_call([sys.executable, '-m', 'pip', 'install', '--force-reinstall', '--no-deps', wheels[0]])"
+
+      - name: Install Package (Editable)
+        run: |
+          python -m pip install -e .
+
+      - name: Run Hypothesis Fuzzing Suite
+        env:
+          HYPOTHESIS_PROFILE: ${{ github.event.inputs.hypothesis_profile || 'fuzz' }}
+        run: |
+          pytest tests/fuzz/test_hypothesis_tokenizer.py -v --durations=10
+
+  cargo-fuzz:
+    name: Cargo LibFuzzer (AddressSanitizer)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Install Nightly Rust Toolchain
+        uses: dtolnay/rust-toolchain@nightly
+
+      - name: Install cargo-fuzz
+        run: cargo install cargo-fuzz
+
+      - name: Run Viterbi LibFuzzer
+        working-directory: crates/uniqtoken_core
+        env:
+          FUZZ_SECONDS_INPUT: ${{ github.event.inputs.fuzz_seconds }}
+        run: |
+          FUZZ_SECONDS="300"
+          if [[ "${FUZZ_SECONDS_INPUT}" =~ ^[1-9][0-9]*$ ]] && [ "${FUZZ_SECONDS_INPUT}" -le 3600 ]; then
+            FUZZ_SECONDS="${FUZZ_SECONDS_INPUT}"
+          fi
+          cargo +nightly fuzz run fuzz_viterbi -- "-max_total_time=${FUZZ_SECONDS}" -print_final_stats=1
