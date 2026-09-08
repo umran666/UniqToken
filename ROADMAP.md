@@ -55,7 +55,7 @@ Contributors and maintainers can pick up tasks from the structured queue below. 
 
 ### Stage 1: Architecture Split & Benchmark Foundations
 - [x] **[#49](https://github.com/umran666/UniqToken/issues/49)** [P0-critical] Refactor core into uniqtoken.compat and uniqtoken.train. (Resolved in PR #68)
-- [ ] **[#50](https://github.com/umran666/UniqToken/issues/50)** [P0-critical] Rebuild matched-budget (8k–128k) benchmark harness and invalidate legacy ledgers.
+- [x] **[#50](https://github.com/umran666/UniqToken/issues/50)** [P0-critical] Rebuild matched-budget (8k–128k) benchmark harness and invalidate legacy ledgers.
 
 ### Stage 2: Canonical Native Rust Engine
 - [ ] **[#42](https://github.com/umran666/UniqToken/issues/42)** [P0-critical] Full native batch pipeline in Rust to eliminate PyO3 FFI boundary overhead.

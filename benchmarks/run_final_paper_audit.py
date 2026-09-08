@@ -39,8 +39,13 @@ EXPERIMENT_VERSION = "post-tokenizer-fixes-2026-08-30"
 
 def load_and_audit_dataset():
     benchmarks_dir = os.path.dirname(os.path.abspath(__file__))
+    legacy_dir = os.path.join(benchmarks_dir, "legacy")
     final_records_path = os.path.join(benchmarks_dir, "phase_fifteen_final_paper_records.json")
+    if not os.path.exists(final_records_path):
+        final_records_path = os.path.join(legacy_dir, "phase_fifteen_final_paper_records.json")
     confirmatory_path = os.path.join(benchmarks_dir, "phase_fourteen_confirmatory_records.json")
+    if not os.path.exists(confirmatory_path):
+        confirmatory_path = os.path.join(legacy_dir, "phase_fourteen_confirmatory_records.json")
 
     if os.path.exists(final_records_path):
         with open(final_records_path, "r", encoding="utf-8") as f:
