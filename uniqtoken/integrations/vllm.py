@@ -11,6 +11,7 @@ Provides a high-throughput, zero-overhead adapter for vLLM inference backends:
 from __future__ import annotations
 
 import asyncio
+import collections
 import concurrent.futures
 import threading
 from pathlib import Path
@@ -95,7 +96,8 @@ class VLLMStreamingState:
                 earliest_match_pos = -1
                 matched_stop_str = None
                 for stop_str in self.stop_strings:
-                    pos = self.decoded_text.find(stop_str)
+                    start = max(0, self.emitted_len - (len(stop_str) - 1))
+                    pos = self.decoded_text.find(stop_str, start)
                     if pos != -1 and (earliest_match_pos == -1 or pos < earliest_match_pos):
                         earliest_match_pos = pos
                         matched_stop_str = stop_str
@@ -149,7 +151,8 @@ class VLLMStreamingState:
                 earliest_match_pos = -1
                 matched_stop_str = None
                 for stop_str in self.stop_strings:
-                    pos = self.decoded_text.find(stop_str)
+                    start = max(0, self.emitted_len - (len(stop_str) - 1))
+                    pos = self.decoded_text.find(stop_str, start)
                     if pos != -1 and (earliest_match_pos == -1 or pos < earliest_match_pos):
                         earliest_match_pos = pos
                         matched_stop_str = stop_str
@@ -190,14 +193,41 @@ class UniqTokenVLLMAdapter:
     - Drop-in interface compatibility with Hugging Face PreTrainedTokenizer expectations in vLLM.
     """
 
+    REQUIRED_TOKENIZER_METHODS: Tuple[str, ...] = (
+        "encode",
+        "decode",
+        "encode_to_ids",
+        "encode_to_ids_batch",
+        "decode_batch",
+        "get_streaming_decoder",
+    )
+    REQUIRED_MODEL_ATTRIBUTES: Tuple[str, ...] = (
+        "vocab",
+        "token_to_id",
+        "id_to_token",
+    )
+
     def __init__(
         self,
         tokenizer: CustomTokenizer,
         default_skip_special_tokens: bool = True,
     ) -> None:
         if not isinstance(tokenizer, CustomTokenizer):
-            if not hasattr(tokenizer, "model") or not hasattr(tokenizer, "encode") or not hasattr(tokenizer, "decode"):
-                raise TypeError(f"tokenizer must be a CustomTokenizer instance, got {type(tokenizer).__name__}")
+            missing: List[str] = [
+                m for m in self.REQUIRED_TOKENIZER_METHODS if not callable(getattr(tokenizer, m, None))
+            ]
+            model = getattr(tokenizer, "model", None)
+            if model is None:
+                missing.append("model")
+            else:
+                for attr in self.REQUIRED_MODEL_ATTRIBUTES:
+                    if not hasattr(model, attr):
+                        missing.append(f"model.{attr}")
+            if missing:
+                raise TypeError(
+                    f"tokenizer must be a CustomTokenizer instance or provide the complete tokenizer protocol; "
+                    f"missing required members: {', '.join(missing)} (got {type(tokenizer).__name__})"
+                )
 
         self.tokenizer = tokenizer
         self.default_skip_special_tokens = default_skip_special_tokens
@@ -223,6 +253,14 @@ class UniqTokenVLLMAdapter:
         # Thread-safe streaming state registry
         self._states_lock = threading.RLock()
         self._streaming_states: Dict[Union[str, int], VLLMStreamingState] = {}
+        self._finished_requests: collections.OrderedDict[Union[str, int], None] = collections.OrderedDict()
+        self._max_finished_requests: int = 10000
+
+    def _mark_finished(self, request_id: Union[str, int]) -> None:
+        """Marks a request ID as finished/aborted in bounded terminal set."""
+        self._finished_requests[request_id] = None
+        while len(self._finished_requests) > self._max_finished_requests:
+            self._finished_requests.popitem(last=False)
 
     def _find_special(self, candidates: Sequence[str]) -> Optional[str]:
         special_set = set(getattr(self.tokenizer, "special_tokens", []) or [])
@@ -256,10 +294,13 @@ class UniqTokenVLLMAdapter:
         return dict(self.tokenizer.model.token_to_id)
 
     @overload
-    def convert_tokens_to_ids(self, tokens: str) -> int: ...
+    def convert_tokens_to_ids(self, tokens: str) -> int: ...  # type: ignore[overload-overlap]
 
     @overload
     def convert_tokens_to_ids(self, tokens: Union[List[str], Tuple[str, ...]]) -> List[int]: ...
+
+    @overload
+    def convert_tokens_to_ids(self, tokens: Sequence[str]) -> List[int]: ...
 
     def convert_tokens_to_ids(self, tokens: Union[str, Sequence[str]]) -> Union[int, List[int]]:
         """Converts a token or list of tokens to token IDs."""
@@ -274,6 +315,9 @@ class UniqTokenVLLMAdapter:
 
     @overload
     def convert_ids_to_tokens(self, ids: Union[List[int], Tuple[int, ...]]) -> List[str]: ...
+
+    @overload
+    def convert_ids_to_tokens(self, ids: Sequence[int]) -> List[str]: ...
 
     def convert_ids_to_tokens(self, ids: Union[int, Sequence[int]]) -> Union[str, List[str]]:
         """Converts a token ID or list of IDs to token strings."""
@@ -419,6 +463,7 @@ class UniqTokenVLLMAdapter:
     ) -> VLLMStreamingState:
         """Registers a new active streaming request."""
         with self._states_lock:
+            self._finished_requests.pop(request_id, None)
             decoder = self.create_streaming_decoder(skip_special_tokens=skip_special_tokens)
             state = VLLMStreamingState(
                 request_id=request_id,
@@ -443,6 +488,8 @@ class UniqTokenVLLMAdapter:
             Tuple of (delta_text, is_finished).
         """
         with self._states_lock:
+            if request_id in self._finished_requests:
+                return "", True
             state = self._streaming_states.get(request_id)
             if state is None:
                 state = self.init_streaming_request(
@@ -450,7 +497,11 @@ class UniqTokenVLLMAdapter:
                     stop_strings=stop_strings,
                     skip_special_tokens=skip_special_tokens,
                 )
-        return state.step(token_id)
+        delta, is_finished = state.step(token_id)
+        if is_finished:
+            with self._states_lock:
+                self._mark_finished(request_id)
+        return delta, is_finished
 
     def step_streaming_batch(
         self,
@@ -479,7 +530,8 @@ class UniqTokenVLLMAdapter:
             if state is None:
                 return ""
             if cleanup:
-                del self._streaming_states[request_id]
+                self._streaming_states.pop(request_id, None)
+                self._mark_finished(request_id)
         return state.flush()
 
     def finish_request(self, request_id: Union[str, int]) -> str:
@@ -490,6 +542,7 @@ class UniqTokenVLLMAdapter:
         """Aborts and removes streaming state for a request without flushing."""
         with self._states_lock:
             self._streaming_states.pop(request_id, None)
+            self._mark_finished(request_id)
 
     def has_streaming_request(self, request_id: Union[str, int]) -> bool:
         """Checks if a request is actively tracked."""
@@ -512,6 +565,7 @@ class UniqTokenVLLMAdapter:
         """Clears all active streaming states."""
         with self._states_lock:
             self._streaming_states.clear()
+            self._finished_requests.clear()
 
     # -------------------------------------------------------------------------
     # vLLM Detokenizer Incremental Protocol
@@ -606,11 +660,25 @@ class AsyncVLLMStreamingWorker:
         self.adapter = adapter
         self.request_id = request_id
         self.queue: asyncio.Queue[Optional[int]] = queue if queue is not None else asyncio.Queue()
+        self._closed: asyncio.Event = asyncio.Event()
         self.adapter.init_streaming_request(request_id, stop_strings=stop_strings)
 
     async def put_token(self, token_id: Optional[int]) -> None:
         """Pushes a token ID into the worker's stream. Send None to terminate."""
-        await self.queue.put(token_id)
+        if self._closed.is_set():
+            return
+        put_task = asyncio.create_task(self.queue.put(token_id))
+        close_wait_task = asyncio.create_task(self._closed.wait())
+        done, pending = await asyncio.wait(
+            [put_task, close_wait_task],
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+        for task in pending:
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
 
     async def stream_deltas(self) -> AsyncIterator[str]:
         """
@@ -620,18 +688,31 @@ class AsyncVLLMStreamingWorker:
         try:
             while True:
                 token_id = await self.queue.get()
-                if token_id is None:
-                    # End of stream
-                    final_delta = self.adapter.flush_streaming(self.request_id, cleanup=True)
-                    if final_delta:
-                        yield final_delta
-                    break
+                try:
+                    if token_id is None:
+                        # End of stream
+                        final_delta = self.adapter.flush_streaming(self.request_id, cleanup=True)
+                        if final_delta:
+                            yield final_delta
+                        break
 
-                delta, is_finished = self.adapter.step_streaming(self.request_id, token_id)
-                if delta:
-                    yield delta
-                if is_finished:
-                    self.adapter.flush_streaming(self.request_id, cleanup=True)
-                    break
+                    delta, is_finished = self.adapter.step_streaming(self.request_id, token_id)
+                    if delta:
+                        yield delta
+                    if is_finished:
+                        final_delta = self.adapter.flush_streaming(self.request_id, cleanup=True)
+                        if final_delta:
+                            yield final_delta
+                        break
+                finally:
+                    self.queue.task_done()
         finally:
+            self._closed.set()
+            # Drain any remaining tokens in queue so join() or blocked producers are released
+            while not self.queue.empty():
+                try:
+                    self.queue.get_nowait()
+                    self.queue.task_done()
+                except (asyncio.QueueEmpty, ValueError):
+                    break
             self.adapter.abort_request(self.request_id)

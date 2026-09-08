@@ -116,6 +116,7 @@ async def run_streaming_benchmark(
                 for tid in stream_token_ids:
                     t_start = time.perf_counter()
                     await worker.put_token(tid)
+                    await worker.queue.join()
                     t_end = time.perf_counter()
                     local_latencies.append((t_end - t_start) * 1_000_000.0)  # microseconds
                 await worker.put_token(None)  # EOF
@@ -146,7 +147,7 @@ async def run_streaming_benchmark(
 
     for text, latencies in results:
         step_latencies_us.extend(latencies)
-        if text.strip() == expected_full_text.strip():
+        if text == expected_full_text:
             correct_streams += 1
 
     throughput = total_tokens / total_time_sec if total_time_sec > 0 else 0.0
@@ -181,6 +182,13 @@ def main():
     parser.add_argument("--concurrency", type=int, default=50, help="Max concurrent workers")
     parser.add_argument("--json", type=str, default=None, help="Output JSON results path")
     args = parser.parse_args()
+
+    if args.num_streams <= 0:
+        parser.error("--num-streams must be a positive integer.")
+    if args.tokens_per_stream <= 0:
+        parser.error("--tokens-per-stream must be a positive integer.")
+    if args.concurrency <= 0:
+        parser.error("--concurrency must be a positive integer.")
 
     print("=" * 90)
     print("UNIQTOKEN vLLM ASYNC STREAMING DETOKENIZER BENCHMARK")

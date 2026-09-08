@@ -295,6 +295,140 @@ class VLLMIntegrationTests(unittest.TestCase):
         self.assertFalse(self.adapter.has_streaming_request(req_id))
         self.assertIsNone(self.adapter.get_streaming_text(req_id))
 
+    def test_adapter_tokenizer_protocol_validation(self) -> None:
+        """Verify that incomplete tokenizer implementations are rejected with TypeError."""
+        # Non-tokenizer object
+        with self.assertRaises(TypeError) as ctx:
+            UniqTokenVLLMAdapter(object())  # type: ignore[arg-type]
+        self.assertIn("missing required members", str(ctx.exception))
+
+        # Mock with missing encode_to_ids_batch
+        class IncompleteTokenizer:
+            def __init__(self):
+                self.model = type("Model", (), {"vocab": {}, "token_to_id": {}, "id_to_token": {}})()
+
+            def encode(self, text, **kwargs):
+                return []
+
+            def decode(self, ids, **kwargs):
+                return ""
+
+            def encode_to_ids(self, text, **kwargs):
+                return []
+
+            def decode_batch(self, seqs, **kwargs):
+                return []
+
+            def get_streaming_decoder(self, **kwargs):
+                return None
+
+        with self.assertRaises(TypeError) as ctx:
+            UniqTokenVLLMAdapter(IncompleteTokenizer())  # type: ignore[arg-type]
+        self.assertIn("encode_to_ids_batch", str(ctx.exception))
+
+        # Complete mock implementing the full protocol
+        class CompleteTokenizer(IncompleteTokenizer):
+            def encode_to_ids_batch(self, texts, **kwargs):
+                return []
+
+        adapter = UniqTokenVLLMAdapter(CompleteTokenizer())  # type: ignore[arg-type]
+        self.assertTrue(adapter.is_fast)
+
+    def test_late_token_does_not_recreate_completed_request(self) -> None:
+        """Verify that late tokens arriving after cleanup do not recreate request state."""
+        req_id = "finished_req_1"
+        self.adapter.init_streaming_request(req_id)
+        tokens = self.adapter.encode("Hello")
+        for t in tokens:
+            self.adapter.step_streaming(req_id, t)
+
+        # Flush and clean up request
+        self.adapter.flush_streaming(req_id, cleanup=True)
+        self.assertFalse(self.adapter.has_streaming_request(req_id))
+
+        # Late token arrives for the finished request ID
+        delta, is_finished = self.adapter.step_streaming(req_id, tokens[0])
+        self.assertEqual(delta, "")
+        self.assertTrue(is_finished)
+        # Verify state was NOT recreated
+        self.assertFalse(self.adapter.has_streaming_request(req_id))
+
+        # Test same behavior on abort_request
+        abort_id = "aborted_req_1"
+        self.adapter.init_streaming_request(abort_id)
+        self.adapter.abort_request(abort_id)
+        self.assertFalse(self.adapter.has_streaming_request(abort_id))
+
+        delta, is_finished = self.adapter.step_streaming(abort_id, tokens[0])
+        self.assertEqual(delta, "")
+        self.assertTrue(is_finished)
+        self.assertFalse(self.adapter.has_streaming_request(abort_id))
+
+    def test_async_vllm_streaming_worker_queue_join_and_bounded_cancellation(self) -> None:
+        """Verify task_done allows queue.join() and bounded queue producer does not hang on early exit."""
+
+        async def run_join_and_cancel_test():
+            # 1. Test queue.join() completion
+            worker = AsyncVLLMStreamingWorker(self.adapter, request_id="join_worker")
+            tokens = self.adapter.encode("Hello world")
+
+            async def producer():
+                for t in tokens:
+                    await worker.put_token(t)
+                    await worker.queue.join()
+                await worker.put_token(None)
+
+            async def consumer():
+                chunks = []
+                async for chunk in worker.stream_deltas():
+                    chunks.append(chunk)
+                return "".join(chunks)
+
+            prod_task = asyncio.create_task(producer())
+            text = await consumer()
+            await prod_task
+            self.assertEqual(text, "Hello world")
+
+            # 2. Test bounded queue with early stop_strings termination
+            worker_bounded = AsyncVLLMStreamingWorker(
+                self.adapter,
+                request_id="bounded_worker",
+                queue=asyncio.Queue(maxsize=1),
+                stop_strings=["Stop"],
+            )
+            long_tokens = self.adapter.encode("Hello Stop excess token flow after stop")
+
+            async def eager_producer():
+                for t in long_tokens:
+                    await worker_bounded.put_token(t)
+                await worker_bounded.put_token(None)
+
+            async def early_consumer():
+                chunks = []
+                async for chunk in worker_bounded.stream_deltas():
+                    chunks.append(chunk)
+                return "".join(chunks)
+
+            prod_task2 = asyncio.create_task(eager_producer())
+            text2 = await early_consumer()
+            # Producer should finish and not be blocked even though consumer exited early
+            await asyncio.wait_for(prod_task2, timeout=2.0)
+            self.assertEqual(text2.strip(), "Hello")
+
+        asyncio.run(run_join_and_cancel_test())
+
+    def test_convert_tokens_and_ids_with_sequence(self) -> None:
+        """Verify Sequence[str] and Sequence[int] input compatibility for convert overloads."""
+        vocab = self.adapter.get_vocab()
+        keys = tuple(vocab.keys())[:3]
+        ids = self.adapter.convert_tokens_to_ids(keys)
+        self.assertIsInstance(ids, list)
+        self.assertEqual(len(ids), 3)
+
+        tokens_back = self.adapter.convert_ids_to_tokens(tuple(ids))
+        self.assertIsInstance(tokens_back, list)
+        self.assertEqual(tokens_back, list(keys))
+
 
 if __name__ == "__main__":
     unittest.main()
