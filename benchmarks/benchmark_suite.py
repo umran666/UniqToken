@@ -117,15 +117,37 @@ class TokenizerBenchmarkSuite:
             "Ugawaji sahihi wa vipande vya maneno unahitajika ili kuwezesha miundo ya lugha kuelewa miundo ya kisarufi bila kupoteza maana.\n"
         )
         * 30,
-        "Yoruba": (
+        "Tonal_Yoruba": (
             "Nínú ìmọ̀ ẹ̀rọ ìṣirò àti ìtúpalẹ̀ èdè àdánidá, pínpín àwọn ọ̀rọ̀ sí wẹ́wẹ́ jẹ́ kókó pàtàkì fún àwọn àwòṣe kọ̀mpútà. "
             "Èdè Yorùbá ní àwọn àmì ohùn àti àwọn àmì ìsàlẹ̀ tí ó ń fi ìyàtọ̀ sí ìtumọ̀ ọ̀rọ̀, pẹ̀lú àwọn àfòmọ́ tí ó ń so mọ́ orí ọ̀rọ̀. "
             "Pínpín ọ̀rọ̀ ní ọ̀nà tó péye ń mú kí ẹ̀rọ mọ bí a ṣe ń lo àwọn ìsọ̀rí ọ̀rọ̀ láìsí àdánù kankan nínú ìtumọ̀.\n"
         )
         * 30,
+        "Agglutinative_Malayalam": (
+            "സ്വാഭാവിക ഭാഷാ പ്രക്രിയയിലും കമ്പ്യൂട്ടർ ശാസ്ത്രത്തിലും ടോക്കണൈസേഷൻ പ്രധാനപ്പെട്ട ഒരു ഘടകമാണ്. "
+            "മലയാളം ദ്രാവിഡ ഭാഷാ കുടുംബത്തിലെ പ്രധാനപ്പെട്ട ഒരു ഭാഷയാണ്. "
+            "ഈ ഭാഷയിൽ വാക്കുകൾ ചേർത്തുണ്ടാക്കുന്ന രീതിയും വിഭക്തിയും വളരെ സങ്കീർണ്ണമാണ്. "
+            "ശരിയായ ടോക്കൺ വിഭജനം ഭാഷാ മോഡലുകളുടെ കൃത്യത വർദ്ധിപ്പിക്കുന്നു.\n"
+        )
+        * 30,
+        "Geez_Amharic": (
+            "በተፈጥሮ ቋንቋ ሂደት እና በኮምፒውተር ሳይንስ ውስጥ የቃላት መከፋፈል በጣም አስፈላጊ አካል ነው። "
+            "የአማርኛ ቋንቋ በግዕዝ ፊደላት የሚጻፍ ሲሆን የበለጸገ የስነ-ቅርጽ እና የቅጥያ አወቃቀር አለው። "
+            "ቃላት ከስርወ-ግስ ተነስተው በርካታ ቅድመ-ቅጥያዎች፣ ውስጠ-ቅጥያዎች እና ድህረ-ቅጥያዎችን በማጣመር ይገነባሉ። "
+            "ትክክለኛ የንዑስ ቃላት ክፍፍል የቋንቋ ሞዴሎችን የማስታወስ ብቃት እና የትርጉም ጥራትን ያሻሽላል። "
+            "ይህም የፊደላት ውህደት ሳይዛባ የቃላት ፍቺ በትክክል እንዲጠበቅ እና የባይት ብክነትን ለመቀነስ ያስችላል።\n"
+        )
+        * 30,
     }
 
     def __init__(self, tokenizer: Optional[CustomTokenizer] = None):
+        """
+        Initializes the empirical benchmark suite with a pre-trained or corpus-trained tokenizer.
+
+        Args:
+            tokenizer: Optional pre-configured CustomTokenizer. If None, trains a baseline
+                UniqToken instance directly across the full multilingual benchmark corpora.
+        """
         if tokenizer is None:
             training_corpus = list(self.BENCHMARK_CORPORA.values())
             self.tokenizer = CustomTokenizer.train_from_corpus(
@@ -180,9 +202,7 @@ class TokenizerBenchmarkSuite:
         t_offsets = (time.perf_counter() - t0) / iterations
         offset_overhead = t_offsets / max(t_encode, 1e-6)
 
-        fallback_tokens = sum(
-            1 for t in tokens_with_offsets if t.text.startswith("<0x") and t.text.endswith(">") and len(t.text) == 6
-        )
+        fallback_tokens = sum(1 for t in tokens_with_offsets if t.text.startswith("<0x") and t.text.endswith(">"))
         fallback_rate_pct = (fallback_tokens / max(num_tokens, 1)) * 100.0
 
         bytes_per_token = num_bytes / max(num_tokens, 1)
@@ -598,8 +618,96 @@ class TokenizerBenchmarkSuite:
                 )
         print("=" * 85)
 
+        print("\n" + "=" * 85)
+        print("CROSS-LINGUISTIC UNDERREPRESENTED SCRIPTS (TABLE 3)")
+        print("=" * 85)
+        cross_rows = self.evaluate_cross_linguistic_baselines()
+        for cr in cross_rows:
+            print(
+                f"  {cr['name']:<24} | UniqTok: {cr['uniq_bytes_per_tok']:>5.2f} B/Tok (fert {cr['uniq_fertility']:>5.2f}) | "
+                f"tiktoken: {cr['tiktoken_bytes_per_tok']:>5.2f} B/Tok (fert {cr['tiktoken_fertility']:>5.2f}) | "
+                f"Delta: {cr['compression_delta']:<8} | FB: {cr['fallback_pct']:.1f}%"
+            )
+        print("=" * 85)
+
+    def evaluate_cross_linguistic_baselines(self) -> List[Dict[str, Any]]:
+        """
+        Evaluates compression and morphological fertility across low-resource African and Indic
+        corpora against external production BPE tokenizers (tiktoken cl100k_base) using the
+        suite's canonical iteration budget (warmup=2, iterations=5).
+
+        Returns:
+            List of dictionaries containing comparative metrics for Table 3.
+        """
+        target_keys = [
+            ("Agglutinative_Swahili", "Agglutinative Swahili", "Latin"),
+            ("Tonal_Yoruba", "Tonal Yoruba", "Latin + Diacritics"),
+            ("Agglutinative_Malayalam", "Agglutinative Malayalam", "Dravidian (മലയാളം)"),
+            ("Geez_Amharic", "Ge'ez Amharic", "Ethiopic Fidäl (ግዕዝ)"),
+        ]
+
+        try:
+            import tiktoken
+
+            enc = tiktoken.get_encoding("cl100k_base")
+        except Exception:
+            enc = None
+
+        rows: List[Dict[str, Any]] = []
+        for key, name, script in target_keys:
+            if key not in self.BENCHMARK_CORPORA:
+                continue
+            text = self.BENCHMARK_CORPORA[key]
+            metrics = self.evaluate_dataset(key, text, warmup=2, iterations=5)
+            raw_bytes = metrics.num_bytes
+            words = metrics.num_words
+            uniq_toks = metrics.num_tokens
+            uniq_bpt = metrics.bytes_per_token
+            uniq_fert = metrics.tokens_per_word
+            fallback_pct = metrics.fallback_rate_pct
+
+            if enc is not None:
+                tt_toks = len(enc.encode(text))
+                tt_bpt = round(raw_bytes / max(tt_toks, 1), 2)
+                tt_fert = round(tt_toks / max(words, 1), 2)
+                delta_pct = ((uniq_bpt - tt_bpt) / max(tt_bpt, 1e-6)) * 100.0
+                comp_delta = f"{delta_pct:+.1f}%"
+            else:
+                tt_toks = 0
+                tt_bpt = 0.0
+                tt_fert = 0.0
+                comp_delta = "N/A"
+
+            rows.append(
+                {
+                    "key": key,
+                    "name": name,
+                    "script": script,
+                    "raw_bytes": raw_bytes,
+                    "uniq_tokens": uniq_toks,
+                    "uniq_bytes_per_tok": round(uniq_bpt, 2),
+                    "uniq_fertility": round(uniq_fert, 2),
+                    "tiktoken_tokens": tt_toks,
+                    "tiktoken_bytes_per_tok": tt_bpt,
+                    "tiktoken_fertility": tt_fert,
+                    "compression_delta": comp_delta,
+                    "fallback_pct": fallback_pct,
+                }
+            )
+        return rows
+
     def evaluate_vocab_scaling(self, vocab_sizes: Optional[List[int]] = None) -> List[Dict[str, Any]]:
-        """Evaluates compression and throughput scaling across different vocabulary budgets."""
+        """
+        Evaluates compression and throughput scaling across different vocabulary budgets.
+
+        Args:
+            vocab_sizes: Optional list of target vocabulary sizes to evaluate. Defaults to
+                [400, 800, 1600, 3200].
+
+        Returns:
+            List of dictionaries containing target vocabulary, actual vocabulary, tokens,
+            bytes per token, tokens per word, throughput, and fallback rate metrics.
+        """
         if vocab_sizes is None:
             vocab_sizes = [400, 800, 1600, 3200]
 
@@ -609,12 +717,24 @@ class TokenizerBenchmarkSuite:
 
         for vs in vocab_sizes:
             try:
-                tok = CustomTokenizer.train_from_corpus(
-                    corpus=corpus,
-                    target_vocab_size=vs,
-                    min_frequency=1,
-                    verbose=False,
-                )
+                try:
+                    tok = CustomTokenizer.train_from_corpus(
+                        corpus=corpus,
+                        target_vocab_size=vs,
+                        min_frequency=1,
+                        byte_fallback=True,
+                        verbose=False,
+                    )
+                except ValueError:
+                    # If target_vocab_size is below the seed token floor (special + 256 bytes + alphabet),
+                    # fall back to training without byte fallback to evaluate subword scaling below the byte floor.
+                    tok = CustomTokenizer.train_from_corpus(
+                        corpus=corpus,
+                        target_vocab_size=vs,
+                        min_frequency=1,
+                        byte_fallback=False,
+                        verbose=False,
+                    )
                 t0 = time.perf_counter()
                 tokens = tok.encode(combined_text)
                 t_enc = max(time.perf_counter() - t0, 1e-6)
@@ -622,7 +742,7 @@ class TokenizerBenchmarkSuite:
                 num_words = max(len(combined_text.split()), 1)
                 num_tok = len(tokens)
 
-                fb_tokens = sum(1 for t in tokens if t.startswith("<0x") and t.endswith(">") and len(t) == 6)
+                fb_tokens = sum(1 for t in tokens if t.startswith("<0x") and t.endswith(">"))
                 results.append(
                     {
                         "target_vocab": vs,
@@ -668,6 +788,21 @@ class TokenizerBenchmarkSuite:
         for engine, stats in baselines.items():
             if "error" not in stats:
                 lines.append(f"| {engine} | {stats['tokens']} | {stats['tokens_sec']} | {stats['time_sec']} |")
+
+        cross_rows = self.evaluate_cross_linguistic_baselines()
+        lines.extend(
+            [
+                "",
+                "## Cross-Linguistic Underrepresented Corpora (Table 3)",
+                "",
+                "| Language / Family | Script Family | Raw Bytes | UniqToken Tokens | UniqToken Bytes/Tok | UniqToken Fertility | Tiktoken Tokens | Tiktoken Bytes/Tok | Tiktoken Fertility | Compression Delta | Fallback Rate |",
+                "| :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |",
+            ]
+        )
+        for cr in cross_rows:
+            lines.append(
+                f"| **{cr['name']}** | {cr['script']} | {cr['raw_bytes']:,} | {cr['uniq_tokens']:,} | {cr['uniq_bytes_per_tok']:.2f} | {cr['uniq_fertility']:.2f} | {cr['tiktoken_tokens']:,} | {cr['tiktoken_bytes_per_tok']:.2f} | {cr['tiktoken_fertility']:.2f} | {cr['compression_delta']} | **{cr['fallback_pct']:.1f}%** |"
+            )
 
         Path(output_path).parent.mkdir(parents=True, exist_ok=True)
         with open(output_path, "w", encoding="utf-8") as f:

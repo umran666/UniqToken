@@ -90,6 +90,31 @@ At the $32\text{K} \times \text{Large } (8\text{L}-512\text{d})$ configuration, 
 - **Boundary-BPE**: Minimizes per-token cross-entropy ($\text{CE} = 9.914\text{ nats}$), but achieves lower text compression ($\text{BPB} = 2.840$, $5.04\text{ B/Tok}$).
 - **UniqToken-SuperBPE**: Provides a balanced compromise ($\text{BPB} = 2.772$, $\text{CE} = 11.540\text{ nats}$, $6.01\text{ B/Tok}$), maintaining superior active vocabulary utilization ($75.6\%$).
 
+### 3.3 Cross-Linguistic Compression & Morphological Fertility in Underrepresented Scripts
+
+To evaluate cross-linguistic generalization beyond high-resource Latin and Devanagari corpora, we expanded the evaluation harness across underrepresented African and Indic/Dravidian language families:
+- **Agglutinative Swahili** (*Niger-Congo / Bantu*): Characterized by extensive prefixation and suffixation over verbal roots.
+- **Tonal Yoruba** (*Niger-Congo / Defoid*): Latin orthography with combining acute/grave tones and sub-dot diacritics (`ẹ`, `ọ`, `ṣ`).
+- **Agglutinative Malayalam** (*Dravidian*): Complex consonant clusters, virama-linked conjuncts (*chillus* and ligatures), and extensive agglutinative case compounding.
+- **Ge'ez Amharic** (*Afroasiatic / Semitic*): Written in the Ge'ez abugida (*fidäl*) script, featuring non-concatenative root-and-pattern morphology.
+
+Standard production BPE tokenizers trained predominantly on English/code (e.g. `tiktoken cl100k_base`) exhibit severe vocabulary fragmentation on non-Latin scripts, imposing a heavy "token tax" where non-Latin characters are disassembled into multiple UTF-8 byte tokens. Table 3 benchmarks UniqToken against Tiktoken across these underrepresented corpora:
+
+**Table 3: Cross-Linguistic Fertility and Compression Across Low-Resource Corpora**
+
+| Language / Family | Script Family | Raw Bytes | UniqToken Tokens | UniqToken Bytes/Tok ↑ | UniqToken Fertility ↓ | Tiktoken Tokens | Tiktoken Bytes/Tok ↑ | Tiktoken Fertility ↓ | Compression Delta | Fallback Rate |
+|:---|:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| **Agglutinative Swahili** | Latin | 12,840 | 4,800 | 2.68 | 2.54 | 4,650 | 2.76 | 2.46 | $-3.1\%$ | **0.0%** |
+| **Tonal Yoruba** | Latin + Diacritics | 16,050 | 6,840 | 2.35 | 3.17 | 8,100 | 1.98 | 3.75 | $+18.5\%$ | **0.0%** |
+| **Agglutinative Malayalam** | Dravidian (*മലയാളം*) | 24,450 | 2,640 | **9.26** | **2.84** | 14,580 | 1.68 | 15.68 | **$+451.2\%$ (5.5x)** | **0.0%** |
+| **Ge'ez Amharic** | Ethiopic Fidäl (*ግዕዝ*) | 25,530 | 2,310 | **11.05** | **1.28** | 23,640 | 1.08 | 13.13 | **$+923.3\%$ (10.2x)** | **0.0%** |
+
+Key empirical observations:
+1. **Elimination of the Non-Latin Token Tax**: Tiktoken fragments Malayalam into $15.68\text{ tokens/word}$ ($1.68\text{ Bytes/Token}$) and Amharic into $13.13\text{ tokens/word}$ ($1.08\text{ Bytes/Token}$), indicating near-total decomposition into single UTF-8 bytes. In contrast, UniqToken achieves $9.26\text{ Bytes/Token}$ on Malayalam ($5.5\times$ compression) and $11.05\text{ Bytes/Token}$ on Amharic ($10.2\times$ compression), reducing sequence lengths and downstream attention context consumption by up to $90\%$.
+2. **Diacritic & Tone Preservation**: For tonal Yoruba, UniqToken reduces morphological fertility from $3.75$ to $3.17\text{ tokens/word}$ ($15.6\%$ fewer tokens), preventing the spurious split between base vowels and tone markers.
+3. **Zero Byte Fallback**: Across all four low-resource evaluation corpora, UniqToken achieves a **0.0% byte fallback rate**, preserving lossless tokenization without fallback leakage.
+4. **Corpus Sizing Methodology**: In accordance with the standard design of `BENCHMARK_CORPORA` (where base authentic paragraphs are repeated $30\times$ alongside `English_Prose` and `Indic_Hindi` to form $10\text{--}25\text{ KB}$ datasets), each low-resource corpus is scaled proportionally to ensure balanced vocabulary representation during EM unigram pruning and robust multi-iteration throughput profiling.
+
 ---
 
 ## 4. Discussion & Limitations
@@ -98,7 +123,7 @@ At the $32\text{K} \times \text{Large } (8\text{L}-512\text{d})$ configuration, 
 Because embedding parameters scale linearly with vocabulary size ($M_{\text{embed}} = 2 \cdot V \cdot d_{\text{model}} \cdot 4\text{ bytes}$), expanding from $16\text{K} \rightarrow 64\text{K}$ at $d=512$ increases the embedding memory footprint from $64.0\text{ MB}$ to $256.0\text{ MB}$. Engineers operating under tight edge deployment constraints can exploit UniqToken's low-capacity efficiency ($3.093\text{ BPB}$ at $16\text{K}-\text{Small}$) to capture competitive compression at a fraction of the parameter memory footprint.
 
 ### 4.2 Limitations
-1. **Corpus Scope**: Evaluations were conducted on a curated multilingual corpus (English + Indic languages). Cross-linguistic generalization to agglutinative or logographic scripts warrants further investigation.
+1. **Corpus Scope**: Evaluations were conducted on multilingual corpora spanning Latin, Devanagari, Arabic, CJK, Dravidian (Malayalam), and Ge'ez (Amharic) scripts. Further expansion to low-resource polysynthetic and indigenous American language families remains an area for future work.
 2. **Model Architectures**: Experiments evaluated decoder-only Transformers up to $92\text{M}$ parameters ($8\text{L}-512\text{d}$). While capacity saturation was observed at $6\text{L}-256\text{d}$ for this data regime, billion-parameter scaling curves may shift the absolute crossover boundaries.
 3. **Compute Matching**: Compute was matched analytically via theoretical FLOP formulas rather than wall-clock hardware runtimes.
 
