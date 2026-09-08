@@ -100,7 +100,7 @@ Repository = "https://github.com/umran666/uniqtoken"
 uniqtoken = "uniqtoken.cli:main"
 
 [tool.setuptools]
-packages = ["uniqtoken", "uniqtoken.multimodal", "benchmarks"]
+packages = ["uniqtoken", "uniqtoken.multimodal", "uniqtoken.integrations", "benchmarks"]
 
 [tool.ruff]
 line-length = 120
