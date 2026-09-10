@@ -125,11 +125,15 @@ def build_multilingual_dataset(multiplier: int = 50, seed: int = 42) -> Tuple[Li
     val_by_lang: Dict[str, str] = {}
 
     for lang, sentences in MULTILINGUAL_DATA_SOURCES.items():
-        expanded = sentences * multiplier
-        rng.shuffle(expanded)
-        split_idx = int(len(expanded) * 0.8)
-        train_docs.extend(expanded[:split_idx])
-        val_by_lang[lang] = " ".join(expanded[split_idx:])
+        unique_sentences = list(dict.fromkeys(sentences))
+        rng.shuffle(unique_sentences)
+        if len(unique_sentences) < 2:
+            raise ValueError(f"{lang} requires at least two distinct documents")
+        held_out_count = max(1, len(unique_sentences) // 5)
+        train_sentences = unique_sentences[:-held_out_count]
+        validation_sentences = unique_sentences[-held_out_count:]
+        train_docs.extend(train_sentences * multiplier)
+        val_by_lang[lang] = " ".join(validation_sentences * multiplier)
 
     return train_docs, val_by_lang
 
@@ -161,6 +165,7 @@ class MetricAccountingAuditTests(unittest.TestCase):
         cls.tokenizer = CustomTokenizer.train_from_corpus(
             corpus=cls.train_docs,
             target_vocab_size=cls.vocab_size,
+            min_edge_log_prob=float("-inf"),
             ranking_strategy="byte_savings",
             script_balance_temperature=0.9,
             min_frequency=1,
@@ -233,9 +238,7 @@ class MetricAccountingAuditTests(unittest.TestCase):
 
         # Aggregate token density must equal the byte-weighted language values.
         aggregate_tokens_per_byte = total_tokens / total_bytes
-        sum_weighted_tokens_per_byte = sum(
-            (e.raw_byte_count / total_bytes) * e.tokens_per_byte for e in entries
-        )
+        sum_weighted_tokens_per_byte = sum((e.raw_byte_count / total_bytes) * e.tokens_per_byte for e in entries)
         self.assertAlmostEqual(
             aggregate_tokens_per_byte,
             sum_weighted_tokens_per_byte,

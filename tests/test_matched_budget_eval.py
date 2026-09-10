@@ -48,6 +48,8 @@ class MatchedBudgetBenchmarkTests(unittest.TestCase):
         )
 
         self.assertGreater(len(train_docs), 0)
+        validation_docs = [doc for text in val_by_domain.values() for doc in text.splitlines()]
+        self.assertTrue(set(train_docs).isdisjoint(validation_docs))
         for domain, text in val_by_domain.items():
             self.assertGreater(len(text), 0, f"Validation text for {domain} is empty")
 
@@ -101,11 +103,13 @@ class MatchedBudgetBenchmarkTests(unittest.TestCase):
 
         for r in records:
             self.assertEqual(r.vocab_budget, 1024)
+            self.assertEqual(r.actual_vocab_size, r.vocab_budget)
+            self.assertEqual(r.model_kind, "causal_transformer")
             self.assertEqual(r.lm_tier, "Small (2L-128d)")
             self.assertGreater(r.bytes_per_token, 0.0)
             self.assertGreater(r.tokens_per_byte, 0.0)
             self.assertGreater(r.token_ce_loss, 0.0)
-            self.assertGreater(r.true_lm_bpb, 0.0)
+            self.assertGreater(r.lm_bits_per_byte, 0.0)
             self.assertGreaterEqual(r.training_steps, 1)
             self.assertGreater(r.actual_flops, 0.0)
             self.assertGreaterEqual(r.encode_latency_us, 0.0)
@@ -114,6 +118,8 @@ class MatchedBudgetBenchmarkTests(unittest.TestCase):
                 self.assertGreater(r.peak_vram_mb, 0.0)
 
         self.assertEqual(metadata["cuda_available"], torch.cuda.is_available())
+        self.assertEqual(metadata["ledger_schema_version"], 3)
+        self.assertEqual(metadata["data_split"], "document_disjoint_train_validation")
 
     @unittest.skipUnless(HAS_TORCH and HAS_MATPLOTLIB, "PyTorch and matplotlib required for plot tests")
     def test_generate_tradeoff_plots_execution(self):

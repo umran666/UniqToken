@@ -42,7 +42,8 @@ class DownstreamTransformerTests(unittest.TestCase):
         self.assertGreater(metrics.final_loss, 0.0)
         self.assertTrue(math.isfinite(metrics.final_loss))
         self.assertTrue(math.isfinite(metrics.bits_per_byte))
-        # BPB must use the same held-out population as validation loss.
+        self.assertEqual(metrics.model_kind, "causal_transformer")
+        # BPB must use the same held-out population as test loss.
         expected_bpb = metrics.final_loss * metrics.evaluated_tokens / (metrics.evaluated_bytes * math.log(2.0))
         self.assertAlmostEqual(metrics.bits_per_byte, expected_bpb, places=6)
 

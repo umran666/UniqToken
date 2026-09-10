@@ -121,9 +121,12 @@ class BenchmarkContractTests(unittest.TestCase):
 
             def optimize(self, model, chunks):
                 self.chunks = chunks
-                return model
+                return SimpleNamespace(vocab={str(i): 0.0 for i in range(len(model.vocab) + self.max_merges)})
 
-        with patch.object(module, "CustomTokenizer", FakeTokenizer), patch.object(module, "CrossEntropyMerging", FakeCEM):
+        with (
+            patch.object(module, "CustomTokenizer", FakeTokenizer),
+            patch.object(module, "CrossEntropyMerging", FakeCEM),
+        ):
             train_superbpe_tokenizer(["alpha beta"], target_vocab=500)
 
         self.assertEqual(calls, [470, 30])

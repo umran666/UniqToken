@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from ._native import native_function, native_text_supported
+
 import functools
 import re
 import unicodedata
@@ -132,11 +134,14 @@ class Normalizer:
         if not isinstance(text, str):
             raise TypeError(f"text must be a string, got {type(text).__name__}")
 
-        # ponytail: Rust normalizer with exact parity; Python fallback if mismatch
-        if _HAS_RUST_NORM and not self.casefold:
+        if not _HAS_RUST_NORM:
+            native_function(None, "rust_normalize_with_alignment")
+        # Use the reference implementation for configurations unsupported by Rust.
+        if _HAS_RUST_NORM and not self.casefold and native_text_supported(text):
             assert _uniqtoken_core is not None
-            try:
-                res = _uniqtoken_core.rust_normalize_with_alignment(
+            native = native_function(_uniqtoken_core, "rust_normalize_with_alignment")
+            if native is not None:
+                res = native(
                     text,
                     self.space_char,
                     self.normalize_unicode,
@@ -148,8 +153,6 @@ class Normalizer:
                 )
                 # ponytail: no per-element tuple() — Rust already returns List[Tuple]
                 return res[0], res[1]
-            except (ValueError, AttributeError, ImportError, TypeError):
-                pass
 
         if self.normalize_unicode:
             units = self._nfkc_units(text)
@@ -236,10 +239,13 @@ class Normalizer:
     def normalize(self, text: str) -> str:
         if not isinstance(text, str):
             raise TypeError(f"text must be a string, got {type(text).__name__}")
-        if _HAS_RUST_NORM and not self.casefold:
+        if not _HAS_RUST_NORM:
+            native_function(None, "rust_normalize")
+        if _HAS_RUST_NORM and not self.casefold and native_text_supported(text):
             assert _uniqtoken_core is not None
-            try:
-                return _uniqtoken_core.rust_normalize(
+            native = native_function(_uniqtoken_core, "rust_normalize")
+            if native is not None:
+                return native(
                     text,
                     self.space_char,
                     self.normalize_unicode,
@@ -249,8 +255,6 @@ class Normalizer:
                     self.collapse_whitespaces,
                     self.strip_whitespace,
                 )
-            except (ValueError, AttributeError, ImportError, TypeError):
-                pass
         return self.normalize_with_alignment(text)[0]
 
     def restore_escaped_metaspace(self, text: str) -> str:
@@ -288,6 +292,21 @@ try:
     # the Rust engine's unicode-segmentation crate.
     _X_RE = _regex.compile(r"\X")
     _MARK_RE = _regex.compile(r"\p{M}")
+    # Cluster-capable codepoints for the snap fast path (see
+    # _snap_needs_full_pass): any char that can belong to a multi-codepoint
+    # grapheme cluster. Proven-exhaustive: falsified over all 1,114,112
+    # codepoints x attach-contexts against \X ground truth (zero misses after
+    # including modern Hangul-jamo ranges, Prepend-Lo signs and Cn); re-run
+    # that harness when upgrading Unicode tables. Shares tables with \X, so
+    # table skew cannot make it claim "simple" where \X merges.
+    _SNAP_SCAN_RE = _regex.compile(
+        r"\p{M}|\p{Cf}|\p{Cn}"
+        r"|[\u200c\u200d\uff9e\uff9f\u0d4e\u0e33\u0eb3]"
+        r"|[\U0001F3FB-\U0001F3FF\U0001F1E6-\U0001F1FF\U000E0000-\U000E007F]"
+        r"|[\U00001100-\U0000115F\U00001160-\U000011A7\U000011A8-\U000011FF]"
+        r"|[\U0000A960-\U0000A97C\U0000D7B0-\U0000D7FB]"
+        r"|[\U000111C2-\U000111C3\U0001193F\U00011941\U00011A84-\U00011A89\U00011D46]"
+    )
 except ImportError:  # pragma: no cover
     # ponytail: without the `regex` package the fallbacks below use
     # interpreter-Unicode `unicodedata`, which can misclassify marks added in
@@ -295,6 +314,7 @@ except ImportError:  # pragma: no cover
     # the Rust engine. `regex` is the parity contract / upgrade path.
     _X_RE = None
     _MARK_RE = None
+    _SNAP_SCAN_RE = None
 
 
 def _grapheme_boundaries(text: str) -> set:
@@ -312,6 +332,52 @@ def _is_mark(ch: str) -> bool:
     return unicodedata.category(ch).startswith("M")
 
 
+def _snap_needs_full_pass(text: str, spans: List[Tuple[int, int]]) -> bool:
+    """True when UAX #29 snapping can move a span edge and the full
+    grapheme-boundary pass is required.
+
+    Fast path (returns False): the text holds no cluster-capable character
+    (single C-speed scan, ASCII short-circuit) and no span edge falls strictly
+    inside a CR/LF pair — the only multi-codepoint cluster formable without a
+    cluster-capable char. Then every span edge is already a grapheme boundary
+    and only regex-overlap merging remains. Without the `regex` package the
+    tables are unavailable, so conservatively require the full pass.
+    """
+    if _SNAP_SCAN_RE is None:
+        return True
+    if not text.isascii() and _SNAP_SCAN_RE.search(text) is not None:
+        return True
+    n = len(text)
+    for s, e in spans:
+        if 0 < s < n and text[s - 1] == "\r" and text[s] == "\n":
+            return True
+        if 0 < e < n and text[e - 1] == "\r" and text[e] == "\n":
+            return True
+    return False
+
+
+def _merge_overlapping_spans(spans: List[Tuple[int, int]]) -> List[Tuple[int, int]]:
+    """Overlap-merging half of :func:`_snap_spans_to_graphemes`.
+
+    Used when :func:`_snap_needs_full_pass` is False, i.e. every span edge is
+    already a grapheme boundary: all boundary lookups and mark-orphan handling
+    of the full loop are provable no-ops, so only overlap merging remains.
+    Output is identical to the full loop on such inputs by construction.
+    """
+    out: List[Tuple[int, int]] = []
+    i = 0
+    n = len(spans)
+    while i < n:
+        s, e = spans[i]
+        while i + 1 < n and spans[i + 1][0] < e:
+            i += 1
+            if spans[i][1] > e:
+                e = spans[i][1]
+        out.append((s, e))
+        i += 1
+    return out
+
+
 def _snap_spans_to_graphemes(text: str, spans: List[Tuple[int, int]]) -> List[Tuple[int, int]]:
     """Port of `pipeline.rs::snap_spans_to_graphemes` (UAX #29 snapping).
 
@@ -322,6 +388,8 @@ def _snap_spans_to_graphemes(text: str, spans: List[Tuple[int, int]]) -> List[Tu
     """
     if not spans:
         return []
+    if not _snap_needs_full_pass(text, spans):
+        return _merge_overlapping_spans(spans)
     boundaries = _grapheme_boundaries(text)
     out: List[Tuple[int, int]] = []
     i = 0
@@ -542,13 +610,14 @@ class RegexPreTokenizer:
         """
         if not isinstance(text, str):
             raise TypeError(f"text must be a string, got {type(text).__name__}")
-        # ponytail: Rust pre_tokenize for default config; Python fallback exact
-        if _HAS_RUST_NORM and self._native_pretok_parity:
+        if not _HAS_RUST_NORM:
+            native_function(None, "rust_pre_tokenize")
+        # Native pre-tokenization is selected only for supported configurations.
+        if _HAS_RUST_NORM and self._native_pretok_parity and native_text_supported(text):
             assert _uniqtoken_core is not None
-            try:
-                return _uniqtoken_core.rust_pre_tokenize(text)
-            except (ImportError, AttributeError, ValueError):
-                pass
+            native = native_function(_uniqtoken_core, "rust_pre_tokenize")
+            if native is not None:
+                return native(text)
         return [t.text for t in self.pre_tokenize_with_offsets(text)]
 
     def pre_tokenize_with_offsets(

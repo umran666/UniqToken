@@ -36,8 +36,8 @@ Usage:
 
 from __future__ import annotations
 
+
 import argparse
-import json
 import os
 import sys
 import tempfile
@@ -49,6 +49,8 @@ from typing import Any, Callable, Dict, List, Optional
 
 _ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_ROOT))
+
+from benchmarks.ledger import SCHEMA_VERSION, provenance, write_ledger
 
 from benchmarks.train_toy_transformer import (  # noqa: E402
     PRETRAINING_CORPUS,
@@ -64,6 +66,7 @@ class RaceEntry:
     """One row of the matched-budget race report."""
 
     tokenizer: str
+    model_kind: str
     category: str
     target_vocab: int
     actual_vocab: int
@@ -86,15 +89,23 @@ class RaceReport:
     corpus_size_bytes: int
     steps: int
     seed: int
+    ledger_schema_version: int = SCHEMA_VERSION
+    commit_hash: str = field(default_factory=lambda: provenance()["commit_hash"])
+    working_tree_dirty: bool = field(default_factory=lambda: provenance()["working_tree_dirty"])
+    data_split: str = "document_disjoint_train_validation_test"
     entries: List[RaceEntry] = field(default_factory=list)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
+            "commit_hash": self.commit_hash,
+            "working_tree_dirty": self.working_tree_dirty,
             "budget": self.budget,
             "corpus_size_documents": self.corpus_size_documents,
             "corpus_size_bytes": self.corpus_size_bytes,
             "steps": self.steps,
             "seed": self.seed,
+            "ledger_schema_version": self.ledger_schema_version,
+            "data_split": self.data_split,
             "entries": [asdict(e) for e in self.entries],
         }
 
@@ -131,6 +142,7 @@ def _train_uniqtoken_unigram(budget: int, corpus: List[str]):
     return CustomTokenizer.train_from_corpus(
         corpus=corpus,
         target_vocab_size=budget,
+        min_edge_log_prob=float("-inf"),
         ranking_strategy="pmi",
         min_frequency=1,
         verbose=False,
@@ -299,7 +311,12 @@ def run_vocab_quality_race(
     if include_sentencepiece:
         try:
             spm_tok = _train_sentencepiece(budget, train_corpus)
+        except ImportError as exc:
+            warnings.warn(f"SentencePiece baseline unavailable ({exc}); skipping")
+        else:
             actual = getattr(spm_tok, "_spm_actual_vocab", len(spm_tok.model.vocab))
+            if actual != budget:
+                raise RuntimeError(f"SentencePiece returned {actual} pieces for requested budget {budget}")
             entry = _race_entry(
                 "SentencePiece (Unigram)",
                 "external_trainable",
@@ -309,11 +326,7 @@ def run_vocab_quality_race(
                 **train_kwargs,
             )
             entry.actual_vocab = actual
-            if actual != budget:
-                raise RuntimeError(f"SentencePiece returned {actual} pieces for requested budget {budget}")
             report.entries.append(entry)
-        except Exception as exc:
-            warnings.warn(f"SentencePiece baseline unavailable ({exc}); skipping")
 
     want_pretrained = include_pretrained or include_tiktoken or include_hf
     if want_pretrained:
@@ -360,6 +373,9 @@ def _race_entry(
     steps: int,
     **train_kwargs: Any,
 ) -> RaceEntry:
+    actual_vocab = int(tok.vocab_size)
+    if category != "external_pretrained" and actual_vocab != target_vocab:
+        raise RuntimeError(f"{name} produced {actual_vocab} pieces; matched benchmark requires {target_vocab}")
     t0 = time.perf_counter()
     m = train_toy_transformer(
         tok=tok,
@@ -371,9 +387,10 @@ def _race_entry(
     elapsed = time.perf_counter() - t0
     return RaceEntry(
         tokenizer=name,
+        model_kind=m.model_kind,
         category=category,
         target_vocab=target_vocab,
-        actual_vocab=int(m.vocab_size),
+        actual_vocab=actual_vocab,
         trained_fresh=(category != "external_pretrained"),
         bytes_per_token=float(m.compression_ratio),
         evaluated_tokens=int(m.evaluated_tokens),
@@ -421,8 +438,7 @@ def print_report(report: RaceReport, device: str = "auto") -> None:
 
 def write_json_report(report: RaceReport, path: str) -> None:
     Path(path).parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(report.to_dict(), f, indent=2)
+    write_ledger(path, report.to_dict())
 
 
 def main() -> int:

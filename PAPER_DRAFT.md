@@ -1,151 +1,99 @@
-# Beyond Subword Boundaries: Script-Aware Entropy-Guided SuperBPE and Downstream LM Capacity Coupling
+# UniqToken: Implementation Description and Evaluation Protocol
 
-**Authors**: Research Team  
-**Artifact Repository**: `https://github.com/umran666/UniqToken`
-
----
+**Status**: Research protocol; no comparative result claims
+**Artifact repository**: `https://github.com/umran666/UniqToken`
 
 ## Abstract
 
-Modern subword tokenizers are typically trained as static preprocessing pipelines optimizing either frequency-based merge statistics (BPE) or likelihood-based unigram pruning (SentencePiece) under rigid whitespace boundary constraints. In multilingual settings, these constraints introduce substantial vocabulary fragmentation and uneven script compression ratios. We present **UniqToken**, a multilingual subword tokenization architecture that combines: (1) **Script-Aware Candidate Generation** targeting cross-boundary morphemic aggregates, (2) **Candidate Entropy Filtering** to suppress low-frequency tail compositions, and (3) **Unified Unigram Lattice Regularization**.
+UniqToken is a research implementation of trainable Unigram and BPE tokenizers with optional cross-word CEM/SuperBPE vocabulary extension. The implementation also includes byte fallback, Unicode-aware pre-tokenization, subword regularization, and raw-text offset tracking. This document describes the code and the experiments required to evaluate it. It does not claim that UniqToken improves language-model quality, cost, linguistic segmentation, throughput, or a Pareto frontier.
 
-The repository provides a reproducible confirmatory harness. Its executable Phase 14B design covers 2 vocabulary scales ($32\text{K}, 64\text{K}$), 3 Transformer LM capacity tiers, 3 tokenizers, and 5 paired random seeds (90 LM runs) under matched analytical compute. The checked-in Phase 14/15 ledgers and figures are invalidated until regenerated with the corrected scripts.
+Earlier draft Tables 1-3, their ANOVA statistics, and derived Pareto claims were based on experimental artifacts that do not satisfy the current held-out-data and exact-vocabulary contracts. Those artifacts remain under `benchmarks/legacy/` for provenance. They must not be cited as results for the current implementation.
 
-The numerical contribution claims below are retained as a draft outline only and must be recomputed from a fresh ledger before publication.
-1. **Factorial Capacity Interaction**: We establish that vocabulary scaling and downstream Transformer capacity are statistically coupled ($F(2, 8) = 425.71, p = 7.51 \times 10^{-9}$ under a two-way repeated-measures ANOVA). Under-parameterized models suffer a representational bottleneck on dense super-tokens, whereas scaled architectures unlock an additional $-0.405\text{ BPB}$ improvement ($t(4) = -70.10, p_{\text{adj}} = 2.48 \times 10^{-7}$).
-2. **Multi-Objective Pareto Compromise**: Rather than asserting universal dominance, we show that UniqToken occupies a distinct middle Pareto regime—particularly at $32\text{K}$—providing a balanced tradeoff between text compression ($\text{BPB}_{\text{SP}} = 2.631 < \text{BPB}_{\text{Cal}} = 2.772 < \text{BPB}_{\text{BPE}} = 2.840$) and per-token validation cross-entropy ($\text{CE}_{\text{BPE}} = 9.914 < \text{CE}_{\text{Cal}} = 11.540 < \text{CE}_{\text{SP}} = 11.957\text{ nats}$).
-3. **Vocabulary Memory Efficiency**: In low-to-intermediate resource regimes, UniqToken achieves the lowest BPB among all evaluated $16\text{K}$ configurations ($3.093\text{ BPB}$ at $5.0\text{M}$ parameters) and maintains $75.6\%$ active vocabulary utilization.
+## 1. Implementation
 
----
+### 1.1 Training
 
-## 1. Introduction
+`CustomTokenizer.train_from_corpus` normalizes and pre-tokenizes training documents, constructs a seed vocabulary, and trains a Unigram model. Candidate ranking can use frequency, character savings, byte savings, or PMI. Optional settings can rebalance candidate selection across detected script families and filter candidates by an empirical boundary-entropy threshold.
 
-Subword tokenization serves as the foundational interface between continuous neural language models and discrete textual representations. Despite rapid advances in Transformer architectures, tokenization methods remain largely decoupled from downstream representational capacity. Standard Byte-Pair Encoding (BPE) and SentencePiece Unigram tokenizers enforce hard word boundary delimiters (e.g. whitespace or metaspace ` ` markers), which arbitrarily fragment morphologically rich, non-Latin scripts (e.g. Indic, Semitic, and CJK languages) and produce high fertility rates.
+The repository also contains a BPE trainer. CEM extends an existing vocabulary by appending selected merged tokens. SuperBPE is the CEM configuration with cross-word merging enabled. These are algorithmic mechanisms, not evidence that the learned tokens correspond to clitics, morphemes, roots, or any other linguistic gold standard.
 
-Prior attempts to expand token granularity via cross-word merges (SuperBPE) frequently encounter an empirical paradox: while longer subword representations dramatically reduce sequence lengths (increasing bytes per token), downstream language models often fail to translate these compression gains into reduced byte-level perplexity (Bits-Per-Byte, BPB). In this work, we demonstrate that this failure is an artifact of **tokenizer–model capacity mismatch**.
+### 1.2 Tokenization and decoding
 
-We formalize this interaction through a systematic factorial benchmark across vocabulary scales and model capacities, demonstrating that a script-aware, entropy-guided tokenizer moves the multi-objective Pareto frontier across text compression, per-token cross-entropy, and hardware embedding memory budgets.
+The tokenizer applies sanitization, optional indentation compression, normalization, regex pre-tokenization, and model segmentation. Unknown text can be represented by UTF-8 byte tokens when byte fallback is enabled. Decoding reverses token serialization and optional indentation compression. With normalization enabled, the text contract is `decode(encode(x)) == normalize(x)`, subject to separately configured sanitization; NFKC is not byte-for-byte lossless. Here normalization denotes visible normalized text, not internal metaspace serialization. Offset APIs compose mappings through the preprocessing stages to return spans in the original input.
 
----
+### 1.3 Compatibility and native execution
 
-## 2. Architecture & Methods
+The compatibility namespace imports existing tiktoken, Hugging Face, and SentencePiece vocabularies while preserving their token IDs. The research namespace trains new vocabularies and therefore changes the token-ID space. A Rust extension accelerates selected trie, lattice, pre-tokenization, and batch operations; Python implementations remain available for supported paths. Performance depends on which path is active and must be recorded in any throughput experiment.
 
-### 2.1 Script-Aware Candidate Generation
-UniqToken segments input corpora using Unicode script family detection (e.g. Latin, Devanagari, Bengali, Arabic, Cyrillic) and applies script-specialized candidate expansion rules. Rather than restricting merges to intra-word n-grams, UniqToken allows controlled cross-boundary agglomerations for high-frequency grammatical clitics and functional compound words while enforcing structural boundary protection on root morphemes.
+### 1.4 Scope exclusions
 
-### 2.2 Entropy-Guided Candidate Filtering
-To prevent vocabulary pollution from combinatorially explosive, low-frequency tail candidates, UniqToken evaluates the empirical candidate entropy:
-$$H(c) = -\sum_{x \in \mathcal{X}_c} p(x \mid c) \log p(x \mid c)$$
-Candidates with normalized entropy below an empirical threshold $\tau_H$ or occurrence frequencies below corpus support thresholds are pruned before final vocabulary assembly.
+The supported multimodal surface includes text and the repository's visual patch/codebook path. The random-initialized audio RVQ and neural codec utilities are experimental internals, have no bundled trained checkpoint, and are not part of the supported public tokenizer API.
 
-### 2.3 Experimental Setup & Analytical Compute Matching
-To eliminate compute confounds across different vocabulary sizes and model architectures, all downstream Transformer models are trained under an exact matched analytical compute budget:
-$$C_{\text{train}} = 6 \cdot P_{\text{non-embed}} \cdot S \cdot B \cdot T = 5.0 \times 10^{12} \text{ FLOPs}$$
-where $P_{\text{non-embed}}$ denotes non-embedding parameter count, $S$ denotes training steps, $B$ denotes batch size, and $T$ denotes sequence length ($T = 64$ in the executable harness).
+## 2. Current benchmark contract
 
-```
-Model Architectures Evaluated:
-- Small:  4 Layers, d_model = 128, 4 Heads, d_ff = 512
-- Medium: 6 Layers, d_model = 256, 8 Heads, d_ff = 1024
-- Large:  8 Layers, d_model = 512, 8 Heads, d_ff = 2048
+The final research harness is `benchmarks/run_research_experiments.py`, with the executable methodology in `benchmarks/RESEARCH_PROTOCOL.md`. The older `benchmarks/run_matched_budget_eval.py` is a train/validation diagnostic. Small component checks also exist in `benchmarks/train_toy_transformer.py`, `benchmarks/downstream_eval.py`, and `benchmarks/benchmark_suite.py`.
 
-Vocabulary Scales Evaluated:
-- 16K (16,384 subwords)
-- 32K (32,768 subwords)
-- 64K (65,536 subwords)
-```
+Every current comparative run must satisfy all of the following:
 
----
+1. Tokenizer and language-model training documents are disjoint from every document used for measurement.
+2. The final runner requires frozen train/validation/test manifests before Phase A. Phase B uses validation LM NLL only for screening; Phase C requires an explicit screening-ledger-bound selection before computing test LM NLL. All data assignment and normalized-document fingerprints are shared across tokenizers. Exact-document duplication is rejected; near-duplicate removal remains an external corpus-preparation requirement.
+3. Every trainable tokenizer reaches the exact requested vocabulary size. A shortfall is a failed condition, not a smaller-budget substitute.
+4. A SuperBPE condition learns at least one cross-word merge. Zero-merge configurations are invalid.
+5. Transformer rows are produced only by the declared Transformer implementation. Missing PyTorch, insufficient training tokens, or an unavailable requested device aborts the condition; no Laplace or unigram model is substituted.
+6. Every persisted row records `model_kind`. Active JSON ledgers use shared schema version 3. The final runner additionally requires research schema 2, a clean Git commit, source and installed extension hashes, dataset manifest/assignment hashes, tokenizer artifact hashes, seeds, complete model configuration, and the matching regime/budget. Its loader validates these against the current runtime and rejects diagnostic or stale ledgers. An installed extension hash identifies bytes, not proof of a build from the current Rust source.
+7. A matched comparison is complete only if every pre-registered tokenizer, vocabulary budget, model tier, and seed succeeds. Partial grids are diagnostic outputs, not matched comparative evidence.
 
-## 3. Results & Empirical Analysis
+## 3. Metrics
 
-### 3.1 Tokenizer–Model Capacity Coupling (Factorial Interaction)
+Tokenizer-only measurements may report bytes per token, tokens per byte, tokens per Unicode character, byte-fallback rate, latency, and input-byte throughput. `tokens_per_unicode_character` divides token count by raw Unicode code-point count, including whitespace. This applies consistently to CJK and mixed-script text; it does not measure morpheme or word-boundary accuracy. Ambiguous whitespace-based fertility fields are rejected by the current ledger loader.
 
-Table 1 presents the repeated-measures two-way ANOVA evaluating True LM BPB as a function of Vocabulary Scale ($V \in \{32\text{K}, 64\text{K}\}$) and LM Capacity Tier ($\text{Small}, \text{Medium}, \text{Large}$) across 5 paired seeds:
+Downstream causal language models may report token cross-entropy and byte-normalized negative log-likelihood:
 
-$$\text{Model: } \text{BPB} \sim V + \text{Capacity} + (V \times \text{Capacity}) + (1 \mid \text{Seed})$$
+$$
+\operatorname{BPB} = \frac{\sum_{i=1}^{N} -\log p(x_i \mid x_{<i})}{B\log 2},
+$$
 
-**Table 1: Repeated-Measures Two-Way ANOVA Summary**
-| Source of Variation | Sum of Squares (SS) | $df$ | Mean Square (MS) | $F$-Statistic | $p$-value |
-|:---|:---:|:---:|:---:|:---:|:---:|
-| **Factor A (Vocabulary Scale $V$)** | $0.7717$ | $1$ | $0.7717$ | $8,388.21$ | $8.52 \times 10^{-8}$ |
-| Error A ($V \times \text{Seed}$) | $0.0004$ | $4$ | $0.0001$ | — | — |
-| **Factor B (LM Capacity)** | $0.2241$ | $2$ | $0.1121$ | $7,147.02$ | $9.79 \times 10^{-14}$ |
-| Error B ($\text{Capacity} \times \text{Seed}$) | $0.0001$ | $8$ | $0.0000$ | — | — |
-| **Interaction ($V \times \text{Capacity}$)** | $\mathbf{0.0313}$ | $\mathbf{2}$ | $\mathbf{0.0157}$ | $\mathbf{425.71}$ | $\mathbf{7.51 \times 10^{-9}}$ |
-| Error AB ($V \times \text{Capacity} \times \text{Seed}$) | $0.0003$ | $8$ | $0.0000$ | — | — |
+where the numerator and byte count $B$ refer to the same held-out normalized UTF-8 documents. The final runner scores every text token plus EOS, starting from BOS, including short final windows; EOS adds NLL but no text bytes. Validation and test totals are separate. Perplexity is the exponential of mean token NLL and depends on each tokenizer's prediction alphabet. This is decoder-only causal next-token evaluation with fixed finite-context windows, not masked-model evaluation. A uniform vocabulary code length is not an LM bits-per-byte metric and is not reported as one.
 
-**Table 2: Pre-Registered Paired Hypothesis Tests ($N = 5$ Seeds, Holm-Bonferroni Corrected)**
-| Hypothesis | Mean 1 | Mean 2 | Mean Diff | $t(4)$ | $p_{\text{adj}}$ (Holm) | 95% Confidence Interval | Cohen's $d_z$ |
-|:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| $H_1: \text{BPB}_{\text{Cal}, 64\text{K}, \text{Med}} < \text{BPB}_{\text{Cal}, 32\text{K}, \text{Med}}$ | $2.496$ | $2.901$ | **$-0.405$** | $-70.10$ | $2.48 \times 10^{-7}$ | $[-0.421, -0.389]$ | $-31.35$ |
-| $H_2: \text{CE}_{\text{Cal}, 64\text{K}, \text{Med}} < \text{CE}_{\text{Cal}, 64\text{K}, \text{Small}}$ | $11.168$ | $12.097$ | **$-0.929$** | $-185.81$ | $1.01 \times 10^{-8}$ | $[-0.943, -0.916]$ | $-83.10$ |
-| $H_3: \text{BPB}_{\text{Cal}, 64\text{K}, \text{Med}} < \text{BPB}_{\text{Cal}, 64\text{K}, \text{Small}}$ | $2.496$ | $2.703$ | **$-0.208$** | $-182.40$ | $8.13 \times 10^{-9}$ | $[-0.211, -0.205]$ | $-81.57$ |
-| $H_4: \text{BPB}_{\text{Cal}, 64\text{K}, \text{Large}} < \text{BPB}_{\text{Cal}, 64\text{K}, \text{Med}}$ | $2.463$ | $2.496$ | **$-0.032$** | $-8.24$ | $5.91 \times 10^{-4}$ | $[-0.043, -0.021]$ | $-3.69$ |
+Input bytes per second is the primary cross-tokenizer throughput unit. Token throughput depends on segmentation and is therefore not directly comparable across tokenizers that emit different token counts. Tokens per second may be used to compare implementation paths only when token streams are identical.
 
-### 3.2 The 32K Three-Way Pareto Compromise
+## 4. Required experimental design
 
-At the $32\text{K} \times \text{Large } (8\text{L}-512\text{d})$ configuration, the three tokenizers establish a strict three-way trade-off:
-- **SentencePiece-Unigram**: Maximizes text compression ($\text{BPB} = 2.631$, $6.56\text{ B/Tok}$), but yields high per-token cross-entropy ($\text{CE} = 11.957\text{ nats}$).
-- **Boundary-BPE**: Minimizes per-token cross-entropy ($\text{CE} = 9.914\text{ nats}$), but achieves lower text compression ($\text{BPB} = 2.840$, $5.04\text{ B/Tok}$).
-- **UniqToken-SuperBPE**: Provides a balanced compromise ($\text{BPB} = 2.772$, $\text{CE} = 11.540\text{ nats}$, $6.01\text{ B/Tok}$), maintaining superior active vocabulary utilization ($75.6\%$).
+### 4.1 Data
 
-### 3.3 Cross-Linguistic Compression & Morphological Fertility in Underrepresented Scripts
+Use frozen, versioned corpora with documented source, license, language/domain composition, deduplication, and preprocessing. Split before all tokenizer training. Apply exact-document and near-duplicate checks across train, validation, and test. Synthetic corpora are acceptable for harness tests but not as the sole basis of general performance claims.
 
-To evaluate cross-linguistic generalization beyond high-resource Latin and Devanagari corpora, we expanded the evaluation harness across underrepresented African and Indic/Dravidian language families:
-- **Agglutinative Swahili** (*Niger-Congo / Bantu*): Characterized by extensive prefixation and suffixation over verbal roots.
-- **Tonal Yoruba** (*Niger-Congo / Defoid*): Latin orthography with combining acute/grave tones and sub-dot diacritics (`ẹ`, `ọ`, `ṣ`).
-- **Agglutinative Malayalam** (*Dravidian*): Complex consonant clusters, virama-linked conjuncts (*chillus* and ligatures), and extensive agglutinative case compounding.
-- **Ge'ez Amharic** (*Afroasiatic / Semitic*): Written in the Ge'ez abugida (*fidäl*) script, featuring non-concatenative root-and-pattern morphology.
+### 4.2 Tokenizer comparison
 
-Standard production BPE tokenizers trained predominantly on English/code (e.g. `tiktoken cl100k_base`) exhibit severe vocabulary fragmentation on non-Latin scripts, imposing a heavy "token tax" where non-Latin characters are disassembled into multiple UTF-8 byte tokens. Table 3 benchmarks UniqToken against Tiktoken across these underrepresented corpora:
+Phase A compares independently trained SentencePiece Unigram, SentencePiece BPE, Boundary-BPE, UniqToken Unigram, and UniqToken SuperBPE at exactly 16,384, 32,768, and 65,536 total entries. Boundary-BPE is primary because historical 64K comparisons motivate retaining it as a strong candidate, not because those invalidated artifacts establish current superiority. All budgets include the same four control tokens and 256 byte tokens. Freeze normalization, character coverage, maximum token length, and training-data allocation. Report failures rather than padding vocabularies or changing a baseline's requested budget.
 
-**Table 3: Cross-Linguistic Fertility and Compression Across Low-Resource Corpora**
+### 4.3 Language-model comparison
 
-| Language / Family | Script Family | Raw Bytes | UniqToken Tokens | UniqToken Bytes/Tok ↑ | UniqToken Fertility ↓ | Tiktoken Tokens | Tiktoken Bytes/Tok ↑ | Tiktoken Fertility ↓ | Compression Delta | Fallback Rate |
-|:---|:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| **Agglutinative Swahili** | Latin | 12,840 | 4,800 | 2.68 | 2.54 | 4,650 | 2.76 | 2.46 | $-3.1\%$ | **0.0%** |
-| **Tonal Yoruba** | Latin + Diacritics | 16,050 | 6,840 | 2.35 | 3.17 | 8,100 | 1.98 | 3.75 | $+18.5\%$ | **0.0%** |
-| **Agglutinative Malayalam** | Dravidian (*മലയാളം*) | 24,450 | 2,640 | **9.26** | **2.84** | 14,580 | 1.68 | 15.68 | **$+451.2\%$ (5.5x)** | **0.0%** |
-| **Ge'ez Amharic** | Ethiopic Fidäl (*ግዕዝ*) | 25,530 | 2,310 | **11.05** | **1.28** | 23,640 | 1.08 | 13.13 | **$+923.3\%$ (10.2x)** | **0.0%** |
+Phase B screens all conditions with one paired seed using a 2-layer, width-128, FFN-512 causal LM. Phase C runs selected conditions with three new paired LM seeds using 12 layers, width 768, FFN 3072, 12 heads, and context 1024. The existing architecture has learned positions and untied input/output matrices. Its non-embedding count is 85,842,432; total counts at 16K/32K/64K are 111,008,256 / 136,174,080 / 186,505,728, verified against instantiated parameters. It is not labeled "125M". Tokenizers are frozen from Phase A, so paired seeds measure LM variation, not tokenizer-training variation.
 
-Key empirical observations:
-1. **Elimination of the Non-Latin Token Tax**: Tiktoken fragments Malayalam into $15.68\text{ tokens/word}$ ($1.68\text{ Bytes/Token}$) and Amharic into $13.13\text{ tokens/word}$ ($1.08\text{ Bytes/Token}$), indicating near-total decomposition into single UTF-8 bytes. In contrast, UniqToken achieves $9.26\text{ Bytes/Token}$ on Malayalam ($5.5\times$ compression) and $11.05\text{ Bytes/Token}$ on Amharic ($10.2\times$ compression), reducing sequence lengths and downstream attention context consumption by up to $90\%$.
-2. **Diacritic & Tone Preservation**: For tonal Yoruba, UniqToken reduces morphological fertility from $3.75$ to $3.17\text{ tokens/word}$ ($15.6\%$ fewer tokens), preventing the spurious split between base vowels and tone markers.
-3. **Zero Byte Fallback**: Across all four low-resource evaluation corpora, UniqToken achieves a **0.0% byte fallback rate**, preserving lossless tokenization without fallback leakage.
-4. **Corpus Sizing Methodology**: In accordance with the standard design of `BENCHMARK_CORPORA` (where base authentic paragraphs are repeated $30\times$ alongside `English_Prose` and `Indic_Hindi` to form $10\text{--}25\text{ KB}$ datasets), each low-resource corpus is scaled proportionally to ensure balanced vocabulary representation during EM unigram pruning and robust multi-iteration throughput profiling.
+Run both FLOP-matched and byte-matched regimes; neither is universally superior. The former uses a documented dense-matmul forward/backward estimator with at most 1% undershoot and no overshoot, not measured hardware FLOPs. The latter uses identical ordered normalized-document prefixes and rejects budgets ending inside documents. The ledger records requested/actual budgets, parameters, targets, optimizer updates, device, precision, context, and software provenance. Before efficiency claims, add separately controlled hardware profiling and end-to-end timing experiments; these are not inferred from analytical budgets.
 
----
+### 4.4 Statistics
 
-## 4. Discussion & Limitations
+Use multiple paired seeds and publish every condition, including failed runs. Pre-register primary outcomes and statistical tests before the confirmatory run. Report uncertainty intervals and effect sizes. ANOVA or Pareto analysis is appropriate only after verifying independence, a complete factorial grid, correct repeated-measures structure, and robustness to alternative compute and memory constraints.
 
-### 4.1 Memory-Budget Tradeoffs
-Because embedding parameters scale linearly with vocabulary size ($M_{\text{embed}} = 2 \cdot V \cdot d_{\text{model}} \cdot 4\text{ bytes}$), expanding from $16\text{K} \rightarrow 64\text{K}$ at $d=512$ increases the embedding memory footprint from $64.0\text{ MB}$ to $256.0\text{ MB}$. Engineers operating under tight edge deployment constraints can exploit UniqToken's low-capacity efficiency ($3.093\text{ BPB}$ at $16\text{K}-\text{Small}$) to capture competitive compression at a fraction of the parameter memory footprint.
+### 4.5 Linguistic evaluation
 
-### 4.2 Limitations
-1. **Corpus Scope**: Evaluations were conducted on multilingual corpora spanning Latin, Devanagari, Arabic, CJK, Dravidian (Malayalam), and Ge'ez (Amharic) scripts. Further expansion to low-resource polysynthetic and indigenous American language families remains an area for future work.
-2. **Model Architectures**: Experiments evaluated decoder-only Transformers up to $92\text{M}$ parameters ($8\text{L}-512\text{d}$). While capacity saturation was observed at $6\text{L}-256\text{d}$ for this data regime, billion-parameter scaling curves may shift the absolute crossover boundaries.
-3. **Compute Matching**: Compute was matched analytically via theoretical FLOP formulas rather than wall-clock hardware runtimes.
+Claims about clitics, morphemes, or root preservation require annotated linguistic datasets and boundary-level precision, recall, and F1, evaluated by language. Compression and whitespace-based fertility cannot establish those claims.
 
----
+## 5. Results status
 
+No result table is current. The repository's historical Phase 14/15 records, figures, and pre-integrity matched-budget run are archived and invalid for current claims because of data leakage, incomplete exact-budget enforcement, or insufficient result provenance. Small smoke runs may demonstrate that the harness executes and enforces its contracts; they are not evidence of model superiority.
 
-### 4.3 Theoretical Complexity & Frontier Scaling Bounds
+## 6. Open research questions
 
-#### 4.3.1 Inference Time Complexity
-Given an input sequence of length $ characters and a maximum subword length {\\max} \\le 16$, the Viterbi dynamic programming segmentation over the prefix DAG requires:
-\\mathcal{O}(L \\cdot K_{\\max}) = \\mathcal{O}(L)
-Because {\\max}$ is an architectural constant, segmentation executes in strictly linear time with respect to input length, invariant to total vocabulary size $. Furthermore, with word-level LRU segment caching, common sub-sequence segmentation complexity approaches $\\mathcal{O}(1)$ amortized lookups per chunk.
+- Does SuperBPE improve held-out byte-normalized LM loss after exact vocabulary, data, and compute matching?
+- Are any effects stable across languages, domains, vocabulary sizes, model capacities, and seeds?
+- How sensitive are results to normalization, script balancing, entropy thresholds, and maximum token length?
+- What is the tradeoff among sequence length, embedding/output parameters, attention compute, and measured end-to-end latency?
+- Do learned boundaries align with annotated linguistic units, or do they only improve compression?
+- Does the Rust path preserve exact output parity while improving input-byte throughput on controlled hardware?
 
-#### 4.3.2 Memory Complexity & Frontier Invariance
-The memory required during inference consists of the dynamic programming lattice state:
-M_{\\text{infer}} = \\mathcal{O}(L)
-The embedding table memory footprint is strictly bounded by:
-M_{\\text{embed}} = 2 \\cdot V \\cdot d_{\\text{model}} \\cdot 4\\text{ bytes}
-Because {\\text{embed}}$ depends exclusively on the vocabulary size $ and model hidden dimension {\\text{model}}$, it remains strictly invariant to the total number of training tokens {\\text{tokens}}$. Consequently, the tokenization mechanics scale seamlessly from small experimental setups to frontier regimes (\\text{K}-256\\text{K}$ vocabulary, \\text{B}+$ parameters, trillions of pre-training tokens).
+## 7. Claim policy
 
----
-
-## 5. Conclusion
-
-We demonstrated that tokenizer design and language model capacity cannot be treated as independent components. UniqToken's script-aware, entropy-guided tokenization moves the multilingual compression/predictability tradeoff frontier, providing an effective architectural compromise in the $32\text{K}$ regime.
+Performance, cost, linguistic, capacity-coupling, and Pareto claims may be added only from a fresh, versioned ledger produced by the current harness, accompanied by the complete configuration and uncertainty analysis. Historical values must remain labeled as archival and must not be copied into the abstract, README, tables, figures, or conclusion as current evidence.

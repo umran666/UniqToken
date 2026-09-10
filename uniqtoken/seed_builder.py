@@ -6,6 +6,7 @@ from collections import Counter, deque
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Deque, Dict, Iterable, List, Optional, Set, Tuple
+from ._native import native_function, native_text_supported
 
 # Extended grapheme clusters (UAX #29) with current-Unicode data, mirroring
 # the Rust engine's unicode-segmentation crate.
@@ -227,18 +228,14 @@ class SeedVocabularyBuilder:
         # Reuse the module-level uniqtoken_core import; re-importing it here
         # would bypass the repo's own Rust core and break class-identity for shared types.
         if not getattr(chunk_counts, "is_streaming", False):
-            core = uniqtoken_core if uniqtoken_core is not None else None
-            if core is not None:
-                try:
-                    if hasattr(core, "rust_mine_ngrams"):
-                        rust_res = core.rust_mine_ngrams(
-                            dict(chunk_counts),
-                            self.max_ngram_length,
-                            set(self.special_tokens) if self.special_tokens else None,
-                        )
-                        return Counter(rust_res)
-                except (ImportError, AttributeError, ValueError, TypeError):
-                    pass
+            mine = native_function(uniqtoken_core, "rust_mine_ngrams")
+            if mine is not None and all(native_text_supported(chunk) for chunk in chunk_counts):
+                rust_res = mine(
+                    dict(chunk_counts),
+                    self.max_ngram_length,
+                    set(self.special_tokens) if self.special_tokens else None,
+                )
+                return Counter(rust_res)
         ngram_counts: Counter[str] = Counter()
         default_max = self.max_ngram_length
         for chunk, chunk_freq in chunk_counts.items():

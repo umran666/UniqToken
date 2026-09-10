@@ -1,0 +1,266 @@
+# Final experiment harness
+
+This is an execution protocol, not a result report. Run from the repository root
+using `python -m benchmarks.run_research_experiments`. The older
+`run_matched_budget_eval.py` remains a train/validation diagnostic, not the final
+research runner. Historical ledgers are unchanged and cannot enter this protocol.
+
+## Primary cohort and stages
+
+All vocabulary budgets include exactly four control tokens and 256 byte tokens:
+`<|unk|>=0`, `<|pad|>=1`, `<|bos|>=2`, `<|eos|>=3`. Remaining IDs are contiguous.
+The harness aligns control IDs in fresh UniqToken artifacts before any LM is
+initialized; it does not change tokenizer pieces or scores to fill budgets.
+
+| ID | Primary tokenizer |
+| --- | --- |
+| `sp_unigram` | SentencePiece Unigram |
+| `sp_bpe` | SentencePiece BPE |
+| `boundary_bpe` | Repository BPE trained/applied within whitespace boundaries |
+| `uniq_unigram` | UniqToken Unigram |
+| `uniq_superbpe` | UniqToken Unigram plus cross-word CEM |
+
+Boundary-BPE is a primary baseline, not an optional fallback. Historical 64K
+comparisons motivated retaining it; those invalidated experiments do not establish
+current superiority. This runner preserves whitespace in Boundary-BPE input and
+output. Do not interpret differences from historical numbers as improvements.
+
+Phase A trains all five tokenizers on the identical ordered training split at
+16,384, 32,768 and 65,536 total entries. It reports tokenizer-only validation/test
+counts and character/byte density, checks normalized roundtrips, and saves models.
+Any vocabulary shortfall, zero-merge SuperBPE, or failed condition aborts completion.
+There is no vocabulary padding, smaller-budget retry, or baseline substitution.
+SuperBPE reserves `min(V // 10, 4000)` entries for CEM; if the existing trainer
+cannot fill that reserve, report the failure. CEM receives EOS between documents.
+SentencePiece uses full training input, identity normalization after the shared
+preprocessing, coverage 1.0, one thread, no dummy prefix, and no whitespace collapse.
+UniqToken uses the existing training defaults except four specials, byte fallback,
+minimum frequency 1, and explicit Python EM (`min_edge_log_prob=-inf`). Seed mining
+and encoding may use installed native operations. No tokenizer algorithm changes
+are introduced by this protocol.
+
+Phase B loads the exact Phase A artifacts and screens the full cohort/grid under
+both matching regimes with one paired LM seed. It evaluates validation NLL only.
+LM test loss is not computed or available for condition selection. Caps per
+condition are 100 billion estimated FLOPs and 1,000,000 normalized training bytes;
+these are safety limits, not claims of scientifically sufficient training.
+
+Phase C requires a complete Phase B ledger and an explicit selection JSON bound
+to its SHA-256 hash. Only selected tokenizer/vocabulary/regime triples run, each
+with three distinct new paired LM seeds. Validation and test NLL are evaluated
+once at the end of the fixed training budget; there is no test-driven checkpoint
+selection. Publish the selection rationale and all successes/failures. Selection
+is not evidence that an omitted baseline lost. Tokenizers are frozen from A;
+the three seeds measure LM training variation, not tokenizer retraining variation.
+
+## Data and normalization
+
+Prepare three frozen UTF-8 JSONL files, one document per line:
+
+```json
+{"id": "globally-unique-document-id", "text": "the complete document"}
+```
+
+Provide a manifest (paths relative to the manifest):
+
+```json
+{
+  "schema_version": 1,
+  "dataset_id": "your-versioned-corpus-id",
+  "source": "documented source and revision",
+  "license": "applicable license",
+  "deduplication": "document the exact and near-duplicate procedure",
+  "normalization": "NFKC_unicode_spaces_v1",
+  "splits": {
+    "train": {"path": "train.jsonl", "sha256": "actual file SHA-256"},
+    "validation": {"path": "validation.jsonl", "sha256": "actual file SHA-256"},
+    "test": {"path": "test.jsonl", "sha256": "actual file SHA-256"}
+  }
+}
+```
+
+The runner verifies file hashes, nonempty splits, globally unique IDs, and no
+duplicate normalized documents within or across splits. Ordering is fingerprinted.
+It does not implement near-duplicate detection: that remains a corpus-preparation
+requirement whose procedure must be documented in the manifest. Split before
+tokenizer training and freeze language/domain assignments externally.
+
+Each split and ordered document entry records both `source_utf8_bytes` (the
+original JSONL document's decoded `text` string encoded as UTF-8, before
+normalization) and `normalized_utf8_bytes` (after shared normalization). Source
+counts exclude JSON syntax, record separators, and escape serialization overhead.
+They include any whitespace/newlines inside the text. Both counts exclude BOS/EOS.
+The assignment fingerprint includes source and normalized document hashes.
+
+Shared preprocessing applies NFKC and the existing Unicode-space-to-ASCII-space
+mapping, preserving case, punctuation, repeated spaces, tabs, and newlines. BPB
+denominators refer to this normalized UTF-8 text, not the original pre-normalized
+files. Corpus control-token syntax (`<|`) and reserved metaspace/private-use escape
+characters are rejected rather than silently escaped or dropped. Unsupported
+roundtrips fail. Investigate such failures before changing the protocol or corpus.
+
+With normalization enabled the contract is
+`decode(encode(x)) == normalize(x)`, not unconditional raw-byte reconstruction.
+Here `normalize` means the externally visible normalized text, not the internal
+metaspace representation returned by the library's `Normalizer.normalize` method.
+Security sanitization is an additional transformation in the general tokenizer
+API; the experiment excludes its reserved inputs. NFKC is not byte-for-byte lossless.
+
+## Causal architecture
+
+The existing `CausalMiniTransformer` is used as a decoder-only causal LM, despite
+PyTorch naming its masked stack `TransformerEncoder`. It has learned positional
+embeddings, pre-layer normalization, ReLU FFNs, dropout 0.1, a final layer norm,
+and an **untied**, bias-free vocabulary head. It predicts next tokens causally.
+Training uses FP32, AdamW (betas 0.9/0.999, epsilon 1e-8, weight decay 0.01), batch
+size 1, no LR schedule, and deterministic PyTorch algorithms. Unsupported device
+or computation failures abort; there is no substitute statistical language model.
+
+| Stage | Layers / width / FFN / heads / context | LR | Total parameters at 16K / 32K / 64K |
+| --- | --- | --- | --- |
+| B | 2 / 128 / 512 / 4 / 128 | 0.001 | 4,607,488 / 8,801,792 / 17,190,400 |
+| C | 12 / 768 / 3072 / 12 / 1024 | 0.0003 | 111,008,256 / 136,174,080 / 186,505,728 |
+
+These are architecture counts, not experimental measurements. Every LM row records:
+
+- `core_params`: `L*(4*d*d + 2*d*f + f + 9*d) + C*d + 2*d`, where L is layers,
+  d is width, f is FFN width and C is context capacity. This vocabulary-independent
+  group includes learned positional embeddings, Transformer biases/norms, and the
+  final norm. `non_embedding_params` is an equal compatibility alias, not a claim
+  that positional embeddings are excluded. It is 413,184 in B and 85,842,432 in C.
+- `input_embedding_params`: `V*d`, the input vocabulary lookup table.
+- `output_head_params`: `V*d`, the separate, untied, bias-free output projection.
+- `total_params`: `core_params + input_embedding_params + output_head_params`.
+
+The runner checks the total and components against the instantiated model and
+rejects tied input/head weights. The architecture and 16K/32K/64K vocabularies are
+unchanged. It is not named "125M"; tests check both architectures at all capacities.
+
+## Matching and evaluation
+
+Both regimes use the same ordered training documents; they answer different
+questions and neither is universally preferable. Tokenizer training always uses
+the full training split. LM batches never cross document boundaries.
+
+- **FLOP-matched:** a shared requested analytical budget. For a length-S training
+  window the estimator is `6*L*S*(4*d*d + 2*d*f) + 12*L*S*S*d + 6*S*d*V`.
+  This counts dense matmul forward/backward work, including the vocabulary head.
+  It excludes embedding lookups, normalization, activation, optimizer, and evaluation
+  costs; it is not a hardware profiler or a wall-clock matching claim. A shortened
+  final training window is allowed. Actual work must be within 1% below budget,
+  never above. The matched quantity is total analytical FLOPs, not
+  vocabulary-independent compute.
+- **Byte-matched:** the same exact ordered document prefix, cycling training data
+  if needed. The budget must end at a document boundary, with no byte rounding or
+  mid-character truncation. A multiple of the total training bytes always qualifies.
+  Numbers of tokens, windows, and optimizer updates can differ across tokenizers.
+
+The unchanged FLOP estimator is version `dense_matmul_forward_backward_v1`.
+Each LM row records it as `flop_estimator_version` (also `model_config.flop_estimator`)
+and separates the accumulated work across executed windows:
+
+- `core_analytical_flops`: sum of `6*L*S*(4*d*d + 2*d*f) + 12*L*S*S*d`.
+  For identical window lengths this component is independent of vocabulary size.
+- `output_projection_flops`: sum of `6*S*d*V`, explicitly vocabulary-dependent.
+- `actual_analytical_flops`: the sum of those two fields, used for FLOP matching.
+
+`training_target_tokens` stores sum(S), including EOS targets;
+`training_sequence_length_squared_sum` stores sum(S*S), including shortened final
+windows. The loader recomputes both FLOP components from these totals, vocabulary,
+and the fixed architecture, and verifies their sum and estimator version. Lookup,
+optimizer, normalization, activation, and evaluation work remain excluded. This
+does not remove output-projection cost or silently switch to tied embeddings.
+
+The explicit byte-budget policy is `byte_budget_field=normalized_utf8_bytes`,
+with `byte_audit_field=source_utf8_bytes` as the secondary audit measure. Phase A
+records both full-split tokenizer-training totals in `training_bytes`. LM rows
+record both totals for the same ordered completed training-document prefix in
+`training_bytes`, its count in `completed_training_documents`, and
+`training_byte_scope=complete_document_prefix`. Repeated passes count both byte
+types again. Document selection never depends on tokenizer segmentation.
+
+For byte-matched LM conditions, `training_bytes.normalized_utf8_bytes` equals the
+requested budget exactly; source exposure is recomputed from those same documents,
+not used to select a different prefix. These are LM training-exposure counts, not
+the CPU work of fitting tokenizers or pre-encoding the full training split. For
+FLOP-matched conditions they are complete-prefix audit totals only: a final partly
+accounted document is excluded, not assigned a fabricated source-byte fraction.
+Token/FLOP totals still include every executed window. `completed_document_bytes`
+is a compatibility alias for the normalized complete-prefix total.
+
+Validation/test tokenizer and LM metrics also record both byte fields. Their old
+`utf8_bytes` field remains an alias for normalized bytes. BPB and bytes-per-token
+continue to use normalized bytes; source bytes are audit-only. For example, a
+source `\uFB01` character has three UTF-8 bytes but normalizes to two-byte `fi`.
+
+Each document is scored as BOS -> text tokens -> EOS, including the first text
+token and every final short window. Nonoverlapping windows reset learned positions
+and use at most the declared context; the previous target becomes the next input.
+EOS contributes NLL but no text bytes. Validation and test totals are separate:
+
+`test_BPB = test_total_NLL_nats / (test_total_normalized_UTF8_bytes * ln(2))`.
+
+Token cross-entropy is total NLL divided by predicted tokens (including EOS).
+Token perplexity is its exponential, with explicit overflow status if necessary;
+it is not comparable across tokenizers as though they shared a prediction alphabet.
+BPB is the causal token-sequence codelength of normalized documents, including EOS,
+under the stated finite-context evaluation rule, not a marginal over segmentations.
+Phase A's character density includes whitespace and is valid for CJK; it is not
+word fertility or evidence of morphological accuracy.
+
+## Provenance and commands
+
+Research ledgers require shared ledger schema 3 **and** research schema 2, complete
+expected conditions, tokenizer/model identity, exact vocabularies, dataset manifest
+and assignment hashes, seeds, full model configuration, matching regime/budget,
+Git commit, source hash, dependency versions, and installed extension binary hash
+(or explicit unavailable status). The hash identifies installed bytes, not proof
+that a binary was rebuilt from the recorded Rust source. Verify that separately.
+The loader compares all provenance with the current environment and dataset.
+Accounting-incomplete research-schema-1 ledgers are rejected, not migrated or
+rewritten. Historical results remain untouched.
+
+Start from a reviewed, committed, clean worktree. Run outputs under ignored
+`artifacts/` (or outside the repository). Existing output directories are rejected.
+An interrupted run retains its plan and per-condition diagnostic files, but no
+complete ledger is written. No automatic resume consumes partial files.
+
+PowerShell commands, from the repository root, after preparing the manifest:
+
+```powershell
+python -m benchmarks.run_research_experiments A --dataset artifacts/data/manifest.json --output artifacts/final-a
+
+$ScreenBytes = python -c "from benchmarks.run_research_experiments import load_dataset; d,_=load_dataset('artifacts/data/manifest.json'); print(sum(len(t.encode('utf-8')) for t in d['train'][:32]))"
+python -m benchmarks.run_research_experiments B --dataset artifacts/data/manifest.json --phase-a artifacts/final-a/ledger.json --output artifacts/final-b --flops 1e11 --bytes $ScreenBytes --seeds 0 --device cpu
+
+$ConfirmBytes = python -c "from benchmarks.run_research_experiments import load_dataset; d,_=load_dataset('artifacts/data/manifest.json'); print(sum(len(t.encode('utf-8')) for t in d['train']))"
+python -m benchmarks.run_research_experiments C --dataset artifacts/data/manifest.json --phase-a artifacts/final-a/ledger.json --screening artifacts/final-b/ledger.json --selection artifacts/selection.json --output artifacts/final-c --flops 1e14 --bytes $ConfirmBytes --seeds 1 2 3 --device cpu
+```
+
+These are commands for future experiments, not runs performed during harness
+development. Pre-register the budgets before execution; the shown C budgets are
+an executable example, not a power or convergence justification. The first 32
+training documents must total at most 1,000,000 bytes for the shown B command;
+otherwise choose and pre-register a smaller common prefix. A single oversized
+document needs an externally documented corpus-preparation decision, not truncation
+hidden in the runner. CPU is explicit here; CUDA requires an available device and
+`CUBLAS_WORKSPACE_CONFIG=:4096:8` set before Python for deterministic matrix operations.
+
+Before C, author `artifacts/selection.json` with this structure, replacing the
+screening hash and choosing actual conditions from B based on validation:
+
+```json
+{
+  "schema_version": 1,
+  "screening_sha256": "actual SHA-256 of final-b/ledger.json",
+  "rationale": "pre-registered validation-based selection rule and its application",
+  "conditions": [["boundary_bpe", 65536, "bytes"], ["uniq_superbpe", 65536, "bytes"]]
+}
+```
+
+The example selection is not a recommendation or a claim that other conditions
+lost. Preserve primary baselines relevant to every confirmatory comparison. A new
+dataset, source tree, dependency/extension build, or altered tokenizer requires a
+fresh A/B chain. Before Phase A, supply licensed frozen data, complete deduplication,
+freeze training settings, verify the runtime/build, and commit the reviewed harness.
+Exact 64K feasibility across all five trainers remains to be established by A.

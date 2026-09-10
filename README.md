@@ -8,7 +8,7 @@
     <strong>Script-Aware, Entropy-Guided Multilingual Subword Tokenizer</strong>
   </p>
   <p align="center">
-    Byte-Fallback Python with exact character-span tracking and reproducible downstream LM benchmark tooling.
+    Python tokenizer research toolkit with optional Rust acceleration, byte fallback, and raw-text span tracking.
   </p>
 </p>
 
@@ -24,37 +24,11 @@
 
 ---
 
-## Why UniqToken? Eliminating the "Token Tax"
+## What UniqToken Implements
 
-Standard LLM tokenizers (OpenAI Tiktoken `cl100k_base`, LLaMA-3 BPE) suffer from severe vocabulary fragmentation on non-English scripts, code indentation, and agglutinative morphology. They fragment non-Latin words into raw bytes and charge users **3x to 5x more tokens** for the exact same semantic content.
+UniqToken is a research tokenizer implementation with trainable Unigram and BPE vocabularies, optional CEM/SuperBPE vocabulary extension, byte fallback, Unicode-aware pre-tokenization, and exact raw-text offset tracking. Imported compatibility models preserve their existing token IDs; research models create a new vocabulary and therefore require a model trained for those IDs.
 
-### Side-by-Side Tokenization Breakdown
-
-```text
-Input (Python Code):
-"    def calculate_fibonacci(n: int) -> int:"
-
-OpenAI Tiktoken (cl100k_base): [    ][def][ ][calculate][_][fib][on][acc][i][(][n][:][ int][)][ -][>][ int][:]  (17 tokens)
-UniqToken (SuperBPE)        : [    def ][calculate][_fibonacci][(][n][: ][int][) ][-> ][int][:]             (10 tokens)
-Context Savings: +41.2% fewer tokens (40% lower LLM API inference cost)
-```
-
-```text
-Input (Hindi Devanagari):
-"आर्टिफिशियल इंटेलिजेंस और मशीन लर्निंग" (Artificial Intelligence & Machine Learning)
-
-OpenAI Tiktoken (cl100k_base): 32 tokens (fragmented into raw UTF-8 byte chunks)
-UniqToken (Unigram Lattice)  : 6 tokens  ([आर्टिफिशियल][▁इंटेलिजेंस][▁और][▁मशीन][▁लर्निंग])
-Compression Efficiency: 5.3x fewer tokens (Zero out-of-vocabulary fallback)
-```
-
-```text
-Input (Agglutinative Morphology - Finnish):
-"epäjärjestelmällistyttämättömyydelläänsäkäänköhän"
-
-Llama-3 Tokenizer : 12 tokens
-UniqToken         : 5 tokens (58.3% context window expansion)
-```
+Token counts depend on the vocabulary, training corpus, normalization, and pre-tokenization configuration. This README does not claim lower API cost, better linguistic boundaries, or superiority over production tokenizers. Those questions require held-out, budget-matched experiments with downstream language models.
 
 ---
 
@@ -62,17 +36,15 @@ UniqToken         : 5 tokens (58.3% context window expansion)
 
 > 🗺️ **Architecture & Contributor Roadmap**: See [ROADMAP.md](ROADMAP.md) for the active 8-stage execution ledger and live GitHub issue tracking across the Compatibility Engine and Research Engine.
 
-Most production tokenizers lean on a compiled C++ or Rust backend (SentencePiece, HuggingFace `tokenizers`) and treat character-offset alignment, control-token injection defense, and vocabulary extension as afterthoughts. **UniqToken** is an open-source high-efficiency subword tokenizer that treats all three as first-class design constraints, while implementing the same core algorithms — Unigram Language Model segmentation, Byte-Pair Encoding, and post-training vocabulary merging — that back today's production LLM tokenizers.
-
-What distinguishes UniqToken from standard subword tokenizers is its **script-aware candidate generation** and **entropy-guided vocabulary construction**, which produce higher byte efficiency than Boundary-BPE while retaining lower token-level cross-entropy than SentencePiece under controlled compute and capacity regimes.
+UniqToken provides trainable Unigram and BPE models, post-training CEM/SuperBPE vocabulary extension, preprocessing and offset composition, serialization, compatibility importers, and an optional native Rust extension. Its research-specific mechanisms include script-aware candidate generation and configurable frequency, character-savings, byte-savings, PMI, and boundary-entropy filters. Their empirical effects remain open questions under the protocol below.
 
 ### Two Engines, One Core
 
-UniqToken's public API is split into two non-overlapping engines, both sitting on the shared native Rust core (`crates/uniqtoken_core`):
+UniqToken's public API is split into two namespaces that share the tokenizer data model and can use the optional native Rust core (`crates/uniqtoken_core`):
 
 | Engine | Namespace | Purpose | Contract |
 |:-|:-|:-|:-|
-| **Compatibility Engine** | `uniqtoken.compat` | Accelerate *existing* models: `from_tiktoken`, `from_huggingface`, `from_sentencepiece` (aliases `TiktokenCompat`, `HuggingFaceCompat`, `SentencePieceCompat`) | Exact ID parity, exact pre-tokenization regex, identical segmentation, zero token count delta. Imported models are returned **frozen**: vocabulary mutation or re-ranking raises `VocabularyMutationError`. |
+| **Compatibility Engine** | `uniqtoken.compat` | Import *existing* models: `from_tiktoken`, `from_huggingface`, `from_sentencepiece` (aliases `TiktokenCompat`, `HuggingFaceCompat`, `SentencePieceCompat`) | Preserve the imported ID space and freeze vocabulary mutation. Unsupported normalization or pre-tokenization details produce explicit warnings. |
 | **Research Engine** | `uniqtoken.train` | Train *new* vocabularies: `UnigramTrainer`, `UnigramLattice`, `SuperBPE`, script-aware `SeedVocabularyBuilder`, `BPETrainer`, `CrossEntropyMerging`, `VocabularyAdapter` | Introduces a new vocabulary and token IDs; dual-offset composition and byte fallback apply end-to-end. |
 
 ```python
@@ -85,11 +57,11 @@ enc = from_tiktoken("cl100k_base.tiktoken", name="cl100k_base", pattern="cl100k_
 from uniqtoken import UnigramTrainer, SuperBPE
 ```
 
-### Design Goals
+### Implementation Contracts
 
-| # | Production Failure Mode | UniqToken's Response |
+| # | Capability | Implemented Contract |
 |:-:|:---|:---|
-| 1 | **Out-of-vocabulary catastrophe** — rare Unicode, emoji, or foreign scripts silently collapse to `<unk>`, destroying information. | Strict **byte fallback**: any character outside the vocabulary decomposes into its raw UTF-8 bytes (`<0x00>`–`<0xFF>`), guaranteeing a **0% OOV rate** and exact, lossless roundtrip decoding. |
+| 1 | **Out-of-vocabulary handling** | With a complete byte-fallback vocabulary, unseen characters can be represented by UTF-8 byte tokens (`<0x00>`–`<0xFF>`). With normalization enabled, the text contract is `decode(encode(x)) == normalize(x)`, subject to separately configured sanitization. NFKC does not preserve original bytes. |
 | 2 | **Span drift** — normalization (NFKC, case folding) changes string length, breaking the character offsets that NER, extractive QA, and citation systems depend on. | **Dual-offset tracking**: sanitization, indentation compression, normalization, and pre-tokenization each produce their own alignment, composed end-to-end by `_compose_alignment()`, so `encode_with_offsets()` returns a `Token.raw_span` pointing to the exact byte range in the original raw text. |
 | 3 | **Digit and script clumping** — numbers and mixed scripts get fused into arbitrary tokens, hurting arithmetic reasoning and URL parsing. | A **10-pattern regex boundary layer** isolates URLs, emails, hashtags, emoji (including ZWJ sequences), CJK ideographs, and digit runs before subword segmentation ever runs. |
 | 4 | **Deterministic brittleness** — a single fixed segmentation makes models fragile to typos and spelling variants. | **FFBS subword regularization** — Forward-Filtering Backward-Sampling over the segmentation lattice — samples stochastic alternative segmentations during training ([Kudo, 2018](#algorithms--base-papers)). |
@@ -97,144 +69,30 @@ from uniqtoken import UnigramTrainer, SuperBPE
 
 ---
 
-## Research Results
+## Benchmark Status
 
-The repository contains scripts for a controlled factorial benchmark. The executable Phase 14B design currently covers **2 vocabulary scales × 3 LM tiers × 3 tokenizers × 5 seeds = 90 LM runs** under matched analytical compute. The checked-in Phase 14/15 ledgers and figures are **invalidated until regenerated with the corrected scripts**; their numerical results are not current claims.
+UniqToken currently makes no comparative performance or superiority claim. Earlier Phase 14/15 tables, figures, ANOVA results, Pareto analyses, and the pre-integrity matched-budget ledger were produced by harnesses that did not meet the repository's current data-separation and exact-budget contracts. They are retained unchanged under [`benchmarks/legacy/`](benchmarks/legacy/) for provenance and are not valid evidence for the current implementation.
 
-> **Status:** Regenerate the benchmark ledgers and figures before making comparative performance claims.
+The active benchmark code now enforces these rules:
 
-### The 32K Three-Way Pareto Compromise
+- tokenizer training documents are disjoint from every document used for measurement;
+- language-model rows identify `model_kind` explicitly and Transformer evaluation fails if PyTorch or a viable training sequence is unavailable;
+- matched trainable tokenizers must reach the exact requested vocabulary size;
+- SuperBPE conditions must learn at least one cross-word merge;
+- invalid tiers, budgets, devices, and incomplete conditions abort the run instead of producing a partial matched ledger;
+- current JSON ledgers carry schema version 3, a full Git commit hash, working-tree dirty status, and a data-split declaration; the matched-budget ledger also records the experiment version. `benchmarks.ledger.load_ledger()` validates these fields and can require an expected commit hash.
 
-At the 32K × Large (8L-512d) configuration, the three tokenizers form a strict, non-dominated three-way tradeoff:
+Cross-script density uses `tokens_per_unicode_character`: emitted token count divided by the number of raw Unicode code points, including whitespace. This replaces whitespace-based fertility for CJK and mixed-script measurements; it is not a linguistic boundary score. The schema-3 loader rejects ambiguous fertility fields and older schemas rather than interpreting them as current results.
 
-| Tokenizer | True LM BPB ↓ | Per-Token CE (nats) ↓ | Bytes / Token ↑ | Active Vocab % |
-|:---|:---:|:---:|:---:|:---:|
-| **SentencePiece-Unigram** | **2.631** | 11.957 | **6.56** | 68.0% |
-| **UniqToken-SuperBPE** | 2.772 | 11.540 | 6.01 | **75.6%** |
-| **Boundary-BPE** | 2.840 | **9.914** | 5.04 | 63.1% |
+[`benchmarks/run_research_experiments.py`](benchmarks/run_research_experiments.py) is the final staged research runner: A evaluates all five primary tokenizers at 16K/32K/64K; B screens causal LMs with one seed on validation; C evaluates explicitly selected conditions with three new seeds on validation/test. The primary cohort includes SentencePiece Unigram, SentencePiece BPE, Boundary-BPE, UniqToken Unigram, and UniqToken SuperBPE. Both FLOP-matched and byte-matched regimes are recorded, without assuming either is universally preferable. Its ledgers add strict research schema 2, dataset/artifact/source/extension hashes, complete conditions, and full model configuration to shared schema 3. See [`benchmarks/RESEARCH_PROTOCOL.md`](benchmarks/RESEARCH_PROTOCOL.md) for architecture counts, normalization, prerequisites, and exact commands.
 
-- SentencePiece achieves the best text compression (lowest BPB) but produces the hardest-to-predict tokens (highest CE).
-- Boundary-BPE produces the most predictable tokens (lowest CE) but compresses the least (highest BPB).
-- **UniqToken sits between both endpoints on both objectives**, with the highest active vocabulary utilization (75.6%).
+[`benchmarks/run_matched_budget_eval.py`](benchmarks/run_matched_budget_eval.py) remains a train/validation diagnostic, not a final research experiment. [`benchmarks/train_toy_transformer.py`](benchmarks/train_toy_transformer.py) provides a small three-way train/validation/test sanity harness. [`benchmarks/downstream_eval.py`](benchmarks/downstream_eval.py) and [`benchmarks/benchmark_suite.py`](benchmarks/benchmark_suite.py) report tokenizer-only held-out measurements; they do not establish downstream model quality.
 
-<p align="center">
-  <img src="benchmarks/phase_fifteen_final_paper_figure.png" alt="Phase 15 — Multi-Objective Pareto Synthesis (4-Panel)" width="900">
-  <br/>
-  <em>Figure 1: Multi-objective Pareto analysis across 27 conditions. Panel A: 32K three-way architectural frontier. Panel B: Full 27-condition BPB vs CE landscape. Panel C: Embedding memory vs BPB scaling. Panel D: Constrained decision boundary under CE threshold.</em>
-</p>
+Throughput results are hardware, build, workload, batch-size, and threading dependent. Cross-tokenizer throughput should be compared using input bytes per second because token counts differ by tokenizer. Tokens per second is suitable for comparing implementations only when they produce the same token stream. No throughput table is presented here until a controlled benchmark is rerun from the current HEAD.
 
-### Tokenizer–LM Capacity Interaction
-
-A two-way repeated-measures ANOVA confirms that vocabulary scaling and downstream Transformer capacity are statistically coupled:
-
-| Source | F-Statistic | p-value |
-|:---|:---:|:---:|
-| Vocabulary Scale (V) | F(1, 4) = 8,388.21 | 8.52 × 10⁻⁸ |
-| LM Capacity | F(2, 8) = 7,147.02 | 9.79 × 10⁻¹⁴ |
-| **Interaction (V × Capacity)** | **F(2, 8) = 425.71** | **7.51 × 10⁻⁹** |
-
-Key findings from pre-registered hypothesis tests (N=5 seeds, Holm-Bonferroni corrected):
-- Scaling from 32K→64K at Medium capacity yields **−0.405 BPB** improvement (t(4) = −70.10, p = 2.48 × 10⁻⁷)
-- At 64K, Small→Medium yields **−0.208 BPB** improvement; Medium→Large yields only **−0.032 BPB** — a clear diminishing-return pattern indicating a 6L-256d capacity threshold
-
-<p align="center">
-  <img src="benchmarks/phase_fourteen_confirmatory.png" alt="Phase 14B — 5-Seed Confirmatory Factorial Scaling" width="900">
-  <br/>
-  <em>Figure 2: Confirmatory factorial scaling experiment (5 paired seeds × 3 tokenizers × 2 vocab scales × 3 LM tiers). Left: BPB scaling curves showing vocabulary–capacity interaction. Right: ANOVA interaction diagnostics confirming F(2, 8) = 425.71, p = 7.51 × 10⁻⁹.</em>
-</p>
-
-### Memory-Budget Scaling
-
-Embedding memory scales linearly with vocabulary size. UniqToken's low-capacity efficiency makes it competitive at constrained budgets:
-
-| Vocab | Embed Memory | UniqToken BPB (Small) | UniqToken B/Tok | Active Vocab % |
-|:---:|:---:|:---:|:---:|:---:|
-| 16K | 16 MB | 3.093 | 5.41 | 87.6% |
-| 32K | 32 MB | 2.952 | 6.01 | 75.6% |
-| 64K | 64 MB | 2.703 | 6.46 | 58.7% |
-
-> UniqToken achieves the lowest BPB among all evaluated 16K configurations (3.093 BPB at 5.0M parameters).
-
-For full details, see [`PAPER_DRAFT.md`](PAPER_DRAFT.md) and the frozen dataset in [`benchmarks/phase_fifteen_final_paper_records.json`](benchmarks/phase_fifteen_final_paper_records.json).
-
-### Empirical Benchmarks & Hardware Performance (GPU Evaluated)
-
-All downstream language model pretraining benchmarks were executed on an **NVIDIA GeForce RTX 3050 Laptop GPU** (CUDA 12.4, PyTorch 2.6.0+cu124) under reproducible deterministic seeds.
-
-#### 1. Downstream Transformer Pretraining & BPB Convergence (CUDA)
-
-Trained an identical architecture `MiniCausalLM` directly on GPU across tokenizer variants under matched training iterations ([`benchmarks/train_toy_transformer.py`](benchmarks/train_toy_transformer.py)):
-
-| Tokenizer | Vocab Size | Total Tokens | Bytes / Token ↑ | Test CE Loss (nats) ↓ | Bits-Per-Byte (BPB) ↓ | Training Speed (tok/s) |
-|:---|:---:|:---:|:---:|:---:|:---:|:---:|
-| **UniqToken (SuperBPE)** | 530 | 9,312 | **3.567** | **10.778** | **14.307** | 14,702.0 |
-| **Standard BPE** | 500 | 15,392 | 2.158 | 12.590 | 14.648 | **14,873.3** |
-| **UniqToken (Unigram)** | 500 | 10,624 | 3.127 | 12.781 | 16.965 | 9,030.0 |
-
-- **UniqToken-SuperBPE** compresses the corpus into **39.5% fewer tokens** than standard BPE, achieving the lowest cross-entropy loss (10.778 nats) and lowest Bits-Per-Byte (14.307 BPB) on the downstream Transformer.
-
-#### 2. Matched-Budget Vocab Quality Race (CUDA)
-
-Under a strictly matched vocabulary budget of 400 subwords ([`benchmarks/vocab_quality_race.py`](benchmarks/vocab_quality_race.py)), candidate tokenizers were trained from scratch and evaluated on identical downstream Transformer language models on GPU:
-
-| Tokenizer | Category | Vocab Size | Bytes / Token ↑ | Test Loss (nats) ↓ | Bits-Per-Byte (BPB) ↓ | GPU Throughput (tok/s) |
-|:---|:---|:---:|:---:|:---:|:---:|:---:|
-| **UniqToken (SuperBPE)** | Native Trainable | 400 | 1.368 | **5.6265** | **8.1144** | **11,337.8** |
-| **UniqToken (Unigram)** | Native Trainable | 400 | 1.368 | **5.6265** | **8.1144** | 5,235.6 |
-| **UniqToken (BPE)** | Native Trainable | 400 | 1.483 | 6.0478 | 8.7220 | 11,012.0 |
-| **SentencePiece-Unigram** | External Trainable | 400 | 1.450 | 7.4395 | 10.6072 | 11,448.6 |
-| *tiktoken (cl100k_base)* | Pretrained (Fixed) | 100,277 | 3.108 | 30.9628 | 6.5831 | 11,761.5 |
-| *HuggingFace (GPT-2)* | Pretrained (Fixed) | 50,257 | 2.145 | 23.7694 | 5.0537 | 7,724.4 |
-
-- Under matched budget ($V = 400$), UniqToken yields a **−2.49 BPB improvement** and lower cross-entropy over SentencePiece-Unigram.
-
-#### 3. Downstream LLM Context Efficiency & Information Density
-
-Evaluated against standard production tokenizers on multilingual, code, and mathematical corpora ([`benchmarks/downstream_eval.py`](benchmarks/downstream_eval.py)):
-
-| Tokenizer | Vocab Size | Evaluated Tokens | Bytes / Token ↑ | Tokens / Word ↓ | 2K Context Window (Effective Bytes) ↑ |
-|:---|:---:|:---:|:---:|:---:|:---:|
-| **UniqToken (SuperBPE)** | 1,020 | 1,437 | **3.614** | **2.779** | **7,401 B** |
-| **UniqToken (Unigram)** | 1,000 | 1,512 | 3.435 | 2.925 | 7,033 B |
-| **tiktoken (cl100k_base)** | 100,277 | 1,658 | 3.132 | 3.207 | 6,414 B |
-| **HuggingFace (GPT-2)** | 50,257 | 2,307 | 2.251 | 4.462 | 4,609 B |
-
-- UniqToken-SuperBPE packs **7,401 effective bytes** into a 2,048-token context window (+15.4% over tiktoken cl100k_base, +60.6% over GPT-2). The former uniform-vocabulary-code-length column was removed because it is not a language-model BPB measurement.
-
-#### 4. Multilingual Compression & Throughput Suite
-
-7-axis evaluation across diverse linguistic domains and script families ([`benchmarks/benchmark_suite.py`](benchmarks/benchmark_suite.py)):
-
-| Linguistic Domain / Script | Raw Bytes | Tokens | Bytes / Token ↑ | Fertility (Tok/Word) ↓ | Encode Speed (tok/s) | Peak RAM (MB) | Fallback Rate |
-|:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| **English Prose** | 14,360 | 2,720 | 5.279 | 1.700 | 81,367 | 1.66 MB | **0.0%** |
-| **Python Code** | 13,260 | 5,490 | 2.415 | 3.812 | 137,800 | 1.56 MB | **0.0%** |
-| **Indic (Hindi)** | 19,620 | 5,010 | 3.916 | 3.884 | 129,941 | 1.31 MB | **0.0%** |
-| **CJK (Japanese)** | 11,100 | 1,140 | 9.737 | 38.000 | 123,277 | 0.43 MB | **0.0%** |
-| **Arabic Script** | 9,630 | 990 | 9.727 | 1.269 | 71,686 | 0.60 MB | **0.0%** |
-| **Arithmetic / Math** | 7,560 | 5,340 | 1.416 | 3.787 | 178,967 | 0.91 MB | **0.0%** |
-| **Agglutinative (Turkish)** | 9,510 | 2,280 | 4.171 | 2.375 | 110,460 | 1.01 MB | **0.0%** |
-| **Agglutinative (Finnish)** | 8,760 | 1,950 | 4.492 | 2.321 | 107,154 | 0.99 MB | **0.0%** |
-| **Agglutinative (Swahili)** | 12,840 | 4,800 | 2.675 | 2.540 | 112,476 | 1.49 MB | **0.0%** |
-| **Tonal Yoruba** | 16,050 | 6,840 | 2.346 | 3.167 | 170,547 | 1.27 MB | **0.0%** |
-| **Agglutinative (Malayalam)** | 24,450 | 2,640 | 9.261 | 2.839 | 118,520 | 1.35 MB | **0.0%** |
-| **Ge'ez (Amharic)** | 25,530 | 2,310 | 11.052 | 1.283 | 124,180 | 1.42 MB | **0.0%** |
-
-#### 5. High-Throughput Tokenization Engine Parity
-
-Evaluated on 10,000 sentences (~0.88 MB text) comparing single-string Python dispatch against fused native Rust extensions and production baselines ([`benchmarks/benchmark_throughput.py`](benchmarks/benchmark_throughput.py)):
-
-| Engine Implementation | Tokens Processed | Bytes / Token | Throughput (tok/sec) | Bandwidth (MB/s) | Relative Speedup |
-|:---|:---:|:---:|:---:|:---:|:---:|
-| **UniqToken (Fused Native Pipeline)** | 130,000 | 7.00 | **919,433** | **6.14 MB/s** | **1.68x** |
-| **UniqToken (Collator + Rayon Spans)** | 130,000 | 7.00 | 848,581 | 5.66 MB/s | 1.55x |
-| **UniqToken (Single Python Dispatch)** | 130,000 | 7.00 | 545,771 | 3.64 MB/s | 1.00x |
-| **tiktoken (cl100k_base Rust)** | 140,000 | 6.50 | 223,681 | 1.39 MB/s | 0.41x |
-| **HuggingFace Tokenizers (Rust Fast)** | 130,000 | 7.00 | 1,623,624 | 10.84 MB/s | 2.97x |
-| **SentencePiece (C++ Batch)** | 500,000 | 1.82 | 6,829,808 | 11.85 MB/s | 12.51x |
+A publishable comparison still requires frozen external corpora, documented licenses and preprocessing, pre-registered tokenizer and LM hyperparameters, multiple paired seeds, exact vocabulary and compute matching, held-out test evaluation, uncertainty estimates, and independent reproduction. See [`PAPER_DRAFT.md`](PAPER_DRAFT.md) for the protocol and explicit open questions.
 
 ---
-
 ## Features
 
 <table>
@@ -262,7 +120,7 @@ Evaluated on 10,000 sentences (~0.88 MB text) comparing single-string Python dis
 - StreamingDecoder with UTF-8 byte-buffer for real-time generation
 - BatchCollator with padding, attention masks, BOS/EOS injection
 - PyTorch tensor output via `to_torch()`
-- HuggingFace-compatible export (`tokenizer.json` schema)
+- HuggingFace JSON export with warnings for configurations that cannot be represented exactly
 - GGUF v3 binary format export (`export_to_gguf()`) for `llama.cpp`
 
 </td><td>
@@ -320,7 +178,7 @@ tok = CustomTokenizer.train_from_corpus(
     byte_fallback=True,
 )
 
-# Encode → decode roundtrip
+# Encode → decode roundtrip (this ASCII example is unchanged by normalization)
 ids = tok.encode_to_ids("fix in 2024 at https://site.com")
 text = tok.decode(ids)
 assert text == "fix in 2024 at https://site.com"
@@ -455,7 +313,7 @@ assert tok2.encode_to_ids("test") == tok.encode_to_ids("test")
 
 ## Command-Line Interface (CLI)
 
-UniqToken ships with a production CLI executable (`uniqtoken`) for training, encoding, decoding, and evaluation:
+UniqToken ships with a CLI executable (`uniqtoken`) for training, encoding, decoding, and evaluation:
 
 ```bash
 # 1. Train a tokenizer with PMI ranking and SuperBPE optimization
@@ -467,13 +325,13 @@ uniqtoken encode --model ./model --input "def forward(x): return self.attn(x)" -
 # 3. Encode to integer IDs as JSON
 uniqtoken encode --model ./model --input "the quick brown fox" --to-ids --json
 
-# 4. Decode integer IDs losslessly
+# 4. Decode integer IDs to normalized text (NFKC is not raw-byte lossless)
 uniqtoken decode --model ./model --input "[12, 450, 89, 230]"
 
 # 5. Run the empirical multilingual benchmark suite with Markdown/LaTeX export
 uniqtoken benchmark --export-markdown benchmark_report.md --export-latex table.tex
 
-# 6. Evaluate downstream LLM context efficiency and information density
+# 6. Evaluate tokenizer-only context-density proxies on held-out text
 uniqtoken eval-downstream --vocab-size 1000
 ```
 
@@ -548,15 +406,15 @@ UniqToken/
 │           └── seed.rs            # Native n-gram mining & candidate generation
 │
 ├── benchmarks/
-│   ├── benchmark_suite.py                 # TokenizerBenchmarkSuite — 7-axis evaluation
-│   ├── benchmark_throughput.py            # End-to-end throughput & bandwidth benchmark
-│   ├── downstream_eval.py                 # DownstreamEvaluator — context efficiency & BPB
-│   ├── train_toy_transformer.py           # Downstream LLM pretraining & BPB validation
-│   ├── vocab_quality_race.py              # Matched-budget vocab quality race (Phase 3)
-│   ├── flop_counter.py                    # Matched FLOP calculation utilities
-│   ├── run_final_paper_audit.py           # Phase 15 publication audit & Pareto analysis
-│   ├── run_phase_fourteen_confirmatory.py # Phase 14B 5-seed factorial ANOVA
-│   └── phase_fifteen_final_paper_records.json # Frozen audited dataset (27 conditions)
+│   ├── benchmark_suite.py                 # Held-out tokenizer compression measurements
+│   ├── benchmark_throughput.py            # Byte-normalized implementation throughput
+│   ├── downstream_eval.py                 # Held-out tokenizer context-density metrics
+│   ├── train_toy_transformer.py           # Small held-out Transformer harness
+│   ├── vocab_quality_race.py              # Exact-budget tokenizer comparison harness
+│   ├── run_matched_budget_eval.py         # Train/validation diagnostic
+│   ├── run_research_experiments.py        # Final staged A/B/C research harness
+│   ├── flop_counter.py                    # Analytical FLOP calculation utilities
+│   └── legacy/                            # Invalidated historical scripts, ledgers, figures
 │
 ├── tests/
 │   ├── test_tokenizer.py              # 89 unit tests covering end-to-end functionality
@@ -744,7 +602,7 @@ ruff check . && ruff format --check .           # lint + format
 mypy .                                          # type check
 coverage run -m pytest && coverage report       # coverage
 python benchmarks/benchmark_suite.py            # benchmark suite
-python benchmarks/downstream_eval.py            # downstream LLM eval
+python benchmarks/downstream_eval.py            # held-out tokenizer-only measurements
 ```
 
 ---

@@ -188,6 +188,9 @@ class TestNativeGateSelection:
         # one carrying a special token that lacks the <|...|> form.
         tok.model = dataclasses.replace(
             tok.model,
+            vocab={**tok.model.vocab, "custom_token_without_pipes": -10.0},
+            token_to_id={**tok.model.token_to_id, "custom_token_without_pipes": tok.vocab_size},
+            id_to_token={**tok.model.id_to_token, tok.vocab_size: "custom_token_without_pipes"},
             special_tokens=list(tok.model.special_tokens) + ["custom_token_without_pipes"],
         )
         assert tok._native_pipeline_kwargs() is None

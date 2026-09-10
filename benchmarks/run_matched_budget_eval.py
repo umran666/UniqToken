@@ -9,7 +9,7 @@ Evaluates subword tokenizers under strictly matched vocabulary and analytical co
 - Hardware Acceleration: CUDA on NVIDIA GPU (with CPU fallback)
 - Standard Metrics:
     * Bytes per Token (BpT) & Tokens per Byte (TpB)
-    * True Information Density / Bits per Byte (TID-BPB)
+    * Held-out language-model bits per byte (LM BPB)
     * Downstream Cross-Entropy (nats) on matched small Transformer LMs
     * Microsecond encoding latency per document
     * Peak Process RAM RSS and CUDA VRAM footprint
@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import argparse
 import datetime
-import json
 import math
 import random
 import sys
@@ -31,7 +30,7 @@ import warnings
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", line_buffering=True)
 
-warnings.filterwarnings("ignore")
+
 from collections import Counter
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -66,12 +65,16 @@ except ImportError:
 # Add project root to sys.path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from benchmarks.ledger import SCHEMA_VERSION, provenance, write_ledger
+
 from uniqtoken.bpe_trainer import BPETrainer
 from uniqtoken.cem_merger import CrossEntropyMerging
 from uniqtoken.tokenizer import CustomTokenizer
 
 DEFAULT_VOCAB_BUDGETS = [8192, 16384, 32768, 65536, 131072]
 DEFAULT_TRAINING_FLOPS = 1.0e12  # Analytical FLOP budget per condition (1.0 TFLOPs)
+LEDGER_SCHEMA_VERSION = SCHEMA_VERSION
+EXPERIMENT_VERSION = "research-integrity-heldout-v3"
 
 
 @dataclass
@@ -122,6 +125,7 @@ class BenchmarkRecord:
     actual_vocab_size: int
     lm_tier: str
     tokenizer_name: str
+    model_kind: str
     seed: int
     num_layers: int
     d_model: int
@@ -132,10 +136,10 @@ class BenchmarkRecord:
     tokens_processed: int
     actual_flops: float
     token_ce_loss: float
-    true_lm_bpb: float
+    lm_bits_per_byte: float
     bytes_per_token: float
     tokens_per_byte: float
-    fertility: float
+    tokens_per_unicode_character: float
     active_vocab_pct: float
     pct_ge_6b: float
     encode_latency_us: float
@@ -383,10 +387,13 @@ def train_uniqtoken_superbpe(train_docs: List[str], target_vocab: int) -> Tokeni
     sbp_merges = min(target_vocab // 10, 4000)
     base_target = max(target_vocab - sbp_merges, 1000 if target_vocab >= 2000 else target_vocab // 2)
     actual_merges = target_vocab - base_target
+    if actual_merges < 1:
+        raise ValueError("UniqToken-SuperBPE requires capacity for at least one cross-word merge")
 
     base_tok = CustomTokenizer.train_from_corpus(
         corpus=train_docs,
         target_vocab_size=base_target,
+        min_edge_log_prob=float("-inf"),
         seed_multiplier=1.2,
         ranking_strategy="byte_savings",
         min_boundary_entropy=0.35,
@@ -401,6 +408,8 @@ def train_uniqtoken_superbpe(train_docs: List[str], target_vocab: int) -> Tokeni
     ]
     cem = CrossEntropyMerging(max_merges=actual_merges, cross_word=True, verbose=False)
     sbp_model = cem.optimize(base_tok.model, chunks=pretok_chunks)
+    if not cem.merges:
+        raise ValueError("UniqToken-SuperBPE configuration was a no-op: no cross-word merges were learned")
     sbp_tok = CustomTokenizer(
         normalizer=base_tok.normalizer,
         pre_tokenizer=base_tok.pre_tokenizer,
@@ -495,7 +504,7 @@ def train_and_eval_transformer(
     seed: int = 42,
 ) -> Tuple[float, float, int, int, int, int, float, float, float]:
     """
-    Trains matched-compute CausalMiniTransformer on specified device and evaluates validation loss and TID-BPB.
+    Trains matched-compute CausalMiniTransformer on specified device and evaluates validation loss and LM BPB.
     Returns:
     (val_ce_loss, lm_bpb, p_total, p_non_embed, steps, tokens_processed, actual_flops, peak_vram_mb, wall_clock_sec)
     """
@@ -632,6 +641,17 @@ def run_benchmark(
     seed: int = 42,
     verbose: bool = True,
 ) -> Tuple[List[BenchmarkRecord], Dict[str, Any]]:
+    if not vocab_budgets or any(v < 1 for v in vocab_budgets) or len(set(vocab_budgets)) != len(vocab_budgets):
+        raise ValueError("vocab_budgets must be a non-empty list of unique positive integers")
+    unknown_tiers = [tier for tier in lm_tiers if tier not in LM_CONFIGS]
+    if not lm_tiers or unknown_tiers:
+        raise ValueError(f"lm_tiers must be non-empty and known; invalid tiers: {unknown_tiers}")
+    if device_str not in {"auto", "cpu", "cuda"}:
+        raise ValueError("device_str must be 'auto', 'cpu', or 'cuda'")
+    if target_flops <= 0:
+        raise ValueError("target_flops must be positive")
+    if num_docs_per_lang < 5:
+        raise ValueError("num_docs_per_lang must be at least 5 to create a held-out split")
     if not HAS_TORCH:
         raise RuntimeError("PyTorch is required for Transformer LM evaluation. Install torch to execute benchmarks.")
 
@@ -640,6 +660,8 @@ def run_benchmark(
         target_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     else:
         target_device = torch.device(device_str)
+    if target_device.type == "cuda" and not torch.cuda.is_available():
+        raise RuntimeError("CUDA was requested but torch.cuda.is_available() is False")
 
     device_name = "CPU"
     if target_device.type == "cuda":
@@ -660,32 +682,22 @@ def run_benchmark(
         num_docs_per_lang=num_docs_per_lang,
         seed=seed,
     )
+    validation_docs = [doc for domain_text in val_by_domain.values() for doc in domain_text.splitlines()]
+    if set(train_docs).intersection(validation_docs):
+        raise RuntimeError("generated training and validation corpora overlap by document identity")
     combined_val = "\n".join(val_by_domain.values())
     total_val_bytes = len(combined_val.encode("utf-8"))
-    val_words = [w for w in combined_val.split() if w]
-    num_words = len(val_words)
 
     records: List[BenchmarkRecord] = []
-    skipped: List[str] = []
-
     for V in vocab_budgets:
         if verbose:
             print(f"\n---> Training Tokenizer Triplet at Matched Vocab Budget V = {V:,}")
 
-        # Train each tokenizer independently: one failure (e.g. a strict
-        # vocab-budget shortfall) must skip only its own conditions, never
-        # abort the remaining budgets/tiers of a multi-hour run.
-        tok_list = []
-        for train_fn, label in (
-            (train_sentencepiece_unigram, "SentencePiece-Unigram"),
-            (train_boundary_bpe, "Boundary-BPE"),
-            (train_uniqtoken_superbpe, "UniqToken-SuperBPE"),
-        ):
-            try:
-                tok_list.append(train_fn(train_docs, V))
-            except Exception as e:
-                skipped.append(f"{label}@V={V}: {type(e).__name__}: {e}")
-                print(f"     [V={V:,}] {label:<22} training failed, skipping its tiers: {e}", flush=True)
+        tok_list = [
+            train_sentencepiece_unigram(train_docs, V),
+            train_boundary_bpe(train_docs, V),
+            train_uniqtoken_superbpe(train_docs, V),
+        ]
 
         for tok in tok_list:
             # Tokenizer evaluation metrics
@@ -696,11 +708,11 @@ def run_benchmark(
             pct_ge_6b = sum(1 for b in tok_bytes if b >= 6) / max(len(tok_bytes), 1) * 100.0
             bpt = total_val_bytes / max(len(val_pieces), 1)
             tpb = 1.0 / bpt
-            fert = len(val_pieces) / max(num_words, 1)
+            tokens_per_character = len(val_pieces) / max(len(combined_val), 1)
 
             # Stride so the latency sample spans every domain, not just the first.
-            stride = max(1, len(train_docs) // 50)
-            latency_us = measure_encoding_latency(tok, train_docs[::stride][:50])
+            held_out_docs = list(val_by_domain.values())
+            latency_us = measure_encoding_latency(tok, held_out_docs)
 
             current_rss, peak_rss = tracemalloc.get_traced_memory()
             peak_rss_mb = peak_rss / (1024 * 1024)
@@ -715,29 +727,22 @@ def run_benchmark(
                         flush=True,
                     )
 
-                try:
-                    val_ce, lm_bpb, p_tot, p_non, steps, tok_proc, flops, peak_vram, wall_sec = (
-                        train_and_eval_transformer(
-                            tok=tok,
-                            cfg=cfg,
-                            train_texts=train_docs,
-                            val_text=combined_val,
-                            total_val_bytes=total_val_bytes,
-                            target_flops=target_flops,
-                            device=target_device,
-                            seed=seed,
-                        )
-                    )
-                except Exception as e:
-                    skipped.append(f"{tok.name}@{lm_tier_name}@V={V}: {type(e).__name__}: {e}")
-                    print(f"     [V={V:,}] {tok.name:<22} on {lm_tier_name:<18} FAILED, skipping: {e}", flush=True)
-                    continue
+                val_ce, lm_bpb, p_tot, p_non, steps, tok_proc, flops, peak_vram, wall_sec = train_and_eval_transformer(
+                    tok=tok,
+                    cfg=cfg,
+                    train_texts=train_docs,
+                    val_text=combined_val,
+                    total_val_bytes=total_val_bytes,
+                    target_flops=target_flops,
+                    device=target_device,
+                    seed=seed,
+                )
 
                 m_embed_mb = (2 * tok.vocab_size * cfg.d_model * 4) / (1024 * 1024)
 
                 if verbose:
                     print(
-                        f"CE: {val_ce:.4f} nats | TID-BPB: {lm_bpb:.4f} | BpT: {bpt:.2f} | Latency: {latency_us:.1f}µs ({wall_sec:.1f}s)"
+                        f"CE: {val_ce:.4f} nats | LM BPB: {lm_bpb:.4f} | BpT: {bpt:.2f} | Latency: {latency_us:.1f}µs ({wall_sec:.1f}s)"
                     )
 
                 rec = BenchmarkRecord(
@@ -745,6 +750,7 @@ def run_benchmark(
                     actual_vocab_size=tok.vocab_size,
                     lm_tier=lm_tier_name,
                     tokenizer_name=tok.name,
+                    model_kind="causal_transformer",
                     seed=seed,
                     num_layers=cfg.num_layers,
                     d_model=cfg.d_model,
@@ -755,10 +761,10 @@ def run_benchmark(
                     tokens_processed=tok_proc,
                     actual_flops=flops,
                     token_ce_loss=round(val_ce, 4),
-                    true_lm_bpb=round(lm_bpb, 4),
+                    lm_bits_per_byte=round(lm_bpb, 4),
                     bytes_per_token=round(bpt, 3),
                     tokens_per_byte=round(tpb, 4),
-                    fertility=round(fert, 3),
+                    tokens_per_unicode_character=round(tokens_per_character, 3),
                     active_vocab_pct=round(active_cov * 100.0, 2),
                     pct_ge_6b=round(pct_ge_6b, 2),
                     encode_latency_us=round(latency_us, 2),
@@ -770,13 +776,14 @@ def run_benchmark(
 
     tracemalloc.stop()
 
-    if skipped:
-        print(f"WARNING: {len(skipped)} condition(s) skipped due to errors:")
-        for entry in skipped:
-            print(f"  - {entry}")
-
     metadata = {
+        **provenance(),
         "benchmark": "Matched-Budget Subword Efficiency & Downstream LM Benchmark",
+        "ledger_schema_version": LEDGER_SCHEMA_VERSION,
+        "experiment_version": EXPERIMENT_VERSION,
+        "model_kind": "causal_transformer",
+        "uniqtoken_training_backend": "python_em",
+        "data_split": "document_disjoint_train_validation",
         "date": datetime.datetime.now().isoformat(),
         "device": str(target_device),
         "device_name": device_name,
@@ -787,7 +794,8 @@ def run_benchmark(
         "lm_tiers": lm_tiers,
         "target_flops": target_flops,
         "seed": seed,
-        "skipped_conditions": skipped,
+        "training_documents": len(train_docs),
+        "validation_documents": len(validation_docs),
     }
 
     return records, metadata
@@ -800,7 +808,7 @@ def generate_tradeoff_plots(
     """
     Generates publication-quality 4-panel trade-off plots saved as PNG and SVG:
     Panel A: Compression (BpT) vs Downstream LM CE Loss
-    Panel B: True Information Density (TID-BPB) across Vocabulary Scales
+    Panel B: Held-out language-model bits per byte across vocabulary scales
     Panel C: Total Model Parameters & Embedding Memory Footprint
     Panel D: Microsecond Encoding Latency vs Vocabulary Budget
     """
@@ -844,7 +852,7 @@ def generate_tradeoff_plots(
     ax_a.grid(True, linestyle="--", alpha=0.5)
     ax_a.legend(frameon=True)
 
-    # Panel B: TID-BPB across Vocabulary Scales
+    # Panel B: LM BPB across vocabulary scales
     ax_b = axes[0, 1]
     for tok_name, color in colors.items():
         sub = [r for r in records if r.tokenizer_name == tok_name]
@@ -852,7 +860,7 @@ def generate_tradeoff_plots(
             continue
         v_dict: Dict[int, List[float]] = {}
         for r in sub:
-            v_dict.setdefault(r.vocab_budget, []).append(r.true_lm_bpb)
+            v_dict.setdefault(r.vocab_budget, []).append(r.lm_bits_per_byte)
         sorted_v = sorted(v_dict.keys())
         mean_bpb = [float(np.mean(v_dict[v])) for v in sorted_v]
         ax_b.plot(
@@ -863,9 +871,9 @@ def generate_tradeoff_plots(
             linewidth=2,
             label=tok_name,
         )
-    ax_b.set_title("Panel B: True Information Density (TID-BPB) vs. Vocab Budget", fontsize=12, fontweight="bold")
+    ax_b.set_title("Panel B: Held-Out LM Bits per Byte vs. Vocab Budget", fontsize=12, fontweight="bold")
     ax_b.set_xlabel("Matched Vocabulary Budget (V)", fontsize=10)
-    ax_b.set_ylabel("True LM Bits-Per-Byte (TID-BPB) [Lower = Better]", fontsize=10)
+    ax_b.set_ylabel("LM Bits per Byte [Lower = Better]", fontsize=10)
     ax_b.grid(True, linestyle="--", alpha=0.5)
     ax_b.legend(frameon=True)
 
@@ -987,9 +995,10 @@ def main():
 
         if args.tiers:
             requested = [t.strip() for t in args.tiers.split(",") if t.strip()]
-            lm_tiers = [t for t in requested if t in LM_CONFIGS]
-            if not lm_tiers:
-                lm_tiers = ["Small (2L-128d)"]
+            invalid = [tier for tier in requested if tier not in LM_CONFIGS]
+            if not requested or invalid:
+                parser.error(f"--tiers contains invalid values: {invalid or requested}")
+            lm_tiers = requested
         else:
             lm_tiers = ["Small (2L-128d)"]
 
@@ -1011,8 +1020,7 @@ def main():
         "metadata": metadata,
         "records": [asdict(r) for r in records],
     }
-    with open(records_json_path, "w", encoding="utf-8") as f:
-        json.dump(data_payload, f, indent=2)
+    write_ledger(records_json_path, data_payload)
     print(f"\n[Saved JSON Ledger]: {records_json_path}")
 
     # Generate plots

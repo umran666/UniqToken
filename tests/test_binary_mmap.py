@@ -29,6 +29,7 @@ class TestBinaryMmapModel(unittest.TestCase):
             "l": -3.2,
             "o": -3.3,
         }
+        vocab.update({f"<0x{i:02X}>": -10.0 for i in range(256)})
         token_to_id = {k: i for i, k in enumerate(vocab.keys())}
         id_to_token = {i: k for k, i in token_to_id.items()}
         self.model = UnigramModel(
@@ -122,6 +123,7 @@ class TestBinaryMmapModel(unittest.TestCase):
                 token_to_id={"a": 0, "b": 5},
                 id_to_token={0: "a", 5: "b"},
                 special_tokens=[],
+                byte_fallback=False,
             )
             sparse_tok = CustomTokenizer(
                 model=sparse_model,

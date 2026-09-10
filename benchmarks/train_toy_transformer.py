@@ -15,8 +15,8 @@ Evaluates tokenizer efficiency in end-to-end Transformer Language Model training
 
 from __future__ import annotations
 
+
 import argparse
-import json
 import math
 import sys
 import time
@@ -26,6 +26,8 @@ from typing import Any, Dict, List, Optional, Tuple
 
 # Ensure project root is in sys.path when executed directly
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from benchmarks.ledger import provenance, write_ledger
 
 import uniqtoken.bpe_trainer as bpe_trainer
 from uniqtoken.cem_merger import CrossEntropyMerging
@@ -37,6 +39,7 @@ from uniqtoken.tokenizer import CustomTokenizer
 @dataclass
 class PretrainingMetrics:
     model_name: str
+    model_kind: str
     vocab_size: int
     total_tokens: int
     total_bytes: int
@@ -95,19 +98,17 @@ class BPETokenizerAdapter:
         return self.model.decode(token_ids)
 
 
-def train_superbpe_tokenizer(
-    corpus: List[str], target_vocab: int, max_merges: int = 30
-) -> CustomTokenizer:
+def train_superbpe_tokenizer(corpus: List[str], target_vocab: int, max_merges: int = 30) -> CustomTokenizer:
     """Train a budget-matched SuperBPE model with actual CEM merge capacity."""
     if target_vocab < 2:
         raise ValueError("target_vocab must be at least 2")
+    if max_merges < 1:
+        raise ValueError("max_merges must be positive for a SuperBPE benchmark")
+    if not corpus or not any(corpus):
+        raise ValueError("SuperBPE training corpus must contain non-empty text")
     normalizer = Normalizer()
     pre_tokenizer = RegexPreTokenizer()
-    chunks = [
-        chunk
-        for document in corpus
-        for chunk in pre_tokenizer.pre_tokenize(normalizer.normalize(document))
-    ]
+    chunks = [chunk for document in corpus for chunk in pre_tokenizer.pre_tokenize(normalizer.normalize(document))]
     seed_builder = SeedVocabularyBuilder(
         target_vocab_size=target_vocab,
         min_frequency=1,
@@ -125,15 +126,26 @@ def train_superbpe_tokenizer(
     base = CustomTokenizer.train_from_corpus(
         corpus=corpus,
         target_vocab_size=target_vocab - merge_capacity,
+        min_edge_log_prob=float("-inf"),
         ranking_strategy="pmi",
         min_frequency=1,
         verbose=False,
     )
     cem = CrossEntropyMerging(max_merges=merge_capacity, cross_word=True, verbose=False)
     model = cem.optimize(base.model, chunks=chunks)
-    if len(model.vocab) > target_vocab:
-        raise RuntimeError("SuperBPE training exceeded the requested vocabulary budget")
+    if not cem.merges:
+        raise RuntimeError("SuperBPE configuration was a no-op: no cross-word merges were learned")
+    if len(model.vocab) != target_vocab:
+        raise RuntimeError(
+            f"SuperBPE produced {len(model.vocab)} pieces; matched benchmark requires exactly {target_vocab}"
+        )
     return CustomTokenizer(normalizer=base.normalizer, pre_tokenizer=base.pre_tokenizer, model=model)
+
+
+def _require_vocab_budget(tokenizer: Any, target_vocab: int, label: str) -> None:
+    actual_vocab = int(tokenizer.vocab_size)
+    if actual_vocab != target_vocab:
+        raise RuntimeError(f"{label} produced {actual_vocab} pieces; matched benchmark requires exactly {target_vocab}")
 
 
 def create_tokenizers(target_vocab: int = 500, corpus: Optional[List[str]] = None) -> Dict[str, Any]:
@@ -145,10 +157,12 @@ def create_tokenizers(target_vocab: int = 500, corpus: Optional[List[str]] = Non
     unigram_tok = CustomTokenizer.train_from_corpus(
         corpus=training_corpus,
         target_vocab_size=target_vocab,
+        min_edge_log_prob=float("-inf"),
         ranking_strategy="pmi",
         min_frequency=1,
         verbose=False,
     )
+    _require_vocab_budget(unigram_tok, target_vocab, "UniqToken Unigram")
     tokenizers["UniqToken (Unigram)"] = unigram_tok
 
     # 2. UniqToken SuperBPE. Train a smaller base model so CEM has actual
@@ -171,6 +185,7 @@ def create_tokenizers(target_vocab: int = 500, corpus: Optional[List[str]] = Non
         normalizer=unigram_tok.normalizer,
         pre_tokenizer=unigram_tok.pre_tokenizer,
     )
+    _require_vocab_budget(tokenizers["Standard BPE"], target_vocab, "Standard BPE")
 
     return tokenizers
 
@@ -179,7 +194,9 @@ def _split_documents(corpus: List[str]) -> Tuple[List[str], List[str], List[str]
     """Create disjoint train, validation, and test documents by identity."""
     unique_documents = list(dict.fromkeys(corpus))
     if len(unique_documents) < 3:
-        raise ValueError("benchmark corpus must contain at least three distinct documents for train/validation/test separation")
+        raise ValueError(
+            "benchmark corpus must contain at least three distinct documents for train/validation/test separation"
+        )
     held_out_size = max(1, len(unique_documents) // 5)
     if held_out_size * 2 >= len(unique_documents):
         held_out_size = 1
@@ -205,8 +222,8 @@ def train_toy_transformer(
     seed: int = 42,
 ) -> PretrainingMetrics:
     """
-    Trains a causal mini-transformer or lightweight probabilistic model
-    and measures cross-entropy loss and bits-per-byte (BPB).
+    Trains a causal mini-transformer and measures held-out cross-entropy loss
+    and bits-per-byte (BPB).
 
     ``device`` selects the compute device: ``"auto"`` (default) uses
     CUDA when ``torch.cuda.is_available()``, otherwise CPU. Pass
@@ -254,125 +271,103 @@ def train_toy_transformer(
     max_token_id = max(token_to_id.values(), default=-1) if token_to_id else -1
     vocab_size = max(int(tok.vocab_size), max_token_id + 1)
 
-    # 2. Check PyTorch availability
-    has_torch = False
     try:
         import torch
         import torch.nn as nn
-        import torch.nn.functional as F
+    except ImportError as exc:
+        raise RuntimeError("PyTorch is required for Transformer evaluation; no fallback model is permitted") from exc
 
-        has_torch = True
-    except ImportError:
-        pass
+    if len(train_flat) <= seq_len:
+        raise ValueError(
+            f"training split produced {len(train_flat)} tokens, but seq_len={seq_len} requires at least {seq_len + 1}"
+        )
 
-    if has_torch and len(train_flat) > seq_len:
-        import torch
-        import torch.nn as nn
+    class MiniCausalLM(nn.Module):
+        def __init__(self, vs: int, d: int, h: int, n_l: int, max_s: int):
+            super().__init__()
+            self.tok_emb = nn.Embedding(vs, d)
+            self.pos_emb = nn.Embedding(max_s, d)
+            encoder_layer = nn.TransformerEncoderLayer(
+                d_model=d,
+                nhead=h,
+                dim_feedforward=d * 2,
+                dropout=0.0,
+                activation="gelu",
+                batch_first=True,
+            )
+            self.blocks = nn.TransformerEncoder(encoder_layer, num_layers=n_l)
+            self.norm = nn.LayerNorm(d)
+            self.head = nn.Linear(d, vs, bias=False)
+            self.head.weight = self.tok_emb.weight  # Weight tying
 
-        class MiniCausalLM(nn.Module):
-            def __init__(self, vs: int, d: int, h: int, n_l: int, max_s: int):
-                super().__init__()
-                self.tok_emb = nn.Embedding(vs, d)
-                self.pos_emb = nn.Embedding(max_s, d)
-                encoder_layer = nn.TransformerEncoderLayer(
-                    d_model=d,
-                    nhead=h,
-                    dim_feedforward=d * 2,
-                    dropout=0.0,
-                    activation="gelu",
-                    batch_first=True,
-                )
-                self.blocks = nn.TransformerEncoder(encoder_layer, num_layers=n_l)
-                self.norm = nn.LayerNorm(d)
-                self.head = nn.Linear(d, vs, bias=False)
-                self.head.weight = self.tok_emb.weight  # Weight tying
+        def forward(self, x: torch.Tensor) -> torch.Tensor:
+            b, s = x.size()
+            pos = torch.arange(0, s, device=x.device).unsqueeze(0)
+            h = self.tok_emb(x) + self.pos_emb(pos)
+            causal_mask = torch.triu(torch.full((s, s), float("-inf"), device=x.device), diagonal=1)
+            out = self.blocks(h, mask=causal_mask)
+            out = self.norm(out)
+            return self.head(out)
 
-            def forward(self, x: torch.Tensor) -> torch.Tensor:
-                b, s = x.size()
-                pos = torch.arange(0, s, device=x.device).unsqueeze(0)
-                h = self.tok_emb(x) + self.pos_emb(pos)
-                causal_mask = torch.triu(torch.full((s, s), float("-inf"), device=x.device), diagonal=1)
-                out = self.blocks(h, mask=causal_mask)
-                out = self.norm(out)
-                return self.head(out)
-
-        target_device: torch.device
-        if device == "auto":
-            target_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        else:
-            if device == "cuda" and not torch.cuda.is_available():
-                raise RuntimeError("device='cuda' requested but torch.cuda.is_available() is False")
-            target_device = torch.device(device)
-        torch.manual_seed(seed)
-        model = MiniCausalLM(vs=vocab_size, d=dim, h=heads, n_l=layers, max_s=seq_len).to(target_device)
-        optimizer = torch.optim.AdamW(model.parameters(), lr=3e-3, weight_decay=1e-2)
-        loss_fn = nn.CrossEntropyLoss()
-        start_time = time.perf_counter()
-
-        data_tensor = torch.tensor(train_flat, dtype=torch.long)
-        max_start = len(train_flat) - seq_len - 1
-
-        model.train()
-        for step in range(steps):
-            optimizer.zero_grad()
-            # Sample batch (each row is a distinct contiguous window)
-            batch_inputs = []
-            batch_targets = []
-            for b in range(batch_size):
-                idx = (step * batch_size + b) % (max_start + 1)
-                chunk = data_tensor[idx : idx + seq_len + 1]
-                batch_inputs.append(chunk[:-1])
-                batch_targets.append(chunk[1:])
-
-            inputs = torch.stack(batch_inputs).to(target_device)
-            targets = torch.stack(batch_targets).to(target_device)
-
-            logits = model(inputs)
-            loss = loss_fn(logits.view(-1, vocab_size), targets.view(-1))
-            loss.backward()
-            optimizer.step()
-
-        def _held_out_loss(tokens: List[int]) -> Tuple[float, int]:
-            token_tensor = torch.tensor(tokens, dtype=torch.long)
-            weighted_loss = 0.0
-            count = 0
-            with torch.no_grad():
-                for start in range(0, len(tokens) - 1, seq_len):
-                    chunk = token_tensor[start : start + seq_len + 1].to(target_device)
-                    prediction_count = len(chunk) - 1
-                    if prediction_count == 0:
-                        continue
-                    logits = model(chunk[:-1].unsqueeze(0))
-                    loss = loss_fn(logits.view(-1, vocab_size), chunk[1:].view(-1))
-                    weighted_loss += float(loss.item()) * prediction_count
-                    count += prediction_count
-            if count == 0:
-                raise ValueError("held-out data must contain at least one predictable token")
-            return weighted_loss / count, count
-
-        # Record validation independently; final metrics remain test-only.
-        model.eval()
-        validation_loss, validation_evaluated_tokens = _held_out_loss(validation_flat)
-        final_loss, evaluated_tokens = _held_out_loss(test_flat)
-        processed_tokens = steps * batch_size * seq_len
+    target_device: torch.device
+    if device == "auto":
+        target_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     else:
-        # Fit a Laplace-smoothed unigram model on training data and evaluate it
-        # only on held-out test tokens. This is a real held-out baseline, not
-        # entropy estimated from the evaluation distribution itself.
-        start_time = time.perf_counter()
-        train_counts: Dict[int, int] = {}
-        for token_id in train_flat:
-            train_counts[token_id] = train_counts.get(token_id, 0) + 1
-        denominator = len(train_flat) + vocab_size
-        validation_loss = sum(
-            -math.log((train_counts.get(token_id, 0) + 1) / denominator) for token_id in validation_flat
-        ) / len(validation_flat)
-        validation_evaluated_tokens = len(validation_flat)
-        final_loss = sum(
-            -math.log((train_counts.get(token_id, 0) + 1) / denominator) for token_id in test_flat
-        ) / len(test_flat)
-        evaluated_tokens = len(test_flat)
-        processed_tokens = len(train_flat) + len(test_flat)
+        if device == "cuda" and not torch.cuda.is_available():
+            raise RuntimeError("device='cuda' requested but torch.cuda.is_available() is False")
+        target_device = torch.device(device)
+    torch.manual_seed(seed)
+    model = MiniCausalLM(vs=vocab_size, d=dim, h=heads, n_l=layers, max_s=seq_len).to(target_device)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=3e-3, weight_decay=1e-2)
+    loss_fn = nn.CrossEntropyLoss()
+    start_time = time.perf_counter()
+
+    data_tensor = torch.tensor(train_flat, dtype=torch.long)
+    max_start = len(train_flat) - seq_len - 1
+
+    model.train()
+    for step in range(steps):
+        optimizer.zero_grad()
+        # Sample batch (each row is a distinct contiguous window)
+        batch_inputs = []
+        batch_targets = []
+        for b in range(batch_size):
+            idx = (step * batch_size + b) % (max_start + 1)
+            chunk = data_tensor[idx : idx + seq_len + 1]
+            batch_inputs.append(chunk[:-1])
+            batch_targets.append(chunk[1:])
+
+        inputs = torch.stack(batch_inputs).to(target_device)
+        targets = torch.stack(batch_targets).to(target_device)
+
+        logits = model(inputs)
+        loss = loss_fn(logits.view(-1, vocab_size), targets.view(-1))
+        loss.backward()
+        optimizer.step()
+
+    def _held_out_loss(tokens: List[int]) -> Tuple[float, int]:
+        token_tensor = torch.tensor(tokens, dtype=torch.long)
+        weighted_loss = 0.0
+        count = 0
+        with torch.no_grad():
+            for start in range(0, len(tokens) - 1, seq_len):
+                chunk = token_tensor[start : start + seq_len + 1].to(target_device)
+                prediction_count = len(chunk) - 1
+                if prediction_count == 0:
+                    continue
+                logits = model(chunk[:-1].unsqueeze(0))
+                loss = loss_fn(logits.view(-1, vocab_size), chunk[1:].view(-1))
+                weighted_loss += float(loss.item()) * prediction_count
+                count += prediction_count
+        if count == 0:
+            raise ValueError("held-out data must contain at least one predictable token")
+        return weighted_loss / count, count
+
+    # Record validation independently; final metrics remain test-only.
+    model.eval()
+    validation_loss, validation_evaluated_tokens = _held_out_loss(validation_flat)
+    final_loss, evaluated_tokens = _held_out_loss(test_flat)
+    processed_tokens = steps * batch_size * seq_len
 
     elapsed = max(time.perf_counter() - start_time, 1e-6)
     tok_per_sec = processed_tokens / elapsed
@@ -385,6 +380,7 @@ def train_toy_transformer(
 
     return PretrainingMetrics(
         model_name=model_label,
+        model_kind="causal_transformer",
         vocab_size=vocab_size,
         total_tokens=total_tokens,
         total_bytes=total_bytes,
@@ -434,6 +430,7 @@ def run_pretraining_benchmark(steps: int = 40, export_json: Optional[str] = None
         payload = [
             {
                 "model_name": m.model_name,
+                "model_kind": m.model_kind,
                 "vocab_size": m.vocab_size,
                 "total_tokens": m.total_tokens,
                 "total_bytes": m.total_bytes,
@@ -448,8 +445,13 @@ def run_pretraining_benchmark(steps: int = 40, export_json: Optional[str] = None
             }
             for m in results
         ]
-        with open(export_json, "w", encoding="utf-8") as f:
-            json.dump(payload, f, indent=2)
+        write_ledger(
+            export_json,
+            {
+                "metadata": {**provenance(), "data_split": "document_disjoint_train_validation_test"},
+                "records": payload,
+            },
+        )
         print(f"[Exporter] Saved pretraining benchmark report to: {export_json}")
 
     return results

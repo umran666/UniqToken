@@ -10,20 +10,22 @@ Acceptance Criterion for Issue #27:
 
 from __future__ import annotations
 
+
 import argparse
 import asyncio
-import json
 import statistics
 import sys
 import time
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Any, Dict, List, Tuple
 
 # Ensure UTF-8 output on Windows consoles
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from benchmarks.ledger import provenance, write_ledger
 
 from uniqtoken.integrations.vllm import AsyncVLLMStreamingWorker, UniqTokenVLLMAdapter
 from uniqtoken.tokenizer import CustomTokenizer
@@ -32,19 +34,23 @@ from uniqtoken.tokenizer import CustomTokenizer
 def build_benchmark_tokenizer() -> CustomTokenizer:
     """Trains a representative tokenizer for benchmarking."""
     corpus = [
-        "The transformer architecture relies on subword tokenization to compress sequence length.",
-        "Exact offset alignment is essential for accurate span extraction and structured decoding.",
-        "High performance native Rust modules allow multi-threaded parallel batch execution without GIL lock.",
-        "Neural language modeling balances vocabulary size against computational embedding cost.",
-        "Streaming detokenization in high-throughput inference engines like vLLM requires zero latency overhead.",
-        "Incremental UTF-8 byte accumulation prevents invalid unicode replacement character glitches.",
+        "Language model servers decode generated token identifiers into incremental text fragments.",
+        "Concurrent request handling should preserve ordering while yielding control to the event loop.",
+        "A fixed tokenizer vocabulary maps text pieces to stable integer identifiers.",
+        "Unicode byte sequences may span several generated tokens before forming valid text.",
+        "Latency measurements require explicit workloads and repeatable concurrency limits.",
+        "Batch and streaming decoders must reconstruct identical output for the same identifier sequence.",
     ] * 20
-    return CustomTokenizer.train_from_corpus(
+    tokenizer = CustomTokenizer.train_from_corpus(
         corpus=corpus,
         target_vocab_size=500,
+        min_edge_log_prob=float("-inf"),
         special_tokens=["<|bos|>", "<|eos|>", "<|pad|>", "<|unk|>"],
         verbose=False,
     )
+    if tokenizer.vocab_size != 500:
+        raise RuntimeError(f"benchmark tokenizer produced {tokenizer.vocab_size} pieces; requested budget is 500")
+    return tokenizer
 
 
 class EventLoopJitterMonitor:
@@ -89,7 +95,7 @@ async def run_streaming_benchmark(
     num_streams: int = 50,
     tokens_per_stream: int = 100,
     concurrency_limit: int = 50,
-) -> Dict[str, float]:
+) -> Dict[str, Any]:
     """Runs concurrent async streaming workers and collects performance metrics."""
     sample_text = (
         "High performance native Rust modules allow multi-threaded parallel batch execution without GIL lock. "
@@ -155,6 +161,8 @@ async def run_streaming_benchmark(
     mean_lat = statistics.mean(step_latencies_us) if step_latencies_us else 0.0
 
     return {
+        "model_kind": "streaming_detokenizer",
+        "data_split": "document_disjoint",
         "num_streams": num_streams,
         "tokens_per_stream": tokens_per_stream,
         "total_tokens": total_tokens,
@@ -228,8 +236,13 @@ def main():
         print("[WARN] Elevated event loop jitter observed.")
 
     if args.json:
-        with open(args.json, "w", encoding="utf-8") as f:
-            json.dump(metrics, f, indent=2)
+        write_ledger(
+            args.json,
+            {
+                "metadata": {**provenance(), "data_split": metrics["data_split"]},
+                "records": [metrics],
+            },
+        )
         print(f"Saved benchmark results to {args.json}")
 
 

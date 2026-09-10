@@ -1,18 +1,20 @@
 # Archived Legacy Benchmark Ledgers & Figures
 
-This directory contains archived experimental ledgers and figures from earlier Phase 14 and Phase 15 exploratory runs.
+This directory contains archived benchmark code, ledgers, and figures. These artifacts are preserved for provenance only and are not evidence for the current implementation.
 
 ## Archived Artifacts
 - `phase_fourteen_confirmatory_records.json`
 - `phase_fourteen_confirmatory.png`
 - `phase_fifteen_final_paper_records.json`
 - `phase_fifteen_final_paper_figure.png`
+- `matched_budget_eval_records_pre_integrity.json`
+- `matched_budget_tradeoffs_pre_integrity.png`
+- `run_phase_fourteen_confirmatory.py`
+- `run_final_paper_audit.py`
 
 ## Invalidation Notice
-Per **Issue #50** ("Rebuild matched-budget (8k-128k) benchmark harness and invalidate legacy ledgers"), these historical files have been superseded by the standardized, peer-review-grade benchmark suite located in [`benchmarks/run_matched_budget_eval.py`](../run_matched_budget_eval.py).
+These files have been superseded by the active harness in [`benchmarks/run_matched_budget_eval.py`](../run_matched_budget_eval.py). They must not be copied into current documentation or loaded as current results.
 
-The current benchmark harness implements:
-- Strictly matched analytical FLOP budgets on CUDA.
-- Balanced multilingual evaluation across 8 domains (English, Hindi, Telugu, Arabic, Chinese, Russian, Code, Finnish).
-- Standard metrics: Bytes per Token (BpT), Tokens per Byte (TpB), True Information Density / Bits per Byte (TID-BPB), downstream Cross-Entropy loss on matched small Transformer LMs (2L-128d, 4L-256d, 8L-512d), microsecond latency, peak RSS, and VRAM.
-- Standard output ledgers in `benchmarks/matched_budget_eval_records.json`.
+The archived Phase 14/15 workflow used data and result contracts that are no longer accepted. The pre-integrity matched-budget ledger also contains rows whose actual vocabulary size differs from the requested budget. Historical numbers are intentionally left unchanged; this notice, the filenames, and the directory location provide the invalidation context.
+
+Current matched-budget ledgers require schema version 3, experiment version `research-integrity-heldout-v3`, a full Git commit hash and working-tree dirty status, a document-disjoint split, explicit `model_kind`, exact requested/actual vocabulary equality, and a complete condition grid. The loader in `benchmarks.ledger` rejects older schemas and ambiguous cross-script fertility fields. Historical artifact contents remain unchanged.

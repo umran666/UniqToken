@@ -111,7 +111,8 @@ class VocabQualityRaceHarnessTests(unittest.TestCase):
         self.assertIn("UniqToken (BPE)", names)
         self.assertIn("UniqToken (SuperBPE)", names)
         for e in self.report.entries:
-            self.assertGreater(e.actual_vocab, 0)
+            self.assertEqual(e.actual_vocab, e.target_vocab)
+            self.assertEqual(e.model_kind, "causal_transformer")
             self.assertGreater(e.evaluated_bytes, 0)
             self.assertGreater(e.evaluated_tokens, 0)
             self.assertTrue(math.isfinite(e.final_loss))
@@ -141,6 +142,7 @@ class RaceEntryConstructionTests(unittest.TestCase):
     def test_race_entry_required_fields(self):
         e = RaceEntry(
             tokenizer="test",
+            model_kind="causal_transformer",
             category="uniqtoken",
             target_vocab=500,
             actual_vocab=500,
@@ -156,6 +158,7 @@ class RaceEntryConstructionTests(unittest.TestCase):
         )
         for k in (
             "tokenizer",
+            "model_kind",
             "category",
             "target_vocab",
             "actual_vocab",

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import random
+import unicodedata
 import warnings
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
@@ -11,6 +12,7 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List, Literal, Optional, Sequence, Set, Tuple, Union, overload
 
 from .bpe_model import BPEModel
+from ._native import native_function, native_text_supported
 from .byte_codec import ByteFallbackEngine, validate_dropout_prob as _validate_dropout_prob
 from .chat_template import BUILTIN_TEMPLATES, ChatTemplateEngine
 from .indentation_compressor import IndentationCompressor
@@ -85,9 +87,9 @@ class CustomTokenizer:
         self.model = model
         self.security = SecurityShield(special_tokens=self.model.special_tokens)
         self._cross_word_set: Optional[frozenset[str]] = None
-        self._cross_word_model_id: Optional[int] = id(self.model)
+        self._tokenizer_model_signature: Optional[Tuple[int, int, str]] = None
         self._specials_pipe_form: Optional[bool] = None
-        self._specials_model_id: Optional[int] = None
+
         #: Optional Jinja2 chat template. Stored as passed: a built-in
         #: template name (e.g. ``"chatml"``), a raw Jinja2 string, or ``None``.
         #: Used by :meth:`apply_chat_template` when no override is passed.
@@ -121,6 +123,27 @@ class CustomTokenizer:
             )
         return composed
 
+    def _sync_model_caches(self) -> None:
+        # O(1) steady-state: full validation + cache invalidation happen only
+        # when the model's mutation counter moved. id(model) covers whole-model
+        # replacement (e.g. after a CEM/SuperBPE vocabulary swap).
+        self.model._ensure_validated()
+        signature = (id(self.model), self.model._state_version, self.normalizer.space_char)
+        if self._tokenizer_model_signature != signature:
+            self._cross_word_set = None
+            self._specials_pipe_form = None
+            self.security.special_tokens = set(self.model.special_tokens)
+            self._tokenizer_model_signature = signature
+
+    @staticmethod
+    def _requires_python_security(text: str) -> bool:
+        return (
+            not native_text_supported(text)
+            or "\ue000" in text
+            or "\ue001" in text
+            or "<|" in unicodedata.normalize("NFKC", text)
+        )
+
     def _cross_word_tokens(self) -> frozenset[str]:
         """Vocab tokens containing the space char (SuperBPE spanning tokens).
 
@@ -128,16 +151,16 @@ class CustomTokenizer:
         ``"the"`` or ``"\u2581"``, never ``"the\u2581quick"``), so they are only
         reachable through the post-encode merge pass.
 
-        The result is cached, but invalidated whenever the model object changes
+        The result is cached, but invalidated whenever model content or the space marker changes
         so a reassigned ``tokenizer.model`` (e.g. after a CEM/SuperBPE vocabulary
         swap without constructing a fresh tokenizer) cannot leave the cache stale.
         """
-        if self._cross_word_set is None or self._cross_word_model_id != id(self.model):
+        self._sync_model_caches()
+        if self._cross_word_set is None:
             sc = self.normalizer.space_char
             # Only internal metaspace (SuperBPE merges like "the▁quick" or "▁the▁quick"); leading
             # metaspace tokens (e.g. "▁quick" from pre-tokenization) are normal chunks.
             self._cross_word_set = frozenset(t for t in self.model.vocab if sc in t[1:] and t.strip(sc))
-            self._cross_word_model_id = id(self.model)
         return self._cross_word_set
 
     def _special_tokens_contain_pipe_marker(self) -> bool:
@@ -145,12 +168,12 @@ class CustomTokenizer:
 
         This is the exact condition under which text containing a special token
         necessarily contains ``<|`` in its NFKC-canonical form — which is what
-        the native pipeline's security gate keys on. Cached per model object
+        the native pipeline's security gate keys on. Cached per model content
         like ``_cross_word_tokens``.
         """
-        if self._specials_pipe_form is None or self._specials_model_id != id(self.model):
+        self._sync_model_caches()
+        if self._specials_pipe_form is None:
             self._specials_pipe_form = all("<|" in tok for tok in self.model.special_tokens)
-            self._specials_model_id = id(self.model)
         return self._specials_pipe_form
 
     def _native_pipeline_kwargs(self) -> Optional[Dict[str, Any]]:
@@ -167,7 +190,7 @@ class CustomTokenizer:
         - the native side additionally refuses any text whose NFKC form could
           contain control-token syntax, falling back to the full Python path
         """
-        if _native_core is None or not hasattr(_native_core, "rust_encode_text_native"):
+        if native_function(_native_core, "rust_encode_text_native") is None:
             return None
         if self._indent_compression_enabled or self._cross_word_tokens():
             return None
@@ -196,10 +219,9 @@ class CustomTokenizer:
         rust_trie = self.model._get_rust_trie()
         if rust_trie is None:
             return None
-        try:
-            return _native_core.rust_encode_text_native_batch(texts, rust_trie, self.model.byte_fallback, **kwargs)
-        except (ValueError, TypeError, AttributeError):
+        if any(self._requires_python_security(text) for text in texts):
             return None
+        return _native_core.rust_encode_text_native_batch(texts, rust_trie, self.model.byte_fallback, **kwargs)
 
     def _encode_ids_native_batch(self, texts: Sequence[str]) -> Optional[List[List[int]]]:
         """Batch-encode to token IDs via fused native pipeline (one FFI, Rayon across texts,
@@ -211,10 +233,9 @@ class CustomTokenizer:
         rust_trie = self.model._get_rust_trie()
         if rust_trie is None:
             return None
-        try:
-            return _native_core.rust_encode_text_native_ids_batch(texts, rust_trie, self.model.byte_fallback, **kwargs)
-        except (ValueError, TypeError, AttributeError):
+        if any(self._requires_python_security(text) for text in texts):
             return None
+        return _native_core.rust_encode_text_native_ids_batch(texts, rust_trie, self.model.byte_fallback, **kwargs)
 
     def _apply_cross_word_merges(self, tokens: List[str], dropout_prob: float = 0.0) -> List[str]:
         """Greedily fuses adjacent tokens until no SuperBPE merge remains.
@@ -323,6 +344,7 @@ class CustomTokenizer:
         allowed_special: Union[str, Set[str], List[str]],
         disallowed_special_action: str,
     ) -> str:
+        self._sync_model_caches()
         sanitized = self.security.sanitize(
             text,
             allowed_special=allowed_special,
@@ -338,6 +360,7 @@ class CustomTokenizer:
         allowed_special: Union[str, Set[str], List[str]],
         disallowed_special_action: str,
     ) -> Tuple[str, List[Tuple[int, int]]]:
+        self._sync_model_caches()
         sanitized, sanitized_alignment = self.security.sanitize_with_alignment(
             text,
             allowed_special=allowed_special,
@@ -598,6 +621,7 @@ class CustomTokenizer:
         # REAL control-token ID (allowed_special="all" below), spoofing a turn
         # boundary (issue #44 acceptance criterion). Escape control sequences
         # in content up front so only the template's own markers become IDs.
+        self._sync_model_caches()
         safe_conversation = [
             {**message, "content": self.security.sanitize(message["content"], allowed_special="none")}
             if isinstance(message, dict) and isinstance(message.get("content"), str)
@@ -666,12 +690,10 @@ class CustomTokenizer:
             if rust_trie is None:
                 native_kwargs = None
             else:
-                try:
+                if not self._requires_python_security(text):
                     return _native_core.rust_encode_text_native(
                         text, rust_trie, self.model.byte_fallback, **native_kwargs
                     )
-                except (ValueError, TypeError, AttributeError):
-                    pass  # control-token syntax or unavailable native core → Python path
 
         sanitized_text = self._prepare_text(
             text,
@@ -772,12 +794,10 @@ class CustomTokenizer:
             assert _native_core is not None
             rust_trie = self.model._get_rust_trie()
             if rust_trie is not None:
-                try:
+                if not self._requires_python_security(text):
                     return _native_core.rust_encode_text_native_ids(
                         text, rust_trie, self.model.byte_fallback, **native_kwargs
                     )
-                except (ValueError, TypeError, AttributeError):
-                    pass  # control-token syntax or fallback
 
         tokens = self.encode(
             text,

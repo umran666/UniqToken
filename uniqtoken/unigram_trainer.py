@@ -6,13 +6,23 @@ import time
 from collections import Counter
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
+from typing import (
+    Any,
+    Dict,
+    Iterable,
+    List,
+    Optional,
+    Set,
+    SupportsIndex,
+    Tuple,
+)
 
 try:
     from tqdm import tqdm
 except ImportError:
     tqdm = None
 
+from ._native import native_function, native_text_supported
 from .seed_builder import SeedToken, SeedVocabularyBuilder
 from .streaming_counter import StreamingChunkCounter
 from .trie import PrefixTrie
@@ -26,6 +36,174 @@ try:
 except ImportError:
     uniqtoken_core = None  # type: ignore[assignment]
     _HAS_UNIQTOKEN_CORE = False
+
+
+class _StateVersion:
+    """Monotonic mutation counter shared by a model and its state containers.
+
+    Bumped on every reassignment of a model field (via ``UnigramModel.__setattr__``)
+    and on every in-place mutation of a tracked container. Encode-path checks only
+    compare integers, so steady-state validation is O(1); the full O(V) invariant
+    validation runs only when the counter moved since the last check.
+    """
+
+    __slots__ = ("value",)
+
+    def __init__(self) -> None:
+        self.value = 0
+
+
+class _VersionedDict(dict):
+    """A ``dict`` that bumps its owner's mutation counter on every in-place mutation.
+
+    Read paths (``__getitem__``, ``get``, ``__contains__``, iteration, ...) are
+    inherited untouched so hot-path lookups keep C speed; only mutators pay.
+    """
+
+    __slots__ = ("_box",)
+
+    def __init__(self, *args: Any, _box: Optional[_StateVersion] = None, **kwargs: Any) -> None:
+        self._box = _box
+        super().__init__(*args, **kwargs)
+
+    def _bump(self) -> None:
+        # getattr-guard: unpickling restores items via __setitem__ before the
+        # slot state is applied, so _box may not exist yet; the state then
+        # restores the shared box and versions stay consistent either way.
+        box = getattr(self, "_box", None)
+        if box is not None:
+            box.value += 1
+
+    def __setitem__(self, key: Any, value: Any) -> None:
+        super().__setitem__(key, value)
+        self._bump()
+
+    def __delitem__(self, key: Any) -> None:
+        super().__delitem__(key)
+        self._bump()
+
+    def clear(self) -> None:
+        super().clear()
+        self._bump()
+
+    def pop(self, *args: Any, **kwargs: Any) -> Any:
+        result = super().pop(*args, **kwargs)
+        self._bump()
+        return result
+
+    def popitem(self) -> Any:
+        result = super().popitem()
+        self._bump()
+        return result
+
+    def setdefault(self, *args: Any, **kwargs: Any) -> Any:
+        result = super().setdefault(*args, **kwargs)
+        self._bump()
+        return result
+
+    def update(self, *args: Any, **kwargs: Any) -> None:
+        super().update(*args, **kwargs)
+        self._bump()
+
+    # NOTE: the ignore below mirrors typeshed itself (set.__ior__ carries the
+    # same ignore): mypy's inplace-vs-binary consistency check is unsatisfiable
+    # for mutating container subclasses.
+    def __ior__(self, value: Any, /) -> _VersionedDict:  # type: ignore[override,misc]
+        super().__ior__(value)
+        self._bump()
+        return self
+
+
+class _VersionedList(list):
+    """A ``list`` that bumps its owner's mutation counter on every in-place mutation.
+
+    Like :class:`_VersionedDict`, reads are inherited untouched; only mutators pay.
+    """
+
+    __slots__ = ("_box",)
+
+    def __init__(self, *args: Any, _box: Optional[_StateVersion] = None, **kwargs: Any) -> None:
+        self._box = _box
+        super().__init__(*args, **kwargs)
+
+    def _bump(self) -> None:
+        # See _VersionedDict._bump: slot state may lag item restoration.
+        box = getattr(self, "_box", None)
+        if box is not None:
+            box.value += 1
+
+    def __setitem__(self, *args: Any, **kwargs: Any) -> None:
+        super().__setitem__(*args, **kwargs)
+        self._bump()
+
+    def __delitem__(self, *args: Any, **kwargs: Any) -> None:
+        super().__delitem__(*args, **kwargs)
+        self._bump()
+
+    def append(self, *args: Any, **kwargs: Any) -> None:
+        super().append(*args, **kwargs)
+        self._bump()
+
+    def extend(self, *args: Any, **kwargs: Any) -> None:
+        super().extend(*args, **kwargs)
+        self._bump()
+
+    def insert(self, *args: Any, **kwargs: Any) -> None:
+        super().insert(*args, **kwargs)
+        self._bump()
+
+    def remove(self, *args: Any, **kwargs: Any) -> None:
+        super().remove(*args, **kwargs)
+        self._bump()
+
+    def pop(self, *args: Any, **kwargs: Any) -> Any:
+        result = super().pop(*args, **kwargs)
+        self._bump()
+        return result
+
+    def clear(self) -> None:
+        super().clear()
+        self._bump()
+
+    def sort(self, *args: Any, **kwargs: Any) -> None:
+        super().sort(*args, **kwargs)
+        self._bump()
+
+    def reverse(self) -> None:
+        super().reverse()
+        self._bump()
+
+    def __iadd__(self, value: Iterable[Any], /) -> _VersionedList:  # type: ignore[misc]
+        result = super().__iadd__(value)
+        self._bump()
+        return result
+
+    def __imul__(self, value: SupportsIndex, /) -> _VersionedList:
+        result = super().__imul__(value)
+        self._bump()
+        return result
+
+
+_MODEL_STATE_FIELDS = frozenset(
+    {"vocab", "token_to_id", "id_to_token", "special_tokens", "max_subword_len", "byte_fallback", "unk_token"}
+)
+
+
+def _wrap_state_value(value: Any, box: _StateVersion) -> Any:
+    """Track plain ``dict``/``list`` state in versioned containers sharing ``box``.
+
+    Containers already tracked are adopted as-is (preserving aliasing: mutations
+    stay visible through every alias and bump the shared counter, so all models
+    sharing them revalidate). Non-container values pass through untouched
+    (validation still rejects bad types).
+    """
+    if isinstance(value, (_VersionedDict, _VersionedList)):
+        return value
+    if isinstance(value, dict):
+        return _VersionedDict(value, _box=box)
+    if isinstance(value, list):
+        return _VersionedList(value, _box=box)
+    return value
 
 
 @dataclass
@@ -44,6 +222,47 @@ class UnigramModel:
 
     def __post_init__(self) -> None:
         self._validate_invariants()
+        box = self.__dict__.get("_version_box")
+        self.__dict__["_validated_version"] = box.value if box is not None else None
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        # Reassignment of model state is a mutation: track containers and bump
+        # the version so the next encode-path check revalidates and drops
+        # derived caches. Private/cache attributes bypass tracking entirely.
+        if name in _MODEL_STATE_FIELDS:
+            box = self.__dict__.get("_version_box")
+            if box is None:
+                box = _StateVersion()
+                object.__setattr__(self, "_version_box", box)
+            object.__setattr__(self, name, _wrap_state_value(value, box))
+            box.value += 1
+        else:
+            object.__setattr__(self, name, value)
+
+    def __delattr__(self, name: str) -> None:
+        if name in _MODEL_STATE_FIELDS:
+            box = self.__dict__.get("_version_box")
+            if box is not None:
+                box.value += 1
+        object.__delattr__(self, name)
+
+    @property
+    def _state_version(self) -> int:
+        box = self.__dict__.get("_version_box")
+        return box.value if box is not None else 0
+
+    def _ensure_validated(self) -> None:
+        """Run full invariant validation only if state changed since the last check.
+
+        Steady-state cost is O(1) (two dict lookups and an int comparison);
+        any detected mutation re-runs :meth:`_validate_invariants` with the exact
+        same checks and error messages, so guarantees are unchanged.
+        """
+        box = self.__dict__.get("_version_box")
+        if box is not None and self.__dict__.get("_validated_version") == box.value:
+            return
+        self._validate_invariants()
+        self.__dict__["_validated_version"] = box.value if box is not None else None
 
     def _validate_invariants(self) -> None:
         """Reject model states whose IDs or scores cannot be decoded exactly."""
@@ -51,11 +270,17 @@ class UnigramModel:
             raise TypeError("vocab must be a mapping of token strings to finite scores")
         if not isinstance(self.token_to_id, Mapping) or not isinstance(self.id_to_token, Mapping):
             raise TypeError("token ID mappings must be mappings")
-        if not isinstance(self.special_tokens, list) or any(not isinstance(token, str) for token in self.special_tokens):
+        if not isinstance(self.special_tokens, list) or any(
+            not isinstance(token, str) for token in self.special_tokens
+        ):
             raise TypeError("special_tokens must be a list of strings")
         if len(set(self.special_tokens)) != len(self.special_tokens):
             raise ValueError("special_tokens must not contain duplicates")
-        if not isinstance(self.max_subword_len, int) or isinstance(self.max_subword_len, bool) or self.max_subword_len < 1:
+        if (
+            not isinstance(self.max_subword_len, int)
+            or isinstance(self.max_subword_len, bool)
+            or self.max_subword_len < 1
+        ):
             raise ValueError("max_subword_len must be a positive integer")
         if not isinstance(self.byte_fallback, bool):
             raise TypeError("byte_fallback must be a bool")
@@ -63,6 +288,10 @@ class UnigramModel:
             raise TypeError("unk_token must be a string")
 
         vocab_tokens = set(self.vocab)
+        if self.byte_fallback:
+            missing = {ByteFallbackEngine.byte_to_token(b) for b in range(256)} - vocab_tokens
+            if missing:
+                raise ValueError(f"byte_fallback=True requires all 256 byte tokens; missing {sorted(missing)}")
         id_tokens = set(self.token_to_id)
         if any(not isinstance(token, str) for token in vocab_tokens):
             raise TypeError("vocab tokens must be strings")
@@ -101,12 +330,15 @@ class UnigramModel:
         )
 
     def _sync_cache(self) -> None:
-        """Invalidates caches after any externally visible model-state mutation."""
-        self._validate_invariants()
-        sig = self._cache_signature()
-        if self.__dict__.get("_cache_sig") != sig:
+        """Invalidates caches after any externally visible model-state mutation.
+
+        O(1) when state is unchanged (integer version comparison); a version move
+        drops derived caches exactly as the previous full-signature comparison did.
+        """
+        self._ensure_validated()
+        if self.__dict__.get("_cache_version") != self._state_version:
             self.clear_cache()
-            self._cache_sig = sig
+            self.__dict__["_cache_version"] = self._state_version
 
     def _get_trie(self) -> PrefixTrie:
         """Builds (and caches) a PrefixTrie over the current vocab for fast lattice search."""
@@ -120,6 +352,10 @@ class UnigramModel:
     def _get_rust_trie(self) -> Optional[Any]:
         """Builds (and caches) a native RustPrefixTrie if uniqtoken_core is available."""
         if not _HAS_UNIQTOKEN_CORE:
+            native_function(None, "RustPrefixTrie")
+            return None
+        if not self.byte_fallback and self.unk_token in self.vocab:
+            # Native Viterbi has no configurable unknown-token edge.
             return None
         self._sync_cache()
         rust_trie = self.__dict__.get("_rust_trie")
@@ -144,6 +380,8 @@ class UnigramModel:
             del self.__dict__["_rust_trie"]
         if "_seg_cache" in self.__dict__:
             del self.__dict__["_seg_cache"]
+        if "_cache_version" in self.__dict__:
+            del self.__dict__["_cache_version"]
         if "_cache_sig" in self.__dict__:
             del self.__dict__["_cache_sig"]
 
@@ -164,7 +402,7 @@ class UnigramModel:
         (token, start, end) triples, or None to defer to the full lattice.
         """
         length = len(text)
-        if length < 2 or length > self._FAST_PATH_MAX_LEN:
+        if length < 2 or length > self._FAST_PATH_MAX_LEN or not native_text_supported(text):
             return None
 
         max_len = min(self.max_subword_len, length)
@@ -221,6 +459,7 @@ class UnigramModel:
         return result
 
     def encode(self, text: str) -> List[str]:
+        self._sync_cache()
         if len(text) == 1 and text in self.vocab:
             return [text]
         spans = self.encode_with_spans(text)
@@ -231,19 +470,19 @@ class UnigramModel:
         if not chunks:
             return []
         # ponytail: batch cuts 4600→100 FFI/cache checks; Rust batch when compiled else hoisted Python
-        rust_trie = self._get_rust_trie()
+        rust_trie = self._get_rust_trie() if all(native_text_supported(chunk) for chunk in chunks) else None
         if rust_trie is not None:
             # uniqtoken_core is the module-level import (or None);
             # do NOT re-import it here — a stale site-packages
             # module would reject this module's RustPrefixTrie instances.
             core = uniqtoken_core
             if core is not None:
-                try:
-                    # ponytail: rust_encode_tokens_batch returns Vec<Vec<String>> directly — no ViterbiSpan wrapper, single FFI
-                    if hasattr(core, "rust_encode_tokens_batch"):
-                        # ponytail: no span cache for token-only batch; encode_with_spans will compute exact spans on miss
-                        return core.rust_encode_tokens_batch(chunks, rust_trie, self.byte_fallback)
-                    batch_spans = core.rust_viterbi_decode_batch(chunks, rust_trie, self.byte_fallback)
+                encode_batch = getattr(core, "rust_encode_tokens_batch", None)
+                if encode_batch is not None:
+                    return encode_batch(chunks, rust_trie, self.byte_fallback)
+                decode_batch = native_function(core, "rust_viterbi_decode_batch")
+                if decode_batch is not None:
+                    batch_spans = decode_batch(chunks, rust_trie, self.byte_fallback)
                     res: List[List[str]] = []
                     cache = self._get_seg_cache()
                     for chunk, rust_span_list in zip(chunks, batch_spans):
@@ -252,8 +491,6 @@ class UnigramModel:
                             cache[chunk] = [(s.token, s.start, s.end) for s in rust_span_list]
                         res.append(lst)
                     return res
-                except (ImportError, AttributeError, ValueError):
-                    pass
         # Python fallback — hoisted trie/cache
         cache = self._get_seg_cache()
         trie = self._get_trie()
@@ -288,6 +525,7 @@ class UnigramModel:
 
     def encode_with_spans(self, text: str) -> List[Tuple[str, int, int]]:
         """Encode text and retain normalized character spans for every output token."""
+        self._sync_cache()
         if len(text) == 1 and text in self.vocab:
             return [(text, 0, 1)]
 
@@ -297,10 +535,11 @@ class UnigramModel:
             return list(cached)
 
         # 1. Native Rust Viterbi engine dispatch (if uniqtoken_core compiled)
-        rust_trie = self._get_rust_trie()
+        rust_trie = self._get_rust_trie() if native_text_supported(text) else None
         if rust_trie is not None:
-            try:
-                rust_spans = uniqtoken_core.rust_viterbi_decode(
+            decode = native_function(uniqtoken_core, "rust_viterbi_decode")
+            if decode is not None:
+                rust_spans = decode(
                     text,
                     rust_trie,
                     self.byte_fallback,
@@ -309,8 +548,6 @@ class UnigramModel:
                 if len(text) <= 64 and len(cache) < self._MAX_CACHE_SIZE:
                     cache[text] = spans
                 return spans
-            except (ImportError, AttributeError, ValueError):
-                pass
 
         # 2. Pure Python fast path or full lattice DAG
         fast = self._encode_fast(text)
@@ -333,6 +570,7 @@ class UnigramModel:
         return spans
 
     def sample(self, text: str, alpha: float = 0.5) -> List[str]:
+        self._sync_cache()
         if len(text) == 1 and text in self.vocab:
             return [text]
         lattice = UnigramLattice(
@@ -347,13 +585,11 @@ class UnigramModel:
 
     def encode_to_ids(self, text: str) -> List[int]:
         tokens = self.encode(text)
-        unk_id = self.token_to_id.get(self.unk_token, 0)
-        return [self.token_to_id.get(t, unk_id) for t in tokens]
+        return [self.token_to_id[t] for t in tokens]
 
     def sample_to_ids(self, text: str, alpha: float = 0.5) -> List[int]:
         tokens = self.sample(text, alpha=alpha)
-        unk_id = self.token_to_id.get(self.unk_token, 0)
-        return [self.token_to_id.get(t, unk_id) for t in tokens]
+        return [self.token_to_id[t] for t in tokens]
 
     def decode(self, token_ids: List[int], space_char: str = "\u2581") -> str:
         from .byte_codec import ByteFallbackEngine
@@ -591,27 +827,21 @@ class UnigramTrainer:
                         and self.max_ngram_length >= 16
                     )
                     if can_use_rust_em:
-                        try:
-                            rust_trie = uniqtoken_core.RustPrefixTrie(self.max_ngram_length)
-                            for t, lp in current_vocab_log_probs.items():
-                                rust_trie.insert(t, lp, 0)
-                            for chunk, count in chunk_counts.items():
-                                if chunk in required_tokens and (chunk.startswith("<|") and chunk.endswith("|>")):
-                                    expected_counts[chunk] = expected_counts.get(chunk, 0.0) + count
-                                    continue
-                                chunk_exp, chunk_log_lik = uniqtoken_core.rust_forward_backward_expectations(
-                                    chunk, rust_trie, 1.0
-                                )
-                                total_corpus_log_lik += chunk_log_lik * count
-                                for tok, exp_val in chunk_exp.items():
-                                    expected_counts[tok] = expected_counts.get(tok, 0.0) + (exp_val * count)
-                        except (ImportError, AttributeError):
-                            # Only an unavailable/incompatible optional extension may
-                            # use the Python implementation. Native computation errors
-                            # must remain visible to avoid silently changing training.
-                            can_use_rust_em = False
-                            expected_counts.clear()
-                            total_corpus_log_lik = 0.0
+                        native_em = native_function(uniqtoken_core, "rust_forward_backward_expectations")
+                        can_use_rust_em = native_em is not None
+                    if can_use_rust_em:
+                        assert native_em is not None
+                        rust_trie = uniqtoken_core.RustPrefixTrie(self.max_ngram_length)
+                        for t, lp in current_vocab_log_probs.items():
+                            rust_trie.insert(t, lp, 0)
+                        for chunk, count in chunk_counts.items():
+                            if chunk in required_tokens and (chunk.startswith("<|") and chunk.endswith("|>")):
+                                expected_counts[chunk] = expected_counts.get(chunk, 0.0) + count
+                                continue
+                            chunk_exp, chunk_log_lik = native_em(chunk, rust_trie, 1.0)
+                            total_corpus_log_lik += chunk_log_lik * count
+                            for tok, exp_val in chunk_exp.items():
+                                expected_counts[tok] = expected_counts.get(tok, 0.0) + (exp_val * count)
 
                     if not can_use_rust_em:
                         trie = PrefixTrie.from_vocab(current_vocab_log_probs)

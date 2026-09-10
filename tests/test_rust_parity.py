@@ -36,7 +36,8 @@ class RustPythonParityTests(unittest.TestCase):
         ]
         self.tok = CustomTokenizer.train_from_corpus(
             self.corpus,
-            target_vocab_size=380,
+            target_vocab_size=500,
+            min_edge_log_prob=float("-inf"),
             ranking_strategy="char_savings",
             verbose=False,
         )

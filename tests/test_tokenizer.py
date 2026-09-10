@@ -1437,12 +1437,15 @@ class PhaseTwoOptimizationTests(unittest.TestCase):
 
     def test_downstream_evaluator_smoke(self):
         from benchmarks.downstream_eval import DownstreamEvaluator
+        from benchmarks.train_toy_transformer import PRETRAINING_CORPUS, _split_documents
 
-        corpus = [
-            "the quick brown fox jumps over the lazy dog",
-            "neural language model downstream transformer evaluation",
-        ]
-        evaluator = DownstreamEvaluator(vocab_size=300, max_merges=5, corpus=corpus)
+        training_corpus, _, evaluation_corpus = _split_documents(PRETRAINING_CORPUS)
+        evaluator = DownstreamEvaluator(
+            vocab_size=500,
+            max_merges=20,
+            training_corpus=training_corpus,
+            evaluation_corpus=evaluation_corpus,
+        )
         results = evaluator.run_downstream_suite(include_external_baselines=False)
         self.assertGreaterEqual(len(results), 2)
         for r in results:
@@ -1468,6 +1471,8 @@ class GGUFExportTests(unittest.TestCase):
             "uniq": -2.71828,
             "token": -1.41421,
         }
+        for byte in range(256):
+            self.vocab.setdefault(f"<0x{byte:02X}>", -10.0)
         self.token_to_id = {token: idx for idx, token in enumerate(self.vocab)}
         self.id_to_token = {idx: token for token, idx in self.token_to_id.items()}
         self.model = UnigramModel(
@@ -1572,14 +1577,20 @@ class GGUFExportTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             HuggingFaceExporter.export_to_gguf_dict(sparse_tok)
 
-    def test_gguf_user_defined_and_fallback_scores(self):
-        """Verifies classification of user-defined special tokens and default fallback scores."""
+    def test_gguf_user_defined_scores_and_rejects_unscored_tokens(self):
+        """Reject invalid unscored tokens and preserve explicit special-token scores."""
         vocab = {"<|user_flag|>": -0.5, "unscored_special": -10.0}
-        # Note: 'unscored_special' is NOT in model.vocab, will trigger default score -10.0
-        model_vocab = {"<|user_flag|>": -0.5}
         token_to_id = {"<|user_flag|>": 0, "unscored_special": 1}
+        with self.assertRaisesRegex(ValueError, "exactly the same tokens"):
+            UnigramModel(
+                vocab={"<|user_flag|>": -0.5},
+                token_to_id=token_to_id,
+                id_to_token={0: "<|user_flag|>", 1: "unscored_special"},
+                special_tokens=["<|user_flag|>", "unscored_special"],
+                byte_fallback=False,
+            )
         model = UnigramModel(
-            vocab=model_vocab,
+            vocab=vocab,
             token_to_id=token_to_id,
             id_to_token={0: "<|user_flag|>", 1: "unscored_special"},
             special_tokens=["<|user_flag|>", "unscored_special"],

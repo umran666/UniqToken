@@ -32,6 +32,7 @@ class BPEModel:
         self.merges = merges
         self.special_tokens = list(special_tokens or [])
         self.byte_fallback = byte_fallback
+        self._validate_byte_fallback()
         if "<|unk|>" in token_to_id:
             self._unk_token: Optional[str] = "<|unk|>"
         elif self.special_tokens:
@@ -45,6 +46,14 @@ class BPEModel:
         else:
             self._space_token = " "
 
+    def _validate_byte_fallback(self) -> None:
+        if self.byte_fallback:
+            required = {ByteFallbackEngine.byte_to_token(b) for b in range(256)}
+            if not required.issubset(self.vocab) or not required.issubset(self.token_to_id):
+                raise ValueError("byte_fallback=True requires all 256 byte tokens with integer IDs")
+            if any(self.id_to_token.get(self.token_to_id[t]) != t for t in required):
+                raise ValueError("byte fallback IDs must map back to their byte tokens")
+
     @property
     def vocab_size(self) -> int:
         # Imported rank-based vocabularies can be sparse, so size is the ID
@@ -57,6 +66,7 @@ class BPEModel:
     def _build_symbols(self, word: str) -> List[str]:
         if not word:
             return []
+        self._validate_byte_fallback()
         symbols: List[str] = []
         for char in word:
             if char in self.vocab:
@@ -177,8 +187,7 @@ class BPEModel:
     def encode_to_ids(self, text: str, dropout_prob: float = 0.0) -> List[int]:
         """Encodes text to token IDs; ``dropout_prob`` behaves as in :meth:`encode`."""
         tokens = self.encode(text, dropout_prob=dropout_prob)
-        unk_id = self.token_to_id.get("<|unk|>", 0)
-        return [self.token_to_id.get(t, unk_id) for t in tokens]
+        return [self.token_to_id[t] for t in tokens]
 
     def decode(self, token_ids: List[int], space_char: str = "\u2581", strict: bool = False) -> str:
         """
