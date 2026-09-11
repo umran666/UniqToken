@@ -1,0 +1,435 @@
+"""Freeze the pinned MADLAD/The Stack/FLORES Phase A corpus into local JSONL files.
+
+This program intentionally has no ``main``/branch/revision defaults. Callers must
+pass immutable commit hashes. It writes no final manifest unless all byte quotas,
+source hashes, exact deduplication, and train/evaluation near-duplicate checks pass.
+"""
+
+from __future__ import annotations
+
+import argparse
+import gzip
+import hashlib
+import json
+import os
+from pathlib import Path
+import re
+import shutil
+import tempfile
+from typing import Any, Iterable
+
+from huggingface_hub import HfApi, hf_hub_download
+
+from benchmarks.run_research_experiments import NORMALIZATION, file_hash, normalize
+
+MB = 1_000_000
+MADLAD = "allenai/MADLAD-400"
+STACK = "bigcode/the-stack"
+STACK_RELEASE = "v1.3"
+MADLAD_LICENSE = "ODC-By-1.0"
+STACK_LICENSE = "permissive SPDX license recorded per source file"
+FLORES_LICENSE = "record the exact upstream/mirror license in --flores-license"
+NEAR_METHOD = "character_13gram_minhash16_lsh4_jaccard_0.85"
+PERMISSIVE_STACK_LICENSES = frozenset(
+    {
+        "0bsd",
+        "apache-2.0",
+        "bsd-2-clause",
+        "bsd-3-clause",
+        "isc",
+        "mit",
+        "mit-0",
+        "unlicense",
+        "cc0-1.0",
+        "zlib",
+    }
+)
+
+# The supplied strata are exact normalized-byte quotas. Equal language shares are
+# deterministic and stated in the manifest rather than inferred after sampling.
+PROSE_STRATA = {
+    "latin_english": (160 * MB, ("en",)),
+    "indic_cjk_arabic": (
+        160 * MB,
+        ("hi", "bn", "ta", "te", "kn", "ml", "mr", "gu", "zh", "ja", "ko", "ar", "fa", "ur"),
+    ),
+    "cyrillic_african": (80 * MB, ("ru", "uk", "bg", "sw", "yo", "am")),
+}
+CODE_LANGUAGES = ("python", "javascript", "typescript", "java", "sql", "c", "cpp", "rust", "go")
+FLORES_LANGUAGE_FILES = {
+    "hi": "hin_Deva",
+    "bn": "ben_Beng",
+    "ta": "tam_Taml",
+    "te": "tel_Telu",
+    "kn": "kan_Knda",
+    "ml": "mal_Mlym",
+    "mr": "mar_Deva",
+    "gu": "guj_Gujr",
+    "zh": "zho_Hans",
+    "ja": "jpn_Jpan",
+    "ko": "kor_Hang",
+    "ar": "arb_Arab",
+    "fa": "pes_Arab",
+    "ur": "urd_Arab",
+    "ru": "rus_Cyrl",
+    "uk": "ukr_Cyrl",
+    "bg": "bul_Cyrl",
+    "sw": "swh_Latn",
+    "yo": "yor_Latn",
+    "am": "amh_Ethi",
+}
+
+
+def require(ok: bool, message: str) -> None:
+    if not ok:
+        raise ValueError(message)
+
+
+def sha256_text(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def fixed_revision(value: str) -> str:
+    require(re.fullmatch(r"[0-9a-f]{40}", value) is not None, "use an immutable 40-character dataset commit hash")
+    return value
+
+
+def quota_by_language(total: int, languages: tuple[str, ...]) -> dict[str, int]:
+    base, remainder = divmod(total, len(languages))
+    return {language: base + int(index < remainder) for index, language in enumerate(languages)}
+
+
+def source_url(repo: str, revision: str, path: str) -> str:
+    return f"https://huggingface.co/datasets/{repo}/resolve/{revision}/{path}"
+
+
+def json_line(record: dict[str, Any]) -> bytes:
+    return (json.dumps(record, ensure_ascii=False, sort_keys=True) + "\n").encode("utf-8")
+
+
+def copy_source(
+    repo: str, revision: str, remote_path: str, work: Path, license_name: str, token: str | None
+) -> dict[str, str]:
+    """Download one immutable source file into the future manifest directory."""
+    local_dir = work / "sources" / repo.replace("/", "--") / revision
+    downloaded = Path(
+        hf_hub_download(repo, remote_path, repo_type="dataset", revision=revision, local_dir=local_dir, token=token)
+    )
+    relative = downloaded.relative_to(work).as_posix()
+    return {
+        "local_path": relative,
+        "sha256": file_hash(downloaded),
+        "dataset": repo,
+        "revision": revision,
+        "url": source_url(repo, revision, remote_path),
+        "license": license_name,
+        "remote_path": remote_path,
+    }
+
+
+def repo_files(api: HfApi, repo: str, revision: str, prefix: str) -> list[str]:
+    paths = [
+        entry.path
+        for entry in api.list_repo_tree(
+            repo, repo_type="dataset", revision=revision, path_in_repo=prefix, recursive=False
+        )
+        if hasattr(entry, "size") and getattr(entry, "size")
+    ]
+    require(paths, f"no files at pinned {repo}@{revision}:{prefix}")
+    return sorted(paths, key=lambda path: hashlib.sha256(path.encode()).hexdigest())
+
+
+def source_record(
+    text: str,
+    *,
+    identifier: str,
+    language: str,
+    domain: str,
+    source: dict[str, str],
+    source_record: int,
+    truncated: bool,
+) -> dict[str, Any]:
+    normalized = normalize(text)
+    require(normalized and normalized.strip(), "empty selected normalized document")
+    return {
+        "id": identifier,
+        "text": text,
+        "language": language,
+        "domain": domain,
+        "raw_utf8_bytes": len(text.encode("utf-8")),
+        "normalized_utf8_bytes": len(normalized.encode("utf-8")),
+        "source": {
+            **{key: value for key, value in source.items() if key != "local_path_abs"},
+            "source_file_sha256": source["sha256"],
+            "source_record": source_record,
+        },
+        "dedup": {
+            "status": "accepted_after_exact_and_near_eval_check",
+            "method": NEAR_METHOD,
+            "truncated_to_quota": truncated,
+        },
+    }
+
+
+def normalized_prefix(text: str, maximum: int) -> str | None:
+    """A UTF-8-safe raw prefix whose whole-string normalization fits exactly."""
+    if maximum <= 0:
+        return None
+    # NFKC size is not monotonic across every raw code-point boundary (a later
+    # combining mark can compose with its predecessor), so binary search can
+    # skip the only exact boundary. This runs only for a final quota document.
+    for end in range(1, len(text) + 1):
+        prefix = text[:end]
+        if len(normalize(prefix).encode("utf-8")) == maximum:
+            return prefix
+    return None
+
+
+def append_exact(
+    records: Iterable[tuple[str, dict[str, str], int]], target: int, output: Path, *, language: str, domain: str
+) -> dict[str, int]:
+    """Write a quota exactly, only slicing a final source document on a character boundary."""
+    used, documents = 0, 0
+    with output.open("wb") as stream:
+        for text, source, record_index in records:
+            if not isinstance(text, str) or not text.strip():
+                continue
+            normalized_size = len(normalize(text).encode("utf-8"))
+            remaining = target - used
+            if normalized_size <= remaining:
+                chosen, truncated = text, False
+            else:
+                chosen = normalized_prefix(text, remaining)
+                if chosen is None:
+                    continue
+                truncated = True
+            record = source_record(
+                chosen,
+                identifier=f"{source['dataset']}:{source['remote_path']}:{record_index}:{used}",
+                language=language,
+                domain=domain,
+                source=source,
+                source_record=record_index,
+                truncated=truncated,
+            )
+            stream.write(json_line(record))
+            used += record["normalized_utf8_bytes"]
+            documents += 1
+            if used == target:
+                return {"documents": documents, "normalized_utf8_bytes": used}
+    raise ValueError(f"could not meet exact {target} normalized-byte quota for {language}/{domain}")
+
+
+def madlad_records(source: dict[str, str]) -> Iterable[tuple[str, dict[str, str], int]]:
+    with gzip.open(Path(source["local_path_abs"]), "rt", encoding="utf-8") as stream:
+        for index, line in enumerate(stream):
+            row = json.loads(line)
+            text = row.get("text")
+            if isinstance(text, str):
+                yield text, source, index
+
+
+def stack_records(source: dict[str, str]) -> Iterable[tuple[str, dict[str, str], int]]:
+    import pyarrow.parquet as pq
+
+    table = pq.read_table(source["local_path_abs"], columns=["content", "licenses"])
+    for index, (text, licenses) in enumerate(
+        zip(table.column("content").to_pylist(), table.column("licenses").to_pylist())
+    ):
+        if not isinstance(text, str) or not licenses:
+            continue
+        license_ids = [licenses] if isinstance(licenses, str) else list(licenses)
+        normalized_ids = tuple(sorted({str(value).strip().lower() for value in license_ids if str(value).strip()}))
+        if not normalized_ids or not set(normalized_ids) <= PERMISSIVE_STACK_LICENSES:
+            continue
+        yield text, {**source, "license": ",".join(normalized_ids)}, index
+
+
+def minhash_signature(text: str) -> tuple[int, ...]:
+    grams = {text[index : index + 13] for index in range(max(0, len(text) - 12))} or {text}
+    return tuple(
+        min(int.from_bytes(hashlib.blake2b(f"{seed}:{gram}".encode(), digest_size=8).digest(), "big") for gram in grams)
+        for seed in range(16)
+    )
+
+
+def near_duplicate(a: str, b: str) -> bool:
+    a_grams = {a[index : index + 13] for index in range(max(0, len(a) - 12))} or {a}
+    b_grams = {b[index : index + 13] for index in range(max(0, len(b) - 12))} or {b}
+    return len(a_grams & b_grams) / len(a_grams | b_grams) >= 0.85
+
+
+def records_from_jsonl(path: Path) -> Iterable[dict[str, Any]]:
+    with path.open("r", encoding="utf-8") as stream:
+        for line in stream:
+            yield json.loads(line)
+
+
+def validate_dedup(train: Path, evaluation: list[Path]) -> None:
+    """Reject exact/near training duplicates and any train/evaluation overlap."""
+    train_hashes: set[str] = set()
+    buckets: dict[tuple[int, ...], list[str]] = {}
+    for row in records_from_jsonl(train):
+        text = normalize(row["text"])
+        digest = sha256_text(text)
+        require(digest not in train_hashes, "duplicate normalized training document")
+        train_hashes.add(digest)
+        signature = minhash_signature(text)
+        for band in range(4):
+            key = signature[band * 4 : (band + 1) * 4]
+            candidates = buckets.get(key, [])
+            require(not any(near_duplicate(text, candidate) for candidate in candidates), "near duplicate training document")
+            buckets.setdefault(key, []).append(text)
+    for path in evaluation:
+        for row in records_from_jsonl(path):
+            text = normalize(row["text"])
+            require(sha256_text(text) not in train_hashes, "exact train/evaluation overlap invalidates manifest")
+            signature = minhash_signature(text)
+            candidates = [
+                candidate for band in range(4) for candidate in buckets.get(signature[band * 4 : (band + 1) * 4], [])
+            ]
+            require(
+                not any(near_duplicate(text, candidate) for candidate in candidates),
+                "near train/evaluation overlap invalidates manifest",
+            )
+
+
+def build_manifest(
+    work: Path, source_files: list[dict[str, str]], splits: dict[str, Path], *, revisions: dict[str, str]
+) -> dict[str, Any]:
+    return {
+        "schema_version": 2,
+        "dataset_id": "phase-a-madlad400-data-v1p5-clean-docs-v2-the-stack-v1p3-flores200",
+        "source": "Pinned local source inventory; no network access is permitted by the experiment runner.",
+        "license": "MADLAD ODC-By; The Stack per-record permissive licenses; FLORES license recorded per pinned source.",
+        "deduplication": f"Training exact normalized SHA-256 plus train/evaluation {NEAR_METHOD}; any overlap aborts freezing.",
+        "normalization": NORMALIZATION,
+        "freeze": {
+            "immutable": True,
+            "source_files": source_files,
+            "source_revisions": revisions,
+            "selection": {
+                "prose_normalized_utf8_bytes": 400 * MB,
+                "code_normalized_utf8_bytes": 100 * MB,
+                "byte_unit": "MB_decimal",
+                "flores_devtest_role": "test_only",
+            },
+        },
+        "splits": {name: {"path": path.name, "sha256": file_hash(path)} for name, path in splits.items()},
+    }
+
+
+def run(args: argparse.Namespace) -> Path:
+    madlad_revision, stack_revision, flores_revision = map(
+        fixed_revision, (args.madlad_revision, args.stack_revision, args.flores_revision)
+    )
+    require(args.stack_release == STACK_RELEASE, f"Phase A requires The Stack release {STACK_RELEASE}")
+    output = Path(args.output).resolve()
+    require(not output.exists(), "refuse to overwrite a frozen dataset directory")
+    token = args.hf_token or os.environ.get("HF_TOKEN") or os.environ.get("HUGGING_FACE_HUB_TOKEN")
+    api = HfApi(token=token)
+    work = Path(tempfile.mkdtemp(prefix=f"{output.name}.partial-", dir=output.parent))
+    try:
+        source_files: list[dict[str, str]] = []
+        source_by_key: dict[tuple[str, str], dict[str, str]] = {}
+
+        def get_source(repo: str, revision: str, remote_path: str, license_name: str) -> dict[str, str]:
+            key = (repo, remote_path)
+            if key not in source_by_key:
+                source = copy_source(repo, revision, remote_path, work, license_name, token)
+                source["local_path_abs"] = str(work / source["local_path"])
+                source_by_key[key] = source
+                source_files.append({k: v for k, v in source.items() if k != "local_path_abs"})
+            return source_by_key[key]
+
+        train_parts: list[Path] = []
+        for stratum, (total, languages) in PROSE_STRATA.items():
+            for language, quota in quota_by_language(total, languages).items():
+                part = work / f"train-prose-{language}.jsonl"
+                files = repo_files(api, MADLAD, madlad_revision, f"data-v1p5/{language}")
+
+                def records() -> Iterable[tuple[str, dict[str, str], int]]:
+                    for remote in files:
+                        yield from madlad_records(get_source(MADLAD, madlad_revision, remote, MADLAD_LICENSE))
+
+                append_exact(records(), quota, part, language=language, domain=stratum)
+                train_parts.append(part)
+
+        code_total = 100 * MB
+        for language, quota in quota_by_language(code_total, CODE_LANGUAGES).items():
+            part = work / f"train-code-{language}.jsonl"
+            files = repo_files(api, STACK, stack_revision, f"data/{language}")
+
+            def records() -> Iterable[tuple[str, dict[str, str], int]]:
+                for remote in files:
+                    yield from stack_records(get_source(STACK, stack_revision, remote, STACK_LICENSE))
+
+            append_exact(records(), quota, part, language=language, domain="code")
+            train_parts.append(part)
+
+        train = work / "train.jsonl"
+        with train.open("wb") as joined:
+            for part in train_parts:
+                joined.write(part.read_bytes())
+
+        # FLORES dev is validation; devtest is test-only, never sampled into training.
+        splits: dict[str, Path] = {"train": train}
+        for split, folder in (("validation", "dev"), ("test", "devtest")):
+            target = work / f"{split}.jsonl"
+            with target.open("wb") as stream:
+                for language, flores_code in FLORES_LANGUAGE_FILES.items():
+                    remote = f"{folder}/{flores_code}.{folder}"
+                    source = get_source(args.flores_repo, flores_revision, remote, args.flores_license)
+                    for index, text in enumerate(
+                        Path(source["local_path_abs"]).read_text(encoding="utf-8").splitlines()
+                    ):
+                        stream.write(
+                            json_line(
+                                source_record(
+                                    text,
+                                    identifier=f"{args.flores_repo}:{remote}:{index}",
+                                    language=language,
+                                    domain="flores200",
+                                    source=source,
+                                    source_record=index,
+                                    truncated=False,
+                                )
+                            )
+                        )
+            splits[split] = target
+
+        validate_dedup(train, [splits["validation"], splits["test"]])
+        manifest = build_manifest(
+            work,
+            source_files,
+            splits,
+            revisions={
+                "madlad": madlad_revision,
+                "the_stack": stack_revision,
+                "the_stack_release": args.stack_release,
+                "flores": flores_revision,
+            },
+        )
+        (work / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        os.replace(work, output)
+        return output / "manifest.json"
+    except Exception:
+        shutil.rmtree(work, ignore_errors=True)
+        raise
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--madlad-revision", required=True)
+    parser.add_argument("--stack-revision", required=True)
+    parser.add_argument("--stack-release", default=STACK_RELEASE)
+    parser.add_argument("--flores-repo", required=True, help="Exact FLORES-200 repository approved for this run.")
+    parser.add_argument("--flores-revision", required=True)
+    parser.add_argument("--flores-license", required=True)
+    parser.add_argument("--hf-token", default=None)
+    print(run(parser.parse_args()))
+
+
+if __name__ == "__main__":
+    main()

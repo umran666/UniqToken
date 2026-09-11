@@ -27,7 +27,9 @@ output. Do not interpret differences from historical numbers as improvements.
 
 Phase A trains all five tokenizers on the identical ordered training split at
 16,384, 32,768 and 65,536 total entries. It reports tokenizer-only validation/test
-counts and character/byte density, checks normalized roundtrips, and saves models.
+bytes per token, tokens per Unicode character, byte-fallback percentage, achieved
+vocabulary, training wall-clock time, and normalized input MB/s. It checks
+normalized roundtrips and saves models.
 Any vocabulary shortfall, zero-merge SuperBPE, or failed condition aborts completion.
 There is no vocabulary padding, smaller-budget retry, or baseline substitution.
 SuperBPE reserves `min(V // 10, 4000)` entries for CEM; if the existing trainer
@@ -55,22 +57,44 @@ the three seeds measure LM training variation, not tokenizer retraining variatio
 
 ## Data and normalization
 
-Prepare three frozen UTF-8 JSONL files, one document per line:
+Use `python -m benchmarks.freeze_phase_a_dataset` to prepare the Phase A corpus.
+It accepts only immutable 40-character dataset commit hashes and writes no final
+directory unless every gate succeeds. It freezes exactly 400,000,000 normalized
+UTF-8 bytes from `allenai/MADLAD-400` `data-v1p5/clean_docs_v2` (160 MB
+Latin/English, 160 MB Indic+CJK+Arabic, 80 MB Cyrillic+African) and exactly
+100,000,000 normalized UTF-8 bytes of permissively licensed Python,
+JavaScript/TypeScript, Java, SQL, C/C++, Rust, and Go from `bigcode/the-stack`
+release `v1.3`; code records are admitted only when every dataset license identifier
+is in the freezer's explicit permissive SPDX allowlist. It uses FLORES-200 dev for validation and devtest only for test;
+neither can enter training.
+
+The exact FLORES-200 repository, immutable revision, and license must be supplied
+and approved before freezing, because public mirrors and upstream access differ.
+The freezer downloads selected shards once into `sources/`, SHA-256 hashes them,
+then all later phases consume only those local files. It rejects exact and
+near-duplicate training documents and exact or near overlap with either FLORES
+split.
+
+Each frozen UTF-8 JSONL document has this shape:
 
 ```json
-{"id": "globally-unique-document-id", "text": "the complete document"}
+{"id":"globally-unique-document-id","text":"the complete document","language":"en","domain":"latin_english","raw_utf8_bytes":21,"normalized_utf8_bytes":21,"source":{"dataset":"allenai/MADLAD-400","revision":"immutable-commit","url":"pinned-source-url","local_path":"sources/...","source_file_sha256":"actual SHA-256","license":"ODC-By-1.0"},"dedup":{"status":"accepted_after_exact_and_near_eval_check"}}
 ```
 
 Provide a manifest (paths relative to the manifest):
 
 ```json
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "dataset_id": "your-versioned-corpus-id",
   "source": "documented source and revision",
   "license": "applicable license",
   "deduplication": "document the exact and near-duplicate procedure",
   "normalization": "NFKC_unicode_spaces_v1",
+  "freeze": {
+    "immutable": true,
+    "source_files": [{"local_path": "sources/...", "sha256": "actual SHA-256", "dataset": "pinned dataset", "revision": "immutable commit", "url": "pinned source URL", "license": "applicable license"}]
+  },
   "splits": {
     "train": {"path": "train.jsonl", "sha256": "actual file SHA-256"},
     "validation": {"path": "validation.jsonl", "sha256": "actual file SHA-256"},
@@ -79,10 +103,10 @@ Provide a manifest (paths relative to the manifest):
 }
 ```
 
-The runner verifies file hashes, nonempty splits, globally unique IDs, and no
-duplicate normalized documents within or across splits. Ordering is fingerprinted.
-It does not implement near-duplicate detection: that remains a corpus-preparation
-requirement whose procedure must be documented in the manifest. Split before
+The runner verifies source-file hashes, nonempty splits, globally unique IDs,
+document byte counts, source provenance, and no duplicate normalized documents
+within or across splits. Ordering is fingerprinted. It accepts only immutable,
+local source inventories; no experiment-time network fetching occurs. Split before
 tokenizer training and freeze language/domain assignments externally.
 
 Each split and ordered document entry records both `source_utf8_bytes` (the
@@ -210,7 +234,7 @@ word fertility or evidence of morphological accuracy.
 
 ## Provenance and commands
 
-Research ledgers require shared ledger schema 3 **and** research schema 2, complete
+Research ledgers require shared ledger schema 3 **and** research schema 3, complete
 expected conditions, tokenizer/model identity, exact vocabularies, dataset manifest
 and assignment hashes, seeds, full model configuration, matching regime/budget,
 Git commit, source hash, dependency versions, and installed extension binary hash
@@ -220,14 +244,17 @@ The loader compares all provenance with the current environment and dataset.
 Accounting-incomplete research-schema-1 ledgers are rejected, not migrated or
 rewritten. Historical results remain untouched.
 
-Start from a reviewed, committed, clean worktree. Run outputs under ignored
+Start from a reviewed, committed, clean worktree, with a native extension rebuilt
+from that commit and its binary SHA-256 recorded. Run outputs under ignored
 `artifacts/` (or outside the repository). Existing output directories are rejected.
 An interrupted run retains its plan and per-condition diagnostic files, but no
 complete ledger is written. No automatic resume consumes partial files.
 
-PowerShell commands, from the repository root, after preparing the manifest:
+PowerShell commands, from the repository root, after choosing immutable source
+commits and a licensed FLORES-200 source:
 
 ```powershell
+python -m benchmarks.freeze_phase_a_dataset --output artifacts/data --madlad-revision <40-char-MADLAD-commit> --stack-revision <40-char-The-Stack-commit> --stack-release v1.3 --flores-repo <approved-FLORES-200-repo> --flores-revision <40-char-FLORES-commit> --flores-license <license>
 python -m benchmarks.run_research_experiments A --dataset artifacts/data/manifest.json --output artifacts/final-a
 
 $ScreenBytes = python -c "from benchmarks.run_research_experiments import load_dataset; d,_=load_dataset('artifacts/data/manifest.json'); print(sum(len(t.encode('utf-8')) for t in d['train'][:32]))"

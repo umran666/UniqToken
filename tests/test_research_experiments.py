@@ -35,18 +35,54 @@ def few_threads():
 
 @pytest.fixture
 def manifest(tmp_path):
+    source_path = tmp_path / "source.txt"
+    source_path.write_text("unit-test pinned source", encoding="utf-8")
+    source = {
+        "dataset": "unit-test/source",
+        "revision": "a" * 40,
+        "url": "https://example.invalid/unit-test/source/a",
+        "local_path": source_path.name,
+        "source_file_sha256": h.file_hash(source_path),
+        "license": "test",
+    }
+
+    def row(identifier, text):
+        return {
+            "id": identifier,
+            "text": text,
+            "language": "test",
+            "domain": "test",
+            "raw_utf8_bytes": len(text.encode("utf-8")),
+            "normalized_utf8_bytes": len(h.normalize(text).encode("utf-8")),
+            "source": source,
+            "dedup": {"status": "accepted_after_exact_and_near_eval_check"},
+        }
+
     data = {
-        "schema_version": 1,
+        "schema_version": h.DATASET_MANIFEST_SCHEMA,
         "dataset_id": "synthetic-test-only",
         "source": "unit test",
         "license": "test fixture",
         "deduplication": "exact normalized documents checked",
         "normalization": h.NORMALIZATION,
+        "freeze": {
+            "immutable": True,
+            "source_files": [
+                {
+                    "local_path": source_path.name,
+                    "sha256": h.file_hash(source_path),
+                    "dataset": source["dataset"],
+                    "revision": source["revision"],
+                    "url": source["url"],
+                    "license": source["license"],
+                }
+            ],
+        },
         "splits": {},
     }
     for split, text in (("train", "training text"), ("validation", "validation text"), ("test", "\u4e2d\u6587")):
         path = tmp_path / f"{split}.jsonl"
-        path.write_text(json.dumps({"id": split, "text": text}) + "\n", encoding="utf-8")
+        path.write_text(json.dumps(row(split, text)) + "\n", encoding="utf-8")
         data["splits"][split] = {"path": path.name, "sha256": h.file_hash(path)}
     path = tmp_path / "dataset.json"
     path.write_text(json.dumps(data), encoding="utf-8")
@@ -55,6 +91,16 @@ def manifest(tmp_path):
 
 def replace_split(manifest, split, row):
     data = h.read_json(manifest)
+    source = data["freeze"]["source_files"][0]
+    row = {
+        "language": "test",
+        "domain": "test",
+        "raw_utf8_bytes": len(row["text"].encode("utf-8")),
+        "normalized_utf8_bytes": len(h.normalize(row["text"]).encode("utf-8")),
+        "source": {**source, "source_file_sha256": source["sha256"]},
+        "dedup": {"status": "accepted_after_exact_and_near_eval_check"},
+        **row,
+    }
     target = manifest.parent / data["splits"][split]["path"]
     target.write_text(json.dumps(row), encoding="utf-8")
     data["splits"][split]["sha256"] = h.file_hash(target)
@@ -98,6 +144,22 @@ def test_normalization_and_cjk_denominator(manifest):
     assert h.token_metrics(byte_tokenizer(), docs["test"], source_utf8_bytes=6)["tokens_per_unicode_character"] == 3
 
 
+@pytest.mark.parametrize("mutation", ["byte_counts", "untracked_source"])
+def test_dataset_requires_verified_document_accounting(manifest, mutation):
+    data = h.read_json(manifest)
+    target = manifest.parent / data["splits"]["train"]["path"]
+    row = json.loads(target.read_text(encoding="utf-8"))
+    if mutation == "byte_counts":
+        row["normalized_utf8_bytes"] += 1
+    else:
+        row["source"]["local_path"] = "not-in-inventory.txt"
+    target.write_text(json.dumps(row), encoding="utf-8")
+    data["splits"]["train"]["sha256"] = h.file_hash(target)
+    manifest.write_text(json.dumps(data), encoding="utf-8")
+    with pytest.raises(ValueError):
+        h.load_dataset(manifest)
+
+
 def byte_tokenizer(name="boundary_bpe"):
     vocab = {**h.SPECIAL_IDS, **{f"<0x{i:02X}>": i + 4 for i in range(256)}}
     return h.ResearchTokenizer(
@@ -105,6 +167,7 @@ def byte_tokenizer(name="boundary_bpe"):
         SimpleNamespace(
             encode_to_ids=lambda t: [b + 4 for b in t.encode("utf-8")],
             decode=lambda ids: bytes(i - 4 for i in ids).decode("utf-8"),
+            id_to_token={i + 4: f"<0x{i:02X}>" for i in range(256)},
         ),
         vocab,
     )
@@ -142,7 +205,7 @@ def test_real_small_tokenizer_artifact_roundtrip(tmp_path, name):
     rng = random.Random(123)
     words = ["".join(rng.choices("abcdefghijklmnopqrstuvwxyz", k=8)) for _ in range(100)]
     texts = [f"the {word} alpha beta gamma delta" for word in words] * 3
-    tok = h.train_tokenizer(name, texts, 384, tmp_path / name)
+    tok, _ = h.train_tokenizer(name, texts, 384, tmp_path / name)
     h.validate_tokenizer(tok, 384)
     row = {
         "artifact": name,
@@ -264,7 +327,7 @@ def staged(tmp_path, manifest, monkeypatch):
         tok.vocab.update({f"synthetic{i}": i for i in range(260, vocab)})
         tok.encode = byte_tokenizer().encode
         tok.merges = 1
-        return tok
+        return tok, 0.1
 
     monkeypatch.setattr(h, "train_tokenizer", trainer)
     monkeypatch.setattr(h, "load_tokenizer", lambda *a: byte_tokenizer())

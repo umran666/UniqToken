@@ -13,6 +13,7 @@ from pathlib import Path
 import platform
 import re
 import sys
+import time
 import unicodedata
 
 from benchmarks.ledger import provenance, validate_ledger
@@ -24,7 +25,8 @@ from uniqtoken.pre_tokenizer import Normalizer
 from uniqtoken.tokenizer import CustomTokenizer
 
 ROOT = Path(__file__).resolve().parents[1]
-RESEARCH_SCHEMA = 2  # Explicit parameter, FLOP, and source/normalized-byte accounting.
+RESEARCH_SCHEMA = 3  # Phase A freezing and tokenizer-training accounting.
+DATASET_MANIFEST_SCHEMA = 2
 FLOP_ESTIMATOR_VERSION = "dense_matmul_forward_backward_v1"
 BYTE_BUDGET_FIELD = "normalized_utf8_bytes"
 BYTE_AUDIT_FIELD = "source_utf8_bytes"
@@ -99,10 +101,33 @@ def load_dataset(manifest_path):
     """Read frozen JSONL splits ({id, text}); verify file and normalized-document identity."""
     path = Path(manifest_path)
     manifest = read_json(path)
-    require(manifest.get("schema_version") == 1, "unsupported dataset manifest schema")
+    require(manifest.get("schema_version") == DATASET_MANIFEST_SCHEMA, "unsupported dataset manifest schema")
     for key in ("dataset_id", "source", "license", "deduplication"):
         require(isinstance(manifest.get(key), str) and manifest[key].strip(), f"dataset requires {key}")
     require(manifest.get("normalization") == NORMALIZATION, "undeclared or incompatible normalization")
+    freeze = manifest.get("freeze")
+    require(isinstance(freeze, dict) and freeze.get("immutable") is True, "dataset manifest is not frozen")
+    require(
+        isinstance(freeze.get("source_files"), list) and freeze["source_files"], "frozen source-file inventory required"
+    )
+    source_inventory = {}
+    for source_file in freeze["source_files"]:
+        require(
+            isinstance(source_file, dict)
+            and all(
+                isinstance(source_file.get(k), str) and source_file[k]
+                for k in ("local_path", "sha256", "dataset", "revision", "url", "license")
+            )
+            and re.fullmatch(r"[0-9a-f]{64}", source_file["sha256"]) is not None
+            and source_file["revision"].lower() not in {"main", "master", "latest"},
+            "invalid pinned source-file inventory",
+        )
+        local_source = path.parent / source_file["local_path"]
+        require(
+            local_source.is_file() and file_hash(local_source) == source_file["sha256"],
+            "source file missing or hash mismatch",
+        )
+        source_inventory[(source_file["dataset"], source_file["revision"], source_file["local_path"])] = source_file
     require(set(manifest.get("splits", {})) == {"train", "validation", "test"}, "three splits required")
     docs, assignment, document_bytes, seen_ids, seen_text = {}, {}, {}, set(), set()
     for split, entry in manifest["splits"].items():
@@ -113,8 +138,45 @@ def load_dataset(manifest_path):
             row = json.loads(line)
             require(isinstance(row.get("id"), str) and row["id"], "document requires a nonempty string id")
             require(isinstance(row.get("text"), str) and row["text"].strip(), "empty document")
+            require(isinstance(row.get("language"), str) and row["language"], "document requires language")
+            require(isinstance(row.get("domain"), str) and row["domain"], "document requires domain")
+            require(
+                type(row.get("raw_utf8_bytes")) is int
+                and type(row.get("normalized_utf8_bytes")) is int
+                and row["raw_utf8_bytes"] >= 0
+                and row["normalized_utf8_bytes"] >= 0,
+                "document requires raw and normalized UTF-8 byte counts",
+            )
+            source = row.get("source")
+            require(
+                isinstance(source, dict)
+                and all(
+                    isinstance(source.get(k), str) and source[k]
+                    for k in ("dataset", "revision", "url", "local_path", "source_file_sha256", "license")
+                )
+                and source["revision"].lower() not in {"main", "master", "latest"}
+                and re.fullmatch(r"[0-9a-f]{64}", source["source_file_sha256"]) is not None,
+                "document requires pinned source provenance",
+            )
+            inventory_source = source_inventory.get((source["dataset"], source["revision"], source["local_path"]))
+            require(
+                inventory_source is not None
+                and source["source_file_sha256"] == inventory_source["sha256"]
+                and source["url"] == inventory_source["url"],
+                "document source provenance is not in the frozen source inventory",
+            )
+            dedup = row.get("dedup")
+            require(
+                isinstance(dedup, dict) and dedup.get("status") == "accepted_after_exact_and_near_eval_check",
+                "document lacks dedup status",
+            )
             text = normalize(row["text"])
             text.encode("utf-8", errors="strict")
+            require(
+                row["raw_utf8_bytes"] == len(row["text"].encode("utf-8", errors="strict"))
+                and row["normalized_utf8_bytes"] == len(text.encode("utf-8")),
+                "document UTF-8 byte counts do not match text",
+            )
             require(not re.search(r"<\||[\ue000\ue001\u2581]", text), "reserved control/metaspace text in corpus")
             require(
                 row["id"] not in seen_ids and digest(text) not in seen_text,
@@ -169,6 +231,11 @@ class ResearchTokenizer:
         require(self.model.decode(ids) == text, f"{self.name}: normalized roundtrip failure")
         return ids
 
+    def piece_for_id(self, token_id):
+        if self.name.startswith("sp_") and hasattr(self.model, "id_to_piece"):
+            return self.model.id_to_piece(token_id)
+        return self.model.id_to_token[token_id]
+
 
 def validate_tokenizer(tok, budget):
     require(
@@ -183,6 +250,7 @@ def validate_tokenizer(tok, budget):
 def train_tokenizer(name, texts, budget, directory):
     require(name in COHORT, "unsupported tokenizer; substitution is forbidden")
     directory.mkdir()  # No reuse of a model from an earlier condition.
+    started = time.perf_counter()
     if name.startswith("sp_"):
         import sentencepiece as spm
 
@@ -253,7 +321,9 @@ def train_tokenizer(name, texts, budget, directory):
         tok = ResearchTokenizer(name, model, model.model.token_to_id, merges)
         model.save(directory, save_binary=False)
     validate_tokenizer(tok, budget)
-    return tok
+    elapsed = time.perf_counter() - started
+    require(elapsed > 0.0, "nonpositive tokenizer training elapsed time")
+    return tok, elapsed
 
 
 def artifact_hashes(directory):
@@ -302,7 +372,8 @@ def byte_totals(document_bytes, count=None):
 
 
 def token_metrics(tok, texts, *, source_utf8_bytes):
-    count = sum(len(tok.encode(t)) for t in texts)
+    ids = [token_id for text in texts for token_id in tok.encode(text)]
+    count = len(ids)
     byte_count = sum(len(t.encode("utf-8")) for t in texts)
     chars = sum(len(t) for t in texts)
     return {
@@ -313,6 +384,12 @@ def token_metrics(tok, texts, *, source_utf8_bytes):
         "unicode_characters": chars,
         "tokens_per_unicode_character": count / chars,
         "bytes_per_token": byte_count / count,
+        "byte_fallback_tokens": sum(
+            bool(re.fullmatch(r"<0x[0-9A-F]{2}>", tok.piece_for_id(token_id))) for token_id in ids
+        ),
+        "byte_fallback_percent": 100.0
+        * sum(bool(re.fullmatch(r"<0x[0-9A-F]{2}>", tok.piece_for_id(token_id))) for token_id in ids)
+        / count,
     }
 
 
@@ -591,6 +668,14 @@ def validate_research_ledger(payload, identity, dataset):
                 row.get("training_bytes") == byte_totals(dataset["document_bytes"]["train"]),
                 "tokenizer training byte accounting mismatch",
             )
+            require(
+                type(row.get("training_wall_clock_seconds")) is float and row["training_wall_clock_seconds"] > 0.0,
+                "missing tokenizer training time",
+            )
+            expected_mb_s = dataset["splits"]["train"][BYTE_BUDGET_FIELD] / (
+                row["training_wall_clock_seconds"] * 1_000_000
+            )
+            require(row.get("training_normalized_mb_per_sec") == expected_mb_s, "invalid tokenizer training throughput")
             for split in ("validation", "test"):
                 metric = row[split]
                 require(
@@ -609,6 +694,15 @@ def validate_research_ledger(payload, identity, dataset):
                     metric["tokens_per_unicode_character"] == metric["tokens"] / metric["unicode_characters"]
                     and metric["bytes_per_token"] == metric["utf8_bytes"] / metric["tokens"],
                     "invalid tokenizer metric",
+                )
+                require(
+                    type(metric.get("byte_fallback_tokens")) is int
+                    and 0 <= metric["byte_fallback_tokens"] <= metric["tokens"],
+                    "invalid fallback count",
+                )
+                require(
+                    metric.get("byte_fallback_percent") == 100.0 * metric["byte_fallback_tokens"] / metric["tokens"],
+                    "invalid fallback percentage",
                 )
         else:
             require(
@@ -811,7 +905,7 @@ def run(args):
             random.seed(seed)
             np.random.seed(seed)
             artifact = f"{name}-{vocab}"
-            tok = train_tokenizer(name, docs["train"], vocab, output / artifact)
+            tok, training_seconds = train_tokenizer(name, docs["train"], vocab, output / artifact)
             validate_tokenizer(tok, vocab)
             row.update(
                 actual_vocab_size=len(tok.vocab),
@@ -821,6 +915,9 @@ def run(args):
                 artifact_hashes=artifact_hashes(output / artifact),
                 learned_merges=tok.merges,
                 training_bytes=byte_totals(dataset["document_bytes"]["train"]),
+                training_wall_clock_seconds=training_seconds,
+                training_normalized_mb_per_sec=dataset["splits"]["train"][BYTE_BUDGET_FIELD]
+                / (training_seconds * 1_000_000),
             )
             row.update(
                 {
