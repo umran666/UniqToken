@@ -100,6 +100,13 @@ def normalize(text):
 RESERVED_CORPUS_TEXT = re.compile(r"<\||[\ue000\ue001\u2581]")
 
 
+def jsonl_rows(path):
+    """Parse LF-delimited JSON without treating Unicode separators as record boundaries."""
+    with Path(path).open(encoding="utf-8") as stream:
+        for line in stream:
+            yield json.loads(line)
+
+
 def load_dataset(manifest_path):
     """Read frozen JSONL splits ({id, text}); verify file and normalized-document identity."""
     path = Path(manifest_path)
@@ -155,8 +162,7 @@ def load_dataset(manifest_path):
         data_path = path.parent / entry["path"]
         require(file_hash(data_path) == entry.get("sha256"), f"{split} file hash mismatch")
         docs[split], assignment[split], document_bytes[split] = [], [], []
-        for line in data_path.read_text(encoding="utf-8").splitlines():
-            row = json.loads(line)
+        for row in jsonl_rows(data_path):
             require(isinstance(row.get("id"), str) and row["id"], "document requires a nonempty string id")
             require(isinstance(row.get("text"), str) and row["text"].strip(), "empty document")
             require(isinstance(row.get("language"), str) and row["language"], "document requires language")

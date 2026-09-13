@@ -175,6 +175,19 @@ def test_normalization_and_cjk_denominator(manifest):
     assert h.token_metrics(byte_tokenizer(), docs["test"], source_utf8_bytes=6)["tokens_per_unicode_character"] == 3
 
 
+@pytest.mark.parametrize("separator", ["\u0085", "\u2028", "\u2029"])
+def test_dataset_jsonl_allows_embedded_unicode_line_separators(manifest, separator):
+    replace_split(manifest, "test", {"id": "test", "text": f"a{separator}b"})
+    data = h.read_json(manifest)
+    target = manifest.parent / data["splits"]["test"]["path"]
+    row = json.loads(target.read_text(encoding="utf-8"))
+    target.write_text(json.dumps(row, ensure_ascii=False) + "\n", encoding="utf-8")
+    data["splits"]["test"]["sha256"] = h.file_hash(target)
+    manifest.write_text(json.dumps(data), encoding="utf-8")
+    docs, _ = h.load_dataset(manifest)
+    assert docs["test"] == [f"a{separator}b"]
+
+
 @pytest.mark.parametrize("mutation", ["byte_counts", "untracked_source", "selection_accounting"])
 def test_dataset_requires_verified_document_accounting(manifest, mutation):
     data = h.read_json(manifest)
