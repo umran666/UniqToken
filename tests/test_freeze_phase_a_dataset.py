@@ -37,10 +37,42 @@ def test_phase_a_quotas_are_decimal_and_exact():
         assert sum(freeze.quota_by_language(total, languages).values()) == total
 
 
-def test_the_stack_allowlist_is_explicitly_permissive():
-    assert {"mit", "apache-2.0", "bsd-3-clause"} <= freeze.PERMISSIVE_STACK_LICENSES
-    assert not {"gpl-3.0", "proprietary", "unknown"} & freeze.PERMISSIVE_STACK_LICENSES
+def test_the_stack_cpp_source_directory_matches_upstream():
     assert freeze.CODE_SOURCE_DIRECTORIES["cpp"] == "c++"
+
+
+def test_the_stack_license_allowlist_is_loaded_from_pinned_source(tmp_path):
+    path = tmp_path / "licenses.json"
+    path.write_text('["MIT", "Apache-2.0", "BSD-3-Clause"]', encoding="utf-8")
+    assert freeze.stack_license_allowlist({"local_path_abs": str(path)}) == {
+        "mit",
+        "apache-2.0",
+        "bsd-3-clause",
+    }
+
+
+def test_the_stack_reader_uses_v13_license_columns_and_filters_non_allowlisted_rows(tmp_path):
+    path = tmp_path / "stack.parquet"
+    pq.write_table(
+        pa.table(
+            {
+                "content": ["mit code", "gpl code", "missing license"],
+                "max_stars_repo_licenses": [["MIT"], ["GPL-3.0"], None],
+                "max_issues_repo_licenses": [None, None, None],
+                "max_forks_repo_licenses": [None, None, None],
+            }
+        ),
+        path,
+    )
+    rows = list(
+        freeze.stack_records(
+            {"local_path_abs": str(path), "license": freeze.STACK_LICENSE},
+            frozenset({"mit", "apache-2.0"}),
+        )
+    )
+    assert [(text, row_source["license"], index) for text, row_source, index in rows] == [
+        ("mit code", "mit", 0)
+    ]
 
 
 def valid_selection_groups():

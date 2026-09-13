@@ -30,19 +30,10 @@ MADLAD_LICENSE = "ODC-By-1.0"
 STACK_LICENSE = "permissive SPDX license recorded per source file"
 FLORES_LICENSE = "record the exact upstream/mirror license in --flores-license"
 NEAR_METHOD = "character_13gram_minhash16_lsh4_jaccard_0.85"
-PERMISSIVE_STACK_LICENSES = frozenset(
-    {
-        "0bsd",
-        "apache-2.0",
-        "bsd-2-clause",
-        "bsd-3-clause",
-        "isc",
-        "mit",
-        "mit-0",
-        "unlicense",
-        "cc0-1.0",
-        "zlib",
-    }
+STACK_LICENSE_COLUMNS = (
+    "max_stars_repo_licenses",
+    "max_issues_repo_licenses",
+    "max_forks_repo_licenses",
 )
 
 # The supplied strata are exact normalized-byte quotas. Equal language shares are
@@ -322,20 +313,36 @@ def madlad_records(source: dict[str, Any]) -> Iterable[tuple[str, dict[str, Any]
                 yield text, source, index
 
 
-def stack_records(source: dict[str, Any]) -> Iterable[tuple[str, dict[str, Any], int]]:
+def stack_license_allowlist(source: dict[str, Any]) -> frozenset[str]:
+    values = json.loads(Path(source["local_path_abs"]).read_text(encoding="utf-8"))
+    require(isinstance(values, list) and values, "The Stack pinned license allowlist is empty")
+    normalized = frozenset(str(value).strip().lower() for value in values if str(value).strip())
+    require(len(normalized) == len(values), "The Stack pinned license allowlist contains duplicates or invalid IDs")
+    return normalized
+
+
+def stack_records(
+    source: dict[str, Any], permissive_licenses: frozenset[str]
+) -> Iterable[tuple[str, dict[str, Any], int]]:
     import pyarrow.parquet as pq
 
-    table = pq.read_table(source["local_path_abs"], columns=["content", "licenses"])
-    for index, (text, licenses) in enumerate(
-        zip(table.column("content").to_pylist(), table.column("licenses").to_pylist())
+    parquet = pq.ParquetFile(source["local_path_abs"])
+    require(set(STACK_LICENSE_COLUMNS) <= set(parquet.schema_arrow.names), "The Stack license columns are missing")
+    index = 0
+    for batch in parquet.iter_batches(
+        batch_size=1024, columns=["content", *STACK_LICENSE_COLUMNS], use_threads=False
     ):
-        if not isinstance(text, str) or not licenses:
-            continue
-        license_ids = [licenses] if isinstance(licenses, str) else list(licenses)
-        normalized_ids = tuple(sorted({str(value).strip().lower() for value in license_ids if str(value).strip()}))
-        if not normalized_ids or not set(normalized_ids) <= PERMISSIVE_STACK_LICENSES:
-            continue
-        yield text, {**source, "license": ",".join(normalized_ids)}, index
+        for row in batch.to_pylist():
+            text = row["content"]
+            licenses = {
+                str(value).strip().lower()
+                for column in STACK_LICENSE_COLUMNS
+                for value in (row[column] if isinstance(row[column], list) else [row[column]])
+                if value is not None and str(value).strip()
+            }
+            if isinstance(text, str) and licenses and licenses <= permissive_licenses:
+                yield text, {**source, "license": ",".join(sorted(licenses))}, index
+            index += 1
 
 
 def flores_records(source: dict[str, Any]) -> Iterable[tuple[str, str, int]]:
@@ -526,6 +533,7 @@ def run(args: argparse.Namespace) -> Path:
         for language, source_directory in CODE_SOURCE_DIRECTORIES.items()
     }
     preflight_source_access(MADLAD, madlad_revision, madlad_files["en"][0], token)
+    preflight_source_access(STACK, stack_revision, "licenses.json", token)
     preflight_source_access(STACK, stack_revision, stack_files["python"][0], token)
     for folder in ("dev", "devtest"):
         preflight_source_access(
@@ -568,6 +576,15 @@ def run(args: argparse.Namespace) -> Path:
                 register_source(source)
             return source_by_key[key]
 
+        stack_license_source = get_source(
+            STACK,
+            stack_revision,
+            "licenses.json",
+            STACK_LICENSE,
+            args.stack_release,
+        )
+        permissive_stack_licenses = stack_license_allowlist(stack_license_source)
+
         train_parts: list[Path] = []
         for stratum, (total, languages) in PROSE_STRATA.items():
             for language, quota in quota_by_language(total, languages).items():
@@ -607,10 +624,11 @@ def run(args: argparse.Namespace) -> Path:
                 continue
 
             def records() -> Iterable[tuple[str, dict[str, Any], int]]:
-                for remote in files:
-                    yield from stack_records(
-                        get_source(STACK, stack_revision, remote, STACK_LICENSE, args.stack_release)
-                    )
+                    for remote in files:
+                        yield from stack_records(
+                            get_source(STACK, stack_revision, remote, STACK_LICENSE, args.stack_release),
+                            permissive_stack_licenses,
+                        )
 
             append_exact(records(), quota, part, language=language, domain="code")
             train_parts.append(part)
