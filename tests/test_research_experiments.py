@@ -5,6 +5,7 @@ from dataclasses import asdict
 import json
 import math
 import random
+import shutil
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -12,6 +13,7 @@ import pytest
 import torch
 
 from benchmarks import run_research_experiments as h
+from benchmarks import run_tokenizer_cost_pilot as pilot
 
 
 def document_bytes(docs):
@@ -499,6 +501,7 @@ def test_complete_staged_run_and_selection(staged):
         "vocab",
         "nan",
         "training_input",
+        "tokenizer_config",
         "no_merges",
     ],
 )
@@ -528,6 +531,8 @@ def test_stale_or_incomplete_ledgers_rejected(staged, mutation):
         row["test"]["tokens"] = float("nan")
     elif mutation == "training_input":
         row["training_input"]["preserves_normalized_utf8_bytes"] = False
+    elif mutation == "tokenizer_config":
+        row["tokenizer_config"]["vocab_size"] -= 1
     else:
         data["records"][-1]["learned_merges"] = 0
     with pytest.raises(ValueError):
@@ -596,6 +601,54 @@ def test_no_complete_ledger_on_failed_condition(tmp_path, manifest, monkeypatch)
     with pytest.raises(RuntimeError, match="training failed"):
         h.run(args)
     assert (args.output / "plan.json").exists()
+    assert not (args.output / "ledger.json").exists()
+
+
+def retain_only_first_phase_a_condition(args, ledger):
+    (args.output / "ledger.json").unlink()
+    for index, row in enumerate(ledger["records"][1:], 1):
+        (args.output / f"condition-{index:03d}.json").unlink()
+        shutil.rmtree(args.output / row["artifact"])
+
+
+def test_phase_a_resume_validates_and_skips_completed_condition(staged):
+    args, _, complete = staged
+    retain_only_first_phase_a_condition(args, complete)
+    first_path = args.output / "condition-000.json"
+    first_bytes = first_path.read_bytes()
+    args.resume = True
+    resumed = h.run(args)
+    assert len(resumed["records"]) == len(h.COHORT)
+    assert first_path.read_bytes() == first_bytes
+    assert (args.output / "ledger.json").exists()
+
+
+@pytest.mark.parametrize("mutation", ["plan", "commit", "dataset", "tokenizer", "vocab", "artifact"])
+def test_phase_a_resume_refuses_mismatched_evidence(staged, mutation):
+    args, _, complete = staged
+    retain_only_first_phase_a_condition(args, complete)
+    args.resume = True
+    if mutation == "plan":
+        plan = h.read_json(args.output / "plan.json")
+        plan["research_schema_version"] -= 1
+        (args.output / "plan.json").write_text(json.dumps(plan), encoding="utf-8")
+    elif mutation == "artifact":
+        (args.output / complete["records"][0]["artifact"] / "fixture.json").write_text("changed", encoding="utf-8")
+    else:
+        path = args.output / "condition-000.json"
+        envelope = h.read_json(path)
+        row = envelope["record"]
+        if mutation == "commit":
+            row["git_commit"] = "f" * 40
+        elif mutation == "dataset":
+            row["dataset_hash"] = "f" * 64
+        elif mutation == "tokenizer":
+            row["tokenizer_config"]["byte_fallback"] = False
+        else:
+            row["actual_vocab_size"] -= 1
+        path.write_text(json.dumps(envelope), encoding="utf-8")
+    with pytest.raises(ValueError):
+        h.run(args)
     assert not (args.output / "ledger.json").exists()
 
 
@@ -673,6 +726,52 @@ def test_exclusive_result_write_keeps_original(tmp_path):
     with pytest.raises(FileExistsError):
         h.write_new_json(path, {"original": False})
     assert h.read_json(path) == {"original": True}
+
+
+def test_cost_pilot_uses_one_fixed_complete_document_prefix(tmp_path, monkeypatch):
+    docs = {"train": ["ab", "cde", "too-large"], "validation": ["v"], "test": ["t"]}
+    dataset = {"manifest_hash": "m" * 64, "assignment_hash": "a" * 64}
+    monkeypatch.setattr(pilot, "load_dataset", lambda path: (docs, dataset))
+    monkeypatch.setattr(
+        pilot,
+        "runtime_identity",
+        lambda: {"working_tree_dirty": False, "commit_hash": "c" * 40, "extension_hash": "e" * 64},
+    )
+    seen = []
+
+    def trainer(name, texts, budget, directory):
+        seen.append((name, budget, list(texts)))
+        directory.mkdir()
+        h.write_new_json(directory / "fixture.json", {"pilot": True})
+        tok = byte_tokenizer(name)
+        tok.vocab.update({f"synthetic{i}": i for i in range(260, budget)})
+        tok.merges = 1
+        return tok, 0.25
+
+    monkeypatch.setattr(pilot, "train_tokenizer", trainer)
+    output = tmp_path / "pilot"
+    result = pilot.run(SimpleNamespace(dataset=tmp_path / "manifest.json", output=output, corpus_bytes=5))
+    assert len(result["records"]) == 15
+    assert all(texts == ["ab", "cde"] for _, _, texts in seen)
+    assert result["metadata"]["scientific_phase_a"] is False
+    assert result["metadata"]["normalized_utf8_bytes"] == 5
+    assert {record["vocab_budget"] for record in result["records"]} == set(pilot.PILOT_VOCABS)
+    assert (output / "ledger.json").exists()
+
+
+def test_cost_pilot_prefix_never_splits_or_cycles_documents():
+    assert pilot.fixed_corpus_prefix(["ab", "\u4e2d", "tail"], 5) == (["ab", "\u4e2d"], 5)
+    with pytest.raises(ValueError, match="one complete"):
+        pilot.fixed_corpus_prefix(["larger"], 1)
+
+
+def test_atomic_result_write_never_publishes_partial_json(tmp_path, monkeypatch):
+    path = tmp_path / "result.json"
+    monkeypatch.setattr(h.json, "dump", lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("write failed")))
+    with pytest.raises(RuntimeError, match="write failed"):
+        h.write_new_json_atomic(path, {"partial": True})
+    assert not path.exists()
+    assert not list(tmp_path.glob("*.tmp"))
 
 
 def test_frozen_doc_order_is_identical_for_byte_matching():

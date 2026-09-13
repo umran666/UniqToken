@@ -32,6 +32,13 @@ vocabulary, training wall-clock time, and normalized input MB/s. It checks
 normalized roundtrips and saves models.
 Any vocabulary shortfall, zero-merge SuperBPE, or failed condition aborts completion.
 There is no vocabulary padding, smaller-budget retry, or baseline substitution.
+An interrupted Phase A may be continued with `--resume`. The runner validates
+`plan.json`, every numbered condition record, current commit and extension,
+dataset assignment, tokenizer configuration, vocabulary target, metrics, and
+artifact hashes before skipping a condition. Any mismatch aborts the resume.
+Condition files and the final ledger are atomically published, and `ledger.json`
+is created only after the entire 15-condition grid validates. Resume is unavailable
+for Phases B and C.
 SuperBPE reserves `min(V // 10, 4000)` entries for CEM; if the existing trainer
 cannot fill that reserve, report the failure. CEM receives EOS between documents.
 SentencePiece receives every normalized document as ordered, contiguous chunks of

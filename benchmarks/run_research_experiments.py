@@ -9,10 +9,12 @@ import importlib.metadata
 import importlib.util
 import json
 import math
+import os
 from pathlib import Path
 import platform
 import re
 import sys
+import tempfile
 import time
 import unicodedata
 
@@ -25,7 +27,7 @@ from uniqtoken.pre_tokenizer import Normalizer
 from uniqtoken.tokenizer import CustomTokenizer
 
 ROOT = Path(__file__).resolve().parents[1]
-RESEARCH_SCHEMA = 4  # Phase A freezing and tokenizer-training accounting.
+RESEARCH_SCHEMA = 5  # Phase A freezing, resume, and tokenizer-training accounting.
 DATASET_MANIFEST_SCHEMA = 2
 FLOP_ESTIMATOR_VERSION = "dense_matmul_forward_backward_v1"
 BYTE_BUDGET_FIELD = "normalized_utf8_bytes"
@@ -66,6 +68,25 @@ def write_new_json(path, payload):
     # Exclusive creation prevents an accidental rerun from overwriting evidence.
     with Path(path).open("x", encoding="utf-8") as stream:
         json.dump(payload, stream, indent=2, ensure_ascii=True, allow_nan=False)
+
+
+def write_new_json_atomic(path, payload):
+    """Publish a new JSON artifact atomically without replacing prior evidence."""
+    path = Path(path)
+    require(not path.exists(), f"refusing to overwrite existing artifact: {path}")
+    descriptor, temporary = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+            json.dump(payload, stream, indent=2, ensure_ascii=True, allow_nan=False)
+            stream.flush()
+            os.fsync(stream.fileno())
+        # A same-filesystem hard link atomically publishes the fully flushed inode
+        # and fails if another writer has already claimed the evidence path.
+        os.link(temporary, path)
+        Path(temporary).unlink()
+    except BaseException:
+        Path(temporary).unlink(missing_ok=True)
+        raise
 
 
 def runtime_identity():
@@ -114,6 +135,46 @@ def tokenizer_training_input(name):
         "maximum_unicode_characters": None,
         "preserves_normalized_utf8_bytes": True,
     }
+
+
+def tokenizer_configuration(name, budget):
+    """Ledger-visible Phase A training configuration for provenance validation."""
+    require(name in COHORT and type(budget) is int and budget > 0, "invalid tokenizer configuration")
+    common = {
+        "normalization": NORMALIZATION,
+        "vocab_size": budget,
+        "special_tokens": SPECIAL_IDS,
+        "byte_fallback": True,
+        "training_input": tokenizer_training_input(name),
+    }
+    if name.startswith("sp_"):
+        return {
+            **common,
+            "implementation": "sentencepiece",
+            "model_type": name.removeprefix("sp_"),
+            "hard_vocab_limit": True,
+            "character_coverage": 1.0,
+            "normalization_rule_name": "identity",
+            "remove_extra_whitespaces": False,
+            "add_dummy_prefix": False,
+            "shuffle_input_sentence": False,
+            "input_sentence_size": 0,
+            "num_threads": 1,
+        }
+    if name == "boundary_bpe":
+        return {**common, "implementation": "uniqtoken_boundary_bpe", "boundary_pattern": r"\S+|\s"}
+    reserve = min(budget // 10, 4000) if name == "uniq_superbpe" else 0
+    config = {
+        **common,
+        "implementation": "uniqtoken_unigram",
+        "unigram_vocab_size": budget - reserve,
+        "minimum_frequency": 1,
+        "minimum_edge_log_probability": "negative_infinity",
+        "native_em_fallback": False,
+    }
+    if reserve:
+        config["cem"] = {"maximum_merges": reserve, "cross_word": True, "document_separator": SPECIALS[3]}
+    return config
 
 
 def sentencepiece_training_sentences(texts):
@@ -697,6 +758,97 @@ def condition_key(row):
     return row["tokenizer"], row["vocab_budget"], row["budget_regime"], row["seed"]
 
 
+def validate_phase_a_condition_record(row, identity, dataset, expected_key, artifact_root=None):
+    require(condition_key(row) == tuple(expected_key), "resumed condition index/configuration mismatch")
+    require(row["tokenizer"] in COHORT and row["vocab_budget"] in VOCABS, "invalid primary condition")
+    require(type(row["seed"]) is int, "invalid row seed")
+    require(
+        row.get("git_commit") == identity["commit_hash"]
+        and row.get("extension_hash") == identity["extension_hash"],
+        "resumed condition provenance mismatch",
+    )
+    require(row.get("dataset_hash") == dataset["assignment_hash"], "resumed corpus assignment mismatch")
+    require(row.get("special_tokens") == SPECIAL_IDS, "resumed special accounting mismatch")
+    require(
+        row.get("actual_vocab_size") == row["vocab_budget"]
+        and row.get("tokenizer_config") == tokenizer_configuration(row["tokenizer"], row["vocab_budget"]),
+        "resumed tokenizer/vocabulary configuration mismatch",
+    )
+    require(row.get("model_kind") == "tokenizer_only" and row.get("model_config") is None, "invalid Phase A model")
+    require(row.get("artifact_hashes") and row.get("artifact"), "missing tokenizer artifacts")
+    require(row["tokenizer"] != "uniq_superbpe" or row.get("learned_merges", 0) > 0, "SuperBPE zero-merge condition")
+    require(
+        row.get("training_bytes") == byte_totals(dataset["document_bytes"]["train"]),
+        "tokenizer training byte accounting mismatch",
+    )
+    require(
+        row.get("training_input") == tokenizer_training_input(row["tokenizer"]),
+        "tokenizer training input representation mismatch",
+    )
+    require(
+        type(row.get("training_wall_clock_seconds")) is float and row["training_wall_clock_seconds"] > 0.0,
+        "missing tokenizer training time",
+    )
+    expected_mb_s = dataset["splits"]["train"][BYTE_BUDGET_FIELD] / (
+        row["training_wall_clock_seconds"] * 1_000_000
+    )
+    require(row.get("training_normalized_mb_per_sec") == expected_mb_s, "invalid tokenizer training throughput")
+    for split in ("validation", "test"):
+        metric = row[split]
+        require(
+            metric["utf8_bytes"] == dataset["splits"][split]["utf8_bytes"] and metric["tokens"] > 0,
+            "incomplete tokenizer evaluation",
+        )
+        require(
+            all(metric.get(k) == dataset["splits"][split][k] for k in (BYTE_BUDGET_FIELD, BYTE_AUDIT_FIELD)),
+            "tokenizer source/normalized byte mismatch",
+        )
+        require(metric["unicode_characters"] == dataset["splits"][split]["unicode_characters"], "character denominator mismatch")
+        require(
+            metric["tokens_per_unicode_character"] == metric["tokens"] / metric["unicode_characters"]
+            and metric["bytes_per_token"] == metric["utf8_bytes"] / metric["tokens"],
+            "invalid tokenizer metric",
+        )
+        require(
+            type(metric.get("byte_fallback_tokens")) is int
+            and 0 <= metric["byte_fallback_tokens"] <= metric["tokens"],
+            "invalid fallback count",
+        )
+        require(
+            metric.get("byte_fallback_percent") == 100.0 * metric["byte_fallback_tokens"] / metric["tokens"],
+            "invalid fallback percentage",
+        )
+    json.dumps(row, allow_nan=False)
+    if artifact_root is not None:
+        artifact_directory = Path(artifact_root) / row["artifact"]
+        require(
+            artifact_directory.resolve().is_relative_to(Path(artifact_root).resolve())
+            and artifact_hashes(artifact_directory) == row["artifact_hashes"],
+            "resumed tokenizer artifact mismatch",
+        )
+        load_tokenizer(row, Path(artifact_root))
+    return row
+
+
+def load_phase_a_resume_records(output, meta, identity, dataset):
+    require(not (output / "ledger.json").exists(), "Phase A already has a complete ledger")
+    require(
+        digest(read_json(output / "plan.json")) == digest({**meta, "status": "planned"}),
+        "resume plan/provenance mismatch",
+    )
+    expected = [tuple(condition) for condition in meta["expected_conditions"]]
+    files = sorted(output.glob("condition-*.json"))
+    require(all(re.fullmatch(r"condition-\d{3}\.json", path.name) for path in files), "invalid condition filename")
+    records = {}
+    for path in files:
+        index = int(path.stem.removeprefix("condition-"))
+        require(index < len(expected) and index not in records, "unexpected/duplicate resumed condition")
+        payload = read_json(path)
+        require(set(payload) == {"status", "record"} and payload["status"] == "diagnostic_partial", "invalid partial condition envelope")
+        records[index] = validate_phase_a_condition_record(payload["record"], identity, dataset, expected[index], output)
+    return records
+
+
 def validate_research_ledger(payload, identity, dataset):
     validate_ledger(payload, expected_commit=identity["commit_hash"])
     meta = payload["metadata"]
@@ -738,55 +890,7 @@ def validate_research_ledger(payload, identity, dataset):
         )
         require(row.get("special_tokens") == SPECIAL_IDS, "row special accounting mismatch")
         if phase == "A":
-            require(row["model_kind"] == "tokenizer_only" and row.get("model_config") is None, "invalid Phase A model")
-            require(row.get("artifact_hashes") and row.get("artifact"), "missing tokenizer artifacts")
-            require(
-                row["tokenizer"] != "uniq_superbpe" or row.get("learned_merges", 0) > 0, "SuperBPE zero-merge condition"
-            )
-            require(
-                row.get("training_bytes") == byte_totals(dataset["document_bytes"]["train"]),
-                "tokenizer training byte accounting mismatch",
-            )
-            require(
-                row.get("training_input") == tokenizer_training_input(row["tokenizer"]),
-                "tokenizer training input representation mismatch",
-            )
-            require(
-                type(row.get("training_wall_clock_seconds")) is float and row["training_wall_clock_seconds"] > 0.0,
-                "missing tokenizer training time",
-            )
-            expected_mb_s = dataset["splits"]["train"][BYTE_BUDGET_FIELD] / (
-                row["training_wall_clock_seconds"] * 1_000_000
-            )
-            require(row.get("training_normalized_mb_per_sec") == expected_mb_s, "invalid tokenizer training throughput")
-            for split in ("validation", "test"):
-                metric = row[split]
-                require(
-                    metric["utf8_bytes"] == dataset["splits"][split]["utf8_bytes"] and metric["tokens"] > 0,
-                    "incomplete tokenizer evaluation",
-                )
-                require(
-                    all(metric.get(k) == dataset["splits"][split][k] for k in (BYTE_BUDGET_FIELD, BYTE_AUDIT_FIELD)),
-                    "tokenizer source/normalized byte mismatch",
-                )
-                require(
-                    metric["unicode_characters"] == dataset["splits"][split]["unicode_characters"],
-                    "character denominator mismatch",
-                )
-                require(
-                    metric["tokens_per_unicode_character"] == metric["tokens"] / metric["unicode_characters"]
-                    and metric["bytes_per_token"] == metric["utf8_bytes"] / metric["tokens"],
-                    "invalid tokenizer metric",
-                )
-                require(
-                    type(metric.get("byte_fallback_tokens")) is int
-                    and 0 <= metric["byte_fallback_tokens"] <= metric["tokens"],
-                    "invalid fallback count",
-                )
-                require(
-                    metric.get("byte_fallback_percent") == 100.0 * metric["byte_fallback_tokens"] / metric["tokens"],
-                    "invalid fallback percentage",
-                )
+            validate_phase_a_condition_record(row, identity, dataset, condition_key(row))
         else:
             require(
                 row["model_kind"] == "causal_transformer" and row["budget_regime"] in REGIMES,
@@ -887,7 +991,8 @@ def select_conditions(selection_path, screening, screening_path):
 
 
 def run(args):
-    require(not Path(args.output).exists(), "output already exists; never overwrite experiment evidence")
+    resume = bool(getattr(args, "resume", False))
+    require(not resume or args.phase == "A", "resume is supported only for Phase A")
     docs, dataset = load_dataset(args.dataset)
     identity = runtime_identity()
     require(not identity["working_tree_dirty"], "commit the reviewed harness before research runs")
@@ -964,11 +1069,20 @@ def run(args):
         meta["screening_sha256"] = file_hash(args.screening)
     meta["expected_conditions"] = [(*c, s) for c in selected for s in seeds]
     output = Path(args.output)
-    output.mkdir(parents=True)
-    # If execution fails, this plan and completed artifacts remain; no complete ledger is emitted.
-    write_new_json(output / "plan.json", {**meta, "status": "planned"})
+    if output.exists():
+        require(resume and output.is_dir(), "output already exists; use --resume only for an incomplete Phase A")
+        existing = load_phase_a_resume_records(output, meta, identity, dataset)
+    else:
+        output.mkdir(parents=True)
+        # If execution fails, this plan and completed artifacts remain; no complete ledger is emitted.
+        write_new_json_atomic(output / "plan.json", {**meta, "status": "planned"})
+        existing = {}
     rows = []
-    for name, vocab, regime, seed in meta["expected_conditions"]:
+    for index, (name, vocab, regime, seed) in enumerate(meta["expected_conditions"]):
+        if index in existing:
+            print(f"Phase A: validated and skipped condition {index:03d} {name} V={vocab}", flush=True)
+            rows.append(existing[index])
+            continue
         row = {
             "tokenizer": name,
             "vocab_budget": vocab,
@@ -994,6 +1108,7 @@ def run(args):
                 actual_vocab_size=len(tok.vocab),
                 model_kind="tokenizer_only",
                 model_config=None,
+                tokenizer_config=tokenizer_configuration(name, vocab),
                 artifact=artifact,
                 artifact_hashes=artifact_hashes(output / artifact),
                 learned_merges=tok.merges,
@@ -1032,12 +1147,12 @@ def run(args):
                     document_bytes=dataset["document_bytes"],
                 )
             )
-        write_new_json(output / f"condition-{len(rows):03d}.json", {"status": "diagnostic_partial", "record": row})
+        write_new_json_atomic(output / f"condition-{index:03d}.json", {"status": "diagnostic_partial", "record": row})
         rows.append(row)
     require(runtime_identity() == identity, "source or environment changed during run")
     payload = {"metadata": meta, "records": rows}
     validate_research_ledger(payload, identity, dataset)
-    write_new_json(output / "ledger.json", payload)
+    write_new_json_atomic(output / "ledger.json", payload)
     return payload
 
 
@@ -1053,6 +1168,7 @@ def main():
     parser.add_argument("--bytes", type=int)
     parser.add_argument("--seeds", type=int, nargs="+")
     parser.add_argument("--device", default="cpu")
+    parser.add_argument("--resume", action="store_true", help="Resume a provenance-matched incomplete Phase A directory.")
     run(parser.parse_args())
 
 
