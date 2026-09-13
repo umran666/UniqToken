@@ -240,7 +240,13 @@ def normalized_prefix(text: str, maximum: int) -> str | None:
 
 
 def append_exact(
-    records: Iterable[tuple[str, dict[str, Any], int]], target: int, output: Path, *, language: str, domain: str
+    records: Iterable[tuple[str, dict[str, Any], int]],
+    target: int,
+    output: Path,
+    *,
+    language: str,
+    domain: str,
+    dedup_index: DedupIndex | None = None,
 ) -> dict[str, int]:
     """Write a quota exactly, only slicing a final source document on a character boundary."""
     used, raw_used, documents = 0, 0, 0
@@ -257,6 +263,8 @@ def append_exact(
                 if chosen is None:
                     continue
                 truncated = True
+            if dedup_index is not None and not dedup_index.accept(chosen):
+                continue
             record = source_record(
                 chosen,
                 identifier=f"{source['dataset']}:{source['remote_path']}:{record_index}:{used}",
@@ -393,6 +401,50 @@ def near_duplicate(a: str, b: str) -> bool:
     return len(a_grams & b_grams) / len(a_grams | b_grams) >= 0.85
 
 
+class DedupIndex:
+    """Exact and LSH-indexed near-duplicate state shared by all train partitions."""
+
+    def __init__(self) -> None:
+        self.hashes: set[str] = set()
+        self.buckets: dict[tuple[int, ...], list[str]] = {}
+
+    @staticmethod
+    def band_keys(signature: tuple[int, ...]) -> set[tuple[int, ...]]:
+        return {signature[band * 4 : (band + 1) * 4] for band in range(4)}
+
+    def add(self, text: str) -> str | None:
+        normalized = normalize(text)
+        digest = sha256_text(normalized)
+        if digest in self.hashes:
+            return "exact"
+        signature = minhash_signature(normalized)
+        keys = self.band_keys(signature)
+        if any(
+            near_duplicate(normalized, candidate)
+            for key in keys
+            for candidate in self.buckets.get(key, [])
+        ):
+            return "near"
+        self.hashes.add(digest)
+        for key in keys:
+            self.buckets.setdefault(key, []).append(normalized)
+        return None
+
+    def accept(self, text: str) -> bool:
+        return self.add(text) is None
+
+    def overlaps(self, text: str) -> tuple[bool, bool]:
+        normalized = normalize(text)
+        exact = sha256_text(normalized) in self.hashes
+        signature = minhash_signature(normalized)
+        near = any(
+            near_duplicate(normalized, candidate)
+            for key in self.band_keys(signature)
+            for candidate in self.buckets.get(key, [])
+        )
+        return exact, near
+
+
 def records_from_jsonl(path: Path) -> Iterable[dict[str, Any]]:
     with path.open("r", encoding="utf-8") as stream:
         for line in stream:
@@ -401,31 +453,22 @@ def records_from_jsonl(path: Path) -> Iterable[dict[str, Any]]:
 
 def validate_dedup(train: Path, evaluation: list[Path]) -> None:
     """Reject exact/near training duplicates and any train/evaluation overlap."""
-    train_hashes: set[str] = set()
-    buckets: dict[tuple[int, ...], list[str]] = {}
+    index = DedupIndex()
     for row in records_from_jsonl(train):
-        text = normalize(row["text"])
-        digest = sha256_text(text)
-        require(digest not in train_hashes, "duplicate normalized training document")
-        train_hashes.add(digest)
-        signature = minhash_signature(text)
-        for band in range(4):
-            key = signature[band * 4 : (band + 1) * 4]
-            candidates = buckets.get(key, [])
-            require(not any(near_duplicate(text, candidate) for candidate in candidates), "near duplicate training document")
-            buckets.setdefault(key, []).append(text)
+        reason = index.add(row["text"])
+        require(reason != "exact", "duplicate normalized training document")
+        require(reason != "near", "near duplicate training document")
     for path in evaluation:
         for row in records_from_jsonl(path):
-            text = normalize(row["text"])
-            require(sha256_text(text) not in train_hashes, "exact train/evaluation overlap invalidates manifest")
-            signature = minhash_signature(text)
-            candidates = [
-                candidate for band in range(4) for candidate in buckets.get(signature[band * 4 : (band + 1) * 4], [])
-            ]
-            require(
-                not any(near_duplicate(text, candidate) for candidate in candidates),
-                "near train/evaluation overlap invalidates manifest",
-            )
+            exact, near = index.overlaps(row["text"])
+            require(not exact, "exact train/evaluation overlap invalidates manifest")
+            require(not near, "near train/evaluation overlap invalidates manifest")
+
+
+def restore_dedup_index(path: Path, index: DedupIndex) -> None:
+    """Rebuild cross-partition dedup state from a completed staged partition."""
+    for row in records_from_jsonl(path):
+        require(index.accept(row["text"]), "resumed partition violates training deduplication")
 
 
 def selection_groups(splits: dict[str, Path]) -> list[dict[str, Any]]:
@@ -509,7 +552,10 @@ def build_manifest(
         "dataset_id": "phase-a-madlad400-data-v1p5-clean-docs-v2-the-stack-v1p3-flores200",
         "source": "Pinned local source inventory; no network access is permitted by the experiment runner.",
         "license": "MADLAD ODC-By; The Stack per-record permissive licenses; FLORES license recorded per pinned source.",
-        "deduplication": f"Training exact normalized SHA-256 plus train/evaluation {NEAR_METHOD}; any overlap aborts freezing.",
+        "deduplication": (
+            f"Training records are filtered by exact normalized SHA-256 and {NEAR_METHOD}; "
+            "rejected records are replaced before quota accounting. Any exact or near train/evaluation overlap aborts freezing."
+        ),
         "normalization": NORMALIZATION,
         "freeze": {
             "immutable": True,
@@ -606,12 +652,14 @@ def run(args: argparse.Namespace) -> Path:
         permissive_stack_licenses = stack_license_allowlist(stack_license_source)
 
         train_parts: list[Path] = []
+        train_dedup = DedupIndex()
         for stratum, (total, languages) in PROSE_STRATA.items():
             for language, quota in quota_by_language(total, languages).items():
                 part = work / f"train-prose-{language}.jsonl"
                 files = madlad_files[language]
 
                 if completed_part(part, quota, language=language, domain=stratum):
+                    restore_dedup_index(part, train_dedup)
                     for source in resume_sources(part, work):
                         register_source(source)
                     train_parts.append(part)
@@ -629,7 +677,14 @@ def run(args: argparse.Namespace) -> Path:
                             )
                         )
 
-                append_exact(records(), quota, part, language=language, domain=stratum)
+                append_exact(
+                    records(),
+                    quota,
+                    part,
+                    language=language,
+                    domain=stratum,
+                    dedup_index=train_dedup,
+                )
                 train_parts.append(part)
 
         code_total = 100 * MB
@@ -638,6 +693,7 @@ def run(args: argparse.Namespace) -> Path:
             files = stack_files[language]
 
             if completed_part(part, quota, language=language, domain="code"):
+                restore_dedup_index(part, train_dedup)
                 for source in resume_sources(part, work):
                     register_source(source)
                 train_parts.append(part)
@@ -650,7 +706,14 @@ def run(args: argparse.Namespace) -> Path:
                             permissive_stack_licenses,
                         )
 
-            append_exact(records(), quota, part, language=language, domain="code")
+            append_exact(
+                records(),
+                quota,
+                part,
+                language=language,
+                domain="code",
+                dedup_index=train_dedup,
+            )
             train_parts.append(part)
 
         train = work / "train.jsonl"

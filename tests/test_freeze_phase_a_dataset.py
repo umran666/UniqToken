@@ -209,6 +209,39 @@ def test_append_exact_records_provenance_and_byte_fields(tmp_path):
     assert row["dedup"]["status"] == "accepted_after_exact_and_near_eval_check"
 
 
+def test_training_dedup_replaces_duplicate_across_partitions(tmp_path):
+    first = tmp_path / "first.jsonl"
+    second = tmp_path / "second.jsonl"
+    pinned = source(tmp_path)
+    index = freeze.DedupIndex()
+    freeze.append_exact(
+        [("aaaa", pinned, 0)],
+        4,
+        first,
+        language="en",
+        domain="latin_english",
+        dedup_index=index,
+    )
+    freeze.append_exact(
+        [("aaaa", pinned, 0), ("bbbb", pinned, 1)],
+        4,
+        second,
+        language="python",
+        domain="code",
+        dedup_index=index,
+    )
+    assert json.loads(second.read_text(encoding="utf-8"))["text"] == "bbbb"
+
+
+def test_resumed_partition_restores_cross_partition_dedup_state(tmp_path):
+    first = tmp_path / "first.jsonl"
+    pinned = source(tmp_path)
+    freeze.append_exact([("unique", pinned, 0)], 6, first, language="en", domain="latin_english")
+    index = freeze.DedupIndex()
+    freeze.restore_dedup_index(first, index)
+    assert not index.accept("unique")
+
+
 def test_completed_partition_and_sources_can_resume(tmp_path):
     work = tmp_path / "freeze.partial-test"
     work.mkdir()
