@@ -480,8 +480,12 @@ def validate_dedup(train: Path, evaluation: list[Path]) -> None:
         reason = index.add(row["text"])
         require(reason != "exact", "duplicate normalized training document")
         require(reason != "near", "near duplicate training document")
+    evaluation_hashes: set[str] = set()
     for path in evaluation:
         for row in records_from_jsonl(path):
+            normalized_hash = sha256_text(normalize(row["text"]))
+            require(normalized_hash not in evaluation_hashes, "duplicate normalized evaluation document")
+            evaluation_hashes.add(normalized_hash)
             exact, near = index.overlaps(row["text"])
             require(not exact, "exact train/evaluation overlap invalidates manifest")
             require(not near, "near train/evaluation overlap invalidates manifest")
@@ -746,6 +750,7 @@ def run(args: argparse.Namespace) -> Path:
 
         # FLORES dev is validation; devtest is test-only, never sampled into training.
         splits: dict[str, Path] = {"train": train}
+        evaluation_hashes: set[str] = set()
         for split, folder in (("validation", "dev"), ("test", "devtest")):
             target = work / f"{split}.jsonl"
             remote = f"data/all/{folder}-00000-of-00001.parquet"
@@ -758,6 +763,10 @@ def run(args: argparse.Namespace) -> Path:
             )
             with target.open("wb") as stream:
                 for language, text, index in flores_records(source):
+                    normalized_hash = sha256_text(normalize(text))
+                    if normalized_hash in evaluation_hashes:
+                        continue
+                    evaluation_hashes.add(normalized_hash)
                     stream.write(
                         json_line(
                             source_record(

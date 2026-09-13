@@ -328,6 +328,17 @@ def test_dedup_rejects_train_evaluation_near_overlap(tmp_path):
         freeze.validate_dedup(train, [evaluation])
 
 
+def test_dedup_rejects_duplicate_normalized_evaluation_document(tmp_path):
+    train = tmp_path / "train.jsonl"
+    validation = tmp_path / "validation.jsonl"
+    test = tmp_path / "test.jsonl"
+    write_rows(train, ["training text"])
+    write_rows(validation, ["duplicate evaluation"])
+    write_rows(test, ["duplicate evaluation"])
+    with pytest.raises(ValueError, match="duplicate normalized evaluation document"):
+        freeze.validate_dedup(train, [validation, test])
+
+
 def test_minhash_signature_is_versioned_deterministic_and_hashes_each_gram_once(monkeypatch):
     text = "the quick brown fox jumps over the lazy dog"
     calls = 0
