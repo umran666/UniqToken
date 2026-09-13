@@ -844,7 +844,10 @@ def load_phase_a_resume_records(output, meta, identity, dataset):
         index = int(path.stem.removeprefix("condition-"))
         require(index < len(expected) and index not in records, "unexpected/duplicate resumed condition")
         payload = read_json(path)
-        require(set(payload) == {"status", "record"} and payload["status"] == "diagnostic_partial", "invalid partial condition envelope")
+        require(
+            set(payload) == {"status", "record"} and payload["status"] == "condition_complete",
+            "invalid or incomplete condition envelope",
+        )
         records[index] = validate_phase_a_condition_record(payload["record"], identity, dataset, expected[index], output)
     return records
 
@@ -1147,7 +1150,7 @@ def run(args):
                     document_bytes=dataset["document_bytes"],
                 )
             )
-        write_new_json_atomic(output / f"condition-{index:03d}.json", {"status": "diagnostic_partial", "record": row})
+        write_new_json_atomic(output / f"condition-{index:03d}.json", {"status": "condition_complete", "record": row})
         rows.append(row)
     require(runtime_identity() == identity, "source or environment changed during run")
     payload = {"metadata": meta, "records": rows}

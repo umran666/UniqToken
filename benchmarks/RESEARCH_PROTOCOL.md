@@ -38,7 +38,8 @@ dataset assignment, tokenizer configuration, vocabulary target, metrics, and
 artifact hashes before skipping a condition. Any mismatch aborts the resume.
 Condition files and the final ledger are atomically published, and `ledger.json`
 is created only after the entire 15-condition grid validates. Resume is unavailable
-for Phases B and C.
+for Phases B and C. A resumable condition has `status=condition_complete`; this
+describes the condition, not completion of the Phase A grid.
 SuperBPE reserves `min(V // 10, 4000)` entries for CEM; if the existing trainer
 cannot fill that reserve, report the failure. CEM receives EOS between documents.
 SentencePiece receives every normalized document as ordered, contiguous chunks of
