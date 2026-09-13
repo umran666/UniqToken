@@ -209,6 +209,32 @@ def test_append_exact_records_provenance_and_byte_fields(tmp_path):
     assert row["dedup"]["status"] == "accepted_after_exact_and_near_eval_check"
 
 
+@pytest.mark.parametrize("reserved", ["<|", "\ue000", "\ue001", "\u2581"])
+def test_append_exact_replaces_reserved_corpus_text(reserved, tmp_path):
+    output = tmp_path / "selected.jsonl"
+    stats = freeze.append_exact(
+        [(f"bad{reserved}text", source(tmp_path), 0), ("good", source(tmp_path), 1)],
+        4,
+        output,
+        language="en",
+        domain="latin_english",
+    )
+    row = json.loads(output.read_text(encoding="utf-8"))
+    assert stats["normalized_utf8_bytes"] == 4
+    assert row["text"] == "good"
+
+
+def test_completed_partition_rejects_reserved_corpus_text(tmp_path):
+    part = tmp_path / "selected.jsonl"
+    freeze.append_exact([("good", source(tmp_path), 0)], 4, part, language="en", domain="latin_english")
+    row = json.loads(part.read_text(encoding="utf-8"))
+    row["text"] = "<|x"
+    row["raw_utf8_bytes"] = 3
+    row["normalized_utf8_bytes"] = 3
+    part.write_bytes(freeze.json_line(row))
+    assert not freeze.completed_part(part, 3, language="en", domain="latin_english")
+
+
 def test_training_dedup_replaces_duplicate_across_partitions(tmp_path):
     first = tmp_path / "first.jsonl"
     second = tmp_path / "second.jsonl"

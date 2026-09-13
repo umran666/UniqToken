@@ -21,7 +21,7 @@ from typing import Any, Iterable
 from huggingface_hub import HfApi, get_hf_file_metadata, hf_hub_download, hf_hub_url
 import numpy as np
 
-from benchmarks.run_research_experiments import NORMALIZATION, file_hash, normalize
+from benchmarks.run_research_experiments import NORMALIZATION, RESERVED_CORPUS_TEXT, file_hash, normalize
 
 MB = 1_000_000
 MADLAD = "allenai/MADLAD-400"
@@ -264,6 +264,8 @@ def append_exact(
         for text, source, record_index in records:
             if not isinstance(text, str) or not text.strip():
                 continue
+            if RESERVED_CORPUS_TEXT.search(text):
+                continue
             normalized_size = len(normalize(text).encode("utf-8"))
             remaining = target - used
             if normalized_size <= remaining:
@@ -306,6 +308,8 @@ def completed_part(path: Path, target: int, *, language: str, domain: str) -> bo
         require(row.get("language") == language and row.get("domain") == domain, "resumed partition metadata mismatch")
         text = row.get("text")
         require(isinstance(text, str), "resumed partition contains invalid text")
+        if RESERVED_CORPUS_TEXT.search(text):
+            return False
         require(
             row.get("raw_utf8_bytes") == len(text.encode("utf-8"))
             and row.get("normalized_utf8_bytes") == len(normalize(text).encode("utf-8")),

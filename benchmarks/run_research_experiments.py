@@ -97,6 +97,9 @@ def normalize(text):
     return Normalizer.UNICODE_SPACES.sub(" ", unicodedata.normalize("NFKC", text))
 
 
+RESERVED_CORPUS_TEXT = re.compile(r"<\||[\ue000\ue001\u2581]")
+
+
 def load_dataset(manifest_path):
     """Read frozen JSONL splits ({id, text}); verify file and normalized-document identity."""
     path = Path(manifest_path)
@@ -203,7 +206,7 @@ def load_dataset(manifest_path):
                 and row["normalized_utf8_bytes"] == len(text.encode("utf-8")),
                 "document UTF-8 byte counts do not match text",
             )
-            require(not re.search(r"<\||[\ue000\ue001\u2581]", text), "reserved control/metaspace text in corpus")
+            require(not RESERVED_CORPUS_TEXT.search(text), "reserved control/metaspace text in corpus")
             require(
                 row["id"] not in seen_ids and digest(text) not in seen_text,
                 "duplicate document or train/validation/test leakage",
