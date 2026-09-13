@@ -1,7 +1,8 @@
 # Final experiment harness
 
-This is an execution protocol, not a result report. Run from the repository root
-using `python -m benchmarks.run_research_experiments`. The older
+This is an execution protocol, not a result report. Tokenizer stages run from the
+repository root using `python -m benchmarks.run_phase_a`. LM stages remain in
+`python -m benchmarks.run_research_experiments`. The older
 `run_matched_budget_eval.py` remains a train/validation diagnostic, not the final
 research runner. Historical ledgers are unchanged and cannot enter this protocol.
 
@@ -25,21 +26,41 @@ comparisons motivated retaining it; those invalidated experiments do not establi
 current superiority. This runner preserves whitespace in Boundary-BPE input and
 output. Do not interpret differences from historical numbers as improvements.
 
-Phase A trains all five tokenizers on the identical ordered training split at
-16,384, 32,768 and 65,536 total entries. It reports tokenizer-only validation/test
+Phase A is an explicit two-stage gate. `A-SCREEN` trains all five tokenizers at
+16,384, 32,768 and 65,536 total entries on one deterministic, stratified frozen
+subset targeting 75,000,000 normalized bytes. The subset uses whole documents and
+proportional language/domain quotas; it must remain between 50 and 100 decimal MB.
+Every row and ledger is labeled `SCREENING`. Screening reports held-out validation
 bytes per token, tokens per Unicode character, byte-fallback percentage, achieved
-vocabulary, training wall-clock time, and normalized input MB/s. It checks
-normalized roundtrips and saves models.
+vocabulary, training wall-clock time, and normalized input MB/s. Screening is for
+feasibility and condition selection only and is never confirmatory evidence.
+
+The frozen FLORES dev validation split is deterministically divided by normalized
+document SHA-256 parity. `A-SCREEN` sees only the screening half. `A-CONFIRM` trains
+only deterministically selected tokenizer/vocabulary conditions on the complete
+500 MB frozen training corpus and evaluates only the complementary confirmation
+validation half. FLORES devtest remains declared by hash but is never opened,
+tokenized, scored, or included in either Phase A ledger.
+
+Selection chooses exactly one tokenizer per vocabulary budget by ascending
+screening-validation tokens per Unicode character, then validation byte-fallback
+percentage, then fixed cohort order. Training time and test data cannot affect the
+choice. The selection artifact is bound to the complete screening ledger SHA-256,
+and confirmation recomputes the selection before doing work. This policy is a
+feasibility gate, not a universal superiority criterion.
+
+Both stages check normalized roundtrips and save models.
 Any vocabulary shortfall, zero-merge SuperBPE, or failed condition aborts completion.
 There is no vocabulary padding, smaller-budget retry, or baseline substitution.
-An interrupted Phase A may be continued with `--resume`. The runner validates
+An interrupted Phase A stage may be continued with `--resume`. The runner validates
 `plan.json`, every numbered condition record, current commit and extension,
 dataset assignment, tokenizer configuration, vocabulary target, metrics, and
 artifact hashes before skipping a condition. Any mismatch aborts the resume.
-Condition files and the final ledger are atomically published, and `ledger.json`
-is created only after the entire 15-condition grid validates. Resume is unavailable
-for Phases B and C. A resumable condition has `status=condition_complete`; this
-describes the condition, not completion of the Phase A grid.
+Condition files and the final ledger are atomically published. An A-SCREEN
+`ledger.json` appears only after all 15 conditions validate; an A-CONFIRM ledger
+appears only after every selected condition validates. Resume is unavailable for
+LM Phases B and C. A resumable condition has `status=condition_complete`; this
+describes the condition, not completion of its stage.
 SuperBPE reserves `min(V // 10, 4000)` entries for CEM; if the existing trainer
 cannot fill that reserve, report the failure. CEM receives EOS between documents.
 SentencePiece receives every normalized document as ordered, contiguous chunks of
@@ -79,8 +100,10 @@ Latin/English, 160 MB Indic+CJK+Arabic, 80 MB Cyrillic+African) and exactly
 100,000,000 normalized UTF-8 bytes of permissively licensed Python,
 JavaScript/TypeScript, Java, SQL, C/C++, Rust, and Go from `bigcode/the-stack`
 release `v1.3`; code records are admitted only when every dataset license identifier
-is in the freezer's explicit permissive SPDX allowlist. It uses FLORES-200 dev for validation and devtest only for test;
-neither can enter training.
+is in the freezer's explicit permissive SPDX allowlist. It uses disjoint,
+deterministically assigned halves of FLORES-200 dev for screening and confirmation
+validation. FLORES devtest remains final test-only; neither dev nor devtest can
+enter training.
 
 The exact FLORES-200 repository, immutable revision, and license must be supplied
 and approved before freezing, because public mirrors and upstream access differ.
@@ -253,7 +276,8 @@ word fertility or evidence of morphological accuracy.
 
 ## Provenance and commands
 
-Research ledgers require shared ledger schema 3 **and** research schema 3, complete
+LM research ledgers require shared ledger schema 3 and research schema 5. Phase A
+stage ledgers require stage schema 1. All require complete
 expected conditions, tokenizer/model identity, exact vocabularies, dataset manifest
 and assignment hashes, seeds, full model configuration, matching regime/budget,
 Git commit, source hash, dependency versions, and installed extension binary hash
@@ -266,31 +290,26 @@ rewritten. Historical results remain untouched.
 Start from a reviewed, committed, clean worktree, with a native extension rebuilt
 from that commit and its binary SHA-256 recorded. Run outputs under ignored
 `artifacts/` (or outside the repository). Existing output directories are rejected.
-An interrupted run retains its plan and per-condition diagnostic files, but no
-complete ledger is written. No automatic resume consumes partial files.
+An interrupted Phase A stage retains its plan and atomically completed condition
+files, but no complete ledger is written. `--resume` consumes only conditions that
+match the current plan, code/build identity, dataset, tokenizer configuration,
+budget, metrics, and artifacts. Any mismatch aborts.
 
 PowerShell commands, from the repository root, after choosing immutable source
 commits and a licensed FLORES-200 source:
 
 ```powershell
 python -m benchmarks.freeze_phase_a_dataset --output artifacts/data --madlad-revision <40-char-MADLAD-commit> --stack-revision <40-char-The-Stack-commit> --stack-release v1.3 --flores-repo <approved-FLORES-200-repo> --flores-revision <40-char-FLORES-commit> --flores-license <license>
-python -m benchmarks.run_research_experiments A --dataset artifacts/data/manifest.json --output artifacts/final-a
-
-$ScreenBytes = python -c "from benchmarks.run_research_experiments import load_dataset; d,_=load_dataset('artifacts/data/manifest.json'); print(sum(len(t.encode('utf-8')) for t in d['train'][:32]))"
-python -m benchmarks.run_research_experiments B --dataset artifacts/data/manifest.json --phase-a artifacts/final-a/ledger.json --output artifacts/final-b --flops 1e11 --bytes $ScreenBytes --seeds 0 --device cpu
-
-$ConfirmBytes = python -c "from benchmarks.run_research_experiments import load_dataset; d,_=load_dataset('artifacts/data/manifest.json'); print(sum(len(t.encode('utf-8')) for t in d['train']))"
-python -m benchmarks.run_research_experiments C --dataset artifacts/data/manifest.json --phase-a artifacts/final-a/ledger.json --screening artifacts/final-b/ledger.json --selection artifacts/selection.json --output artifacts/final-c --flops 1e14 --bytes $ConfirmBytes --seeds 1 2 3 --device cpu
+python -m benchmarks.run_phase_a screen --dataset artifacts/data/manifest.json --output artifacts/phase-a-screen
+python -m benchmarks.run_phase_a select --dataset artifacts/data/manifest.json --screening artifacts/phase-a-screen/ledger.json --output artifacts/phase-a-selection.json
+python -m benchmarks.run_phase_a confirm --dataset artifacts/data/manifest.json --screening artifacts/phase-a-screen/ledger.json --selection artifacts/phase-a-selection.json --output artifacts/phase-a-confirm
 ```
 
 These are commands for future experiments, not runs performed during harness
-development. Pre-register the budgets before execution; the shown C budgets are
-an executable example, not a power or convergence justification. The first 32
-training documents must total at most 1,000,000 bytes for the shown B command;
-otherwise choose and pre-register a smaller common prefix. A single oversized
-document needs an externally documented corpus-preparation decision, not truncation
-hidden in the runner. CPU is explicit here; CUDA requires an available device and
-`CUBLAS_WORKSPACE_CONFIG=:4096:8` set before Python for deterministic matrix operations.
+development. The first command runs only A-SCREEN; it cannot start A-CONFIRM or an
+LM stage. The selection and confirmation commands are separate, explicit actions.
+Do not pass the new staged ledgers into the older LM runner until that later
+interface is explicitly reviewed; this redesign does not run or alter LM phases.
 
 Before C, author `artifacts/selection.json` with this structure, replacing the
 screening hash and choosing actual conditions from B based on validation:
