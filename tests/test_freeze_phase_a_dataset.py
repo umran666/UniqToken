@@ -180,6 +180,21 @@ def test_normalized_prefix_never_breaks_utf8_or_misses_quota():
     assert freeze.normalized_prefix("\u4e2d", 1) is None
 
 
+def test_normalized_prefix_is_bounded_for_large_final_document(monkeypatch):
+    calls = 0
+    original = freeze.normalize
+
+    def counted(text):
+        nonlocal calls
+        calls += 1
+        return original(text)
+
+    monkeypatch.setattr(freeze, "normalize", counted)
+    chosen = freeze.normalized_prefix("a" * 2_000_000, 390_130)
+    assert chosen == "a" * 390_130
+    assert calls < 100
+
+
 def test_append_exact_records_provenance_and_byte_fields(tmp_path):
     output = tmp_path / "selected.jsonl"
     stats = freeze.append_exact(

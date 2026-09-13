@@ -207,15 +207,35 @@ def source_record(
 
 def normalized_prefix(text: str, maximum: int) -> str | None:
     """A UTF-8-safe raw prefix whose whole-string normalization fits exactly."""
-    if maximum <= 0:
+    if maximum <= 0 or not text:
         return None
-    # NFKC size is not monotonic across every raw code-point boundary (a later
-    # combining mark can compose with its predecessor), so binary search can
-    # skip the only exact boundary. This runs only for a final quota document.
-    for end in range(1, len(text) + 1):
-        prefix = text[:end]
-        if len(normalize(prefix).encode("utf-8")) == maximum:
-            return prefix
+
+    sizes: dict[int, int] = {}
+
+    def normalized_size(end: int) -> int:
+        if end not in sizes:
+            sizes[end] = len(normalize(text[:end]).encode("utf-8"))
+        return sizes[end]
+
+    # NFKC byte length is not formally monotone at every raw code-point
+    # boundary. A binary search therefore supplies candidates only: every
+    # returned prefix is verified exactly, and an ambiguous record is skipped.
+    # The local probe covers ordinary UTF-8 width jumps and combining sequences
+    # without repeatedly normalizing every prefix of a large source document.
+    low, high = 1, len(text)
+    while low <= high:
+        middle = (low + high) // 2
+        size = normalized_size(middle)
+        if size < maximum:
+            low = middle + 1
+        elif size > maximum:
+            high = middle - 1
+        else:
+            return text[:middle]
+
+    for end in range(max(1, low - 64), min(len(text), low + 64) + 1):
+        if normalized_size(end) == maximum:
+            return text[:end]
     return None
 
 
