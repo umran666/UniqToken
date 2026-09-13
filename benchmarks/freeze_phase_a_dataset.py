@@ -19,6 +19,7 @@ import tempfile
 from typing import Any, Iterable
 
 from huggingface_hub import HfApi, get_hf_file_metadata, hf_hub_download, hf_hub_url
+import numpy as np
 
 from benchmarks.run_research_experiments import NORMALIZATION, file_hash, normalize
 
@@ -30,6 +31,15 @@ MADLAD_LICENSE = "ODC-By-1.0"
 STACK_LICENSE = "permissive SPDX license recorded per source file"
 FLORES_LICENSE = "record the exact upstream/mirror license in --flores-license"
 NEAR_METHOD = "character_13gram_minhash16_lsh4_jaccard_0.85"
+MINHASH_HASH_FAMILY = "blake2b64_affine_uint64_v1"
+UINT64_MASK = (1 << 64) - 1
+MINHASH_COEFFICIENTS = tuple(
+    (
+        ((0x9E3779B185EBCA87 + seed * 0x517CC1B727220A95) & UINT64_MASK) | 1,
+        (0x6A09E667F3BCC909 + seed * 0x94D049BB133111EB) & UINT64_MASK,
+    )
+    for seed in range(16)
+)
 STACK_LICENSE_COLUMNS = (
     "max_stars_repo_licenses",
     "max_issues_repo_licenses",
@@ -389,9 +399,17 @@ def flores_records(source: dict[str, Any]) -> Iterable[tuple[str, str, int]]:
 
 def minhash_signature(text: str) -> tuple[int, ...]:
     grams = {text[index : index + 13] for index in range(max(0, len(text) - 12))} or {text}
+    base_hashes = np.fromiter(
+        (
+            int.from_bytes(hashlib.blake2b(gram.encode("utf-8"), digest_size=8).digest(), "big")
+            for gram in grams
+        ),
+        dtype=np.uint64,
+        count=len(grams),
+    )
     return tuple(
-        min(int.from_bytes(hashlib.blake2b(f"{seed}:{gram}".encode(), digest_size=8).digest(), "big") for gram in grams)
-        for seed in range(16)
+        int((base_hashes * np.uint64(multiplier) + np.uint64(offset)).min())
+        for multiplier, offset in MINHASH_COEFFICIENTS
     )
 
 
@@ -553,7 +571,8 @@ def build_manifest(
         "source": "Pinned local source inventory; no network access is permitted by the experiment runner.",
         "license": "MADLAD ODC-By; The Stack per-record permissive licenses; FLORES license recorded per pinned source.",
         "deduplication": (
-            f"Training records are filtered by exact normalized SHA-256 and {NEAR_METHOD}; "
+            f"Training records are filtered by exact normalized SHA-256 and {NEAR_METHOD} "
+            f"using {MINHASH_HASH_FAMILY}; "
             "rejected records are replaced before quota accounting. Any exact or near train/evaluation overlap aborts freezing."
         ),
         "normalization": NORMALIZATION,

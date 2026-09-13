@@ -300,3 +300,36 @@ def test_dedup_rejects_train_evaluation_near_overlap(tmp_path):
     write_rows(evaluation, [base + "y"])
     with pytest.raises(ValueError, match="near train/evaluation overlap invalidates manifest"):
         freeze.validate_dedup(train, [evaluation])
+
+
+def test_minhash_signature_is_versioned_deterministic_and_hashes_each_gram_once(monkeypatch):
+    text = "the quick brown fox jumps over the lazy dog"
+    calls = 0
+    original = freeze.hashlib.blake2b
+
+    def counted(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(freeze.hashlib, "blake2b", counted)
+    assert freeze.minhash_signature(text) == (
+        1217967610859103966,
+        483360210953149539,
+        993502517798434221,
+        242354536354462947,
+        288412267212201178,
+        300353287382541491,
+        499913598617637727,
+        125561106345172597,
+        450803120246175113,
+        523087298221236375,
+        45646452898947842,
+        351679088362667127,
+        240775224124942008,
+        388068641594542962,
+        1044378863322680151,
+        937269205521090658,
+    )
+    assert calls == len({text[index : index + 13] for index in range(len(text) - 12)})
+    assert freeze.MINHASH_HASH_FAMILY == "blake2b64_affine_uint64_v1"
