@@ -140,7 +140,17 @@ def replace_split(manifest, split, row):
 
 @pytest.mark.parametrize(
     "mutation",
-    ["raw_duplicate", "normalized_duplicate", "duplicate_id", "hash", "missing_split", "empty", "reserved", "metadata"],
+    [
+        "raw_duplicate",
+        "normalized_duplicate",
+        "duplicate_id",
+        "hash",
+        "missing_split",
+        "empty",
+        "reserved",
+        "null",
+        "metadata",
+    ],
 )
 def test_dataset_failures(manifest, mutation):
     if mutation == "raw_duplicate":
@@ -154,6 +164,8 @@ def test_dataset_failures(manifest, mutation):
         replace_split(manifest, "test", {"id": "test", "text": " "})
     elif mutation == "reserved":
         replace_split(manifest, "test", {"id": "test", "text": "<|bos|>"})
+    elif mutation == "null":
+        replace_split(manifest, "test", {"id": "test", "text": "a\x00b"})
     else:
         data = h.read_json(manifest)
         if mutation == "hash":
@@ -175,7 +187,7 @@ def test_normalization_and_cjk_denominator(manifest):
     assert h.token_metrics(byte_tokenizer(), docs["test"], source_utf8_bytes=6)["tokens_per_unicode_character"] == 3
 
 
-def test_sentencepiece_training_uses_large_corpus_integer_width(monkeypatch, tmp_path):
+def test_sentencepiece_training_uses_bounded_byte_preserving_units(monkeypatch, tmp_path):
     import sentencepiece as spm
 
     seen = {}
@@ -185,9 +197,15 @@ def test_sentencepiece_training_uses_large_corpus_integer_width(monkeypatch, tmp
         raise RuntimeError("captured trainer configuration")
 
     monkeypatch.setattr(spm.SentencePieceTrainer, "train", capture)
+    texts = ["a" * 1025, "\u4e2db"]
     with pytest.raises(RuntimeError, match="captured trainer configuration"):
-        h.train_tokenizer("sp_unigram", ["training text"], 384, tmp_path / "sp")
-    assert seen["train_extremely_large_corpus"] is True
+        h.train_tokenizer("sp_unigram", texts, 384, tmp_path / "sp")
+    chunks = list(seen["sentence_iterator"])
+    assert "".join(chunks) == "".join(texts)
+    assert all(0 < len(chunk) <= h.SPM_TRAINING_CHUNK_CHARACTERS for chunk in chunks)
+    assert b"".join(chunk.encode("utf-8") for chunk in chunks) == b"".join(text.encode("utf-8") for text in texts)
+    assert seen["max_sentence_length"] == 4 * h.SPM_TRAINING_CHUNK_CHARACTERS + 1
+    assert "train_extremely_large_corpus" not in seen
 
 
 @pytest.mark.parametrize("separator", ["\u0085", "\u2028", "\u2029"])
@@ -480,6 +498,7 @@ def test_complete_staged_run_and_selection(staged):
         "source",
         "vocab",
         "nan",
+        "training_input",
         "no_merges",
     ],
 )
@@ -507,6 +526,8 @@ def test_stale_or_incomplete_ledgers_rejected(staged, mutation):
         row["actual_vocab_size"] -= 1
     elif mutation == "nan":
         row["test"]["tokens"] = float("nan")
+    elif mutation == "training_input":
+        row["training_input"]["preserves_normalized_utf8_bytes"] = False
     else:
         data["records"][-1]["learned_merges"] = 0
     with pytest.raises(ValueError):

@@ -209,7 +209,7 @@ def test_append_exact_records_provenance_and_byte_fields(tmp_path):
     assert row["dedup"]["status"] == "accepted_after_exact_and_near_eval_check"
 
 
-@pytest.mark.parametrize("reserved", ["<|", "\ue000", "\ue001", "\u2581"])
+@pytest.mark.parametrize("reserved", ["\x00", "<|", "\ue000", "\ue001", "\u2581"])
 def test_append_exact_replaces_reserved_corpus_text(reserved, tmp_path):
     output = tmp_path / "selected.jsonl"
     stats = freeze.append_exact(

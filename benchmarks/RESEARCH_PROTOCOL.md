@@ -34,8 +34,14 @@ Any vocabulary shortfall, zero-merge SuperBPE, or failed condition aborts comple
 There is no vocabulary padding, smaller-budget retry, or baseline substitution.
 SuperBPE reserves `min(V // 10, 4000)` entries for CEM; if the existing trainer
 cannot fill that reserve, report the failure. CEM receives EOS between documents.
-SentencePiece uses full training input, identity normalization after the shared
-preprocessing, coverage 1.0, one thread, no dummy prefix, and no whitespace collapse.
+SentencePiece receives every normalized document as ordered, contiguous chunks of
+at most 1,024 Unicode characters. Concatenating the chunks exactly reconstructs
+the normalized documents, so no normalized UTF-8 bytes are added, removed, or
+reordered. This bounds SentencePiece's internal training units and avoids its
+document-length-dependent numerical failure. It uses identity normalization after
+the shared preprocessing, coverage 1.0, one thread, no dummy prefix, and no
+whitespace collapse. Each Phase A row records this representation in
+`training_input`; other tokenizers record `unit=normalized_documents`.
 UniqToken uses the existing training defaults except four specials, byte fallback,
 minimum frequency 1, and explicit Python EM (`min_edge_log_prob=-inf`). Seed mining
 and encoding may use installed native operations. No tokenizer algorithm changes
@@ -205,6 +211,8 @@ record both totals for the same ordered completed training-document prefix in
 `training_bytes`, its count in `completed_training_documents`, and
 `training_byte_scope=complete_document_prefix`. Repeated passes count both byte
 types again. Document selection never depends on tokenizer segmentation.
+The freezer rejects NUL and tokenizer-reserved text before quota selection because
+SentencePiece can otherwise skip an entire input unit while appearing to continue.
 
 For byte-matched LM conditions, `training_bytes.normalized_utf8_bytes` equals the
 requested budget exactly; source exposure is recomputed from those same documents,

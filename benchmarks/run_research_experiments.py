@@ -25,7 +25,7 @@ from uniqtoken.pre_tokenizer import Normalizer
 from uniqtoken.tokenizer import CustomTokenizer
 
 ROOT = Path(__file__).resolve().parents[1]
-RESEARCH_SCHEMA = 3  # Phase A freezing and tokenizer-training accounting.
+RESEARCH_SCHEMA = 4  # Phase A freezing and tokenizer-training accounting.
 DATASET_MANIFEST_SCHEMA = 2
 FLOP_ESTIMATOR_VERSION = "dense_matmul_forward_backward_v1"
 BYTE_BUDGET_FIELD = "normalized_utf8_bytes"
@@ -36,6 +36,7 @@ SPECIALS = ("<|unk|>", "<|pad|>", "<|bos|>", "<|eos|>")
 SPECIAL_IDS = dict(zip(SPECIALS, range(4)))
 REGIMES = ("flops", "bytes")
 NORMALIZATION = "NFKC_unicode_spaces_v1"
+SPM_TRAINING_CHUNK_CHARACTERS = 1024
 SCREEN = LMArchConfig("screen_2L_128d_512ff_untied", 2, 128, 4, 512, 1, 0.001)
 CONFIRM = LMArchConfig("confirm_12L_768d_3072ff_untied", 12, 768, 12, 3072, 1, 0.0003)
 
@@ -97,7 +98,29 @@ def normalize(text):
     return Normalizer.UNICODE_SPACES.sub(" ", unicodedata.normalize("NFKC", text))
 
 
-RESERVED_CORPUS_TEXT = re.compile(r"<\||[\ue000\ue001\u2581]")
+RESERVED_CORPUS_TEXT = re.compile(r"\x00|<\||[\ue000\ue001\u2581]")
+
+
+def tokenizer_training_input(name):
+    require(name in COHORT, "unsupported tokenizer")
+    if name.startswith("sp_"):
+        return {
+            "unit": "contiguous_normalized_document_chunks",
+            "maximum_unicode_characters": SPM_TRAINING_CHUNK_CHARACTERS,
+            "preserves_normalized_utf8_bytes": True,
+        }
+    return {
+        "unit": "normalized_documents",
+        "maximum_unicode_characters": None,
+        "preserves_normalized_utf8_bytes": True,
+    }
+
+
+def sentencepiece_training_sentences(texts):
+    """Bound SentencePiece training units without adding, removing, or reordering text."""
+    for text in texts:
+        for start in range(0, len(text), SPM_TRAINING_CHUNK_CHARACTERS):
+            yield text[start : start + SPM_TRAINING_CHUNK_CHARACTERS]
 
 
 def jsonl_rows(path):
@@ -311,7 +334,7 @@ def train_tokenizer(name, texts, budget, directory):
         import sentencepiece as spm
 
         spm.SentencePieceTrainer.train(
-            sentence_iterator=iter(texts),
+            sentence_iterator=sentencepiece_training_sentences(texts),
             model_prefix=str(directory / "sp"),
             model_type=name.removeprefix("sp_"),
             vocab_size=budget,
@@ -332,9 +355,8 @@ def train_tokenizer(name, texts, budget, directory):
             shuffle_input_sentence=False,
             input_sentence_size=0,
             num_threads=1,
-            train_extremely_large_corpus=True,
             minloglevel=2,
-            max_sentence_length=max(len(t.encode("utf-8")) for t in texts) + 1,
+            max_sentence_length=4 * SPM_TRAINING_CHUNK_CHARACTERS + 1,
         )
         model = spm.SentencePieceProcessor(model_file=str(directory / "sp.model"))
         tok = ResearchTokenizer(name, model, {model.id_to_piece(i): i for i in range(model.vocab_size())})
@@ -726,6 +748,10 @@ def validate_research_ledger(payload, identity, dataset):
                 "tokenizer training byte accounting mismatch",
             )
             require(
+                row.get("training_input") == tokenizer_training_input(row["tokenizer"]),
+                "tokenizer training input representation mismatch",
+            )
+            require(
                 type(row.get("training_wall_clock_seconds")) is float and row["training_wall_clock_seconds"] > 0.0,
                 "missing tokenizer training time",
             )
@@ -971,6 +997,7 @@ def run(args):
                 artifact=artifact,
                 artifact_hashes=artifact_hashes(output / artifact),
                 learned_merges=tok.merges,
+                training_input=tokenizer_training_input(name),
                 training_bytes=byte_totals(dataset["document_bytes"]["train"]),
                 training_wall_clock_seconds=training_seconds,
                 training_normalized_mb_per_sec=dataset["splits"]["train"][BYTE_BUDGET_FIELD]
