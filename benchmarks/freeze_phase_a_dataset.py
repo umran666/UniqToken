@@ -18,7 +18,7 @@ import shutil
 import tempfile
 from typing import Any, Iterable
 
-from huggingface_hub import HfApi, hf_hub_download
+from huggingface_hub import HfApi, get_hf_file_metadata, hf_hub_download, hf_hub_url
 
 from benchmarks.run_research_experiments import NORMALIZATION, file_hash, normalize
 
@@ -149,6 +149,14 @@ def repo_files(
     ]
     require(paths, f"no files at pinned {repo}@{revision}:{prefix}")
     return sorted(paths, key=lambda path: hashlib.sha256(path.encode()).hexdigest())
+
+
+def preflight_source_access(repo: str, revision: str, remote_path: str, token: str | None) -> None:
+    """Confirm a pinned data object is downloadable without transferring its body."""
+    metadata = get_hf_file_metadata(
+        hf_hub_url(repo, remote_path, repo_type="dataset", revision=revision), token=token, timeout=30
+    )
+    require(metadata.size is not None and metadata.size > 0, f"empty or inaccessible source: {repo}:{remote_path}")
 
 
 def source_record(
@@ -434,6 +442,29 @@ def run(args: argparse.Namespace) -> Path:
     output.parent.mkdir(parents=True, exist_ok=True)
     token = args.hf_token or os.environ.get("HF_TOKEN") or os.environ.get("HUGGING_FACE_HUB_TOKEN")
     api = HfApi(token=token)
+    madlad_files = {
+        language: repo_files(
+            api,
+            MADLAD,
+            madlad_revision,
+            f"data-v1p5/{language}",
+            filename_prefix="clean_docs_v2-",
+        )
+        for _, languages in PROSE_STRATA.values()
+        for language in languages
+    }
+    stack_files = {
+        language: repo_files(api, STACK, stack_revision, f"data/{language}") for language in CODE_LANGUAGES
+    }
+    preflight_source_access(MADLAD, madlad_revision, madlad_files["en"][0], token)
+    preflight_source_access(STACK, stack_revision, stack_files["python"][0], token)
+    for folder in ("dev", "devtest"):
+        preflight_source_access(
+            args.flores_repo,
+            flores_revision,
+            f"data/all/{folder}-00000-of-00001.parquet",
+            token,
+        )
     work = Path(tempfile.mkdtemp(prefix=f"{output.name}.partial-", dir=output.parent))
     try:
         source_files: list[dict[str, Any]] = []
@@ -454,13 +485,7 @@ def run(args: argparse.Namespace) -> Path:
         for stratum, (total, languages) in PROSE_STRATA.items():
             for language, quota in quota_by_language(total, languages).items():
                 part = work / f"train-prose-{language}.jsonl"
-                files = repo_files(
-                    api,
-                    MADLAD,
-                    madlad_revision,
-                    f"data-v1p5/{language}",
-                    filename_prefix="clean_docs_v2-",
-                )
+                files = madlad_files[language]
 
                 def records() -> Iterable[tuple[str, dict[str, Any], int]]:
                     for remote in files:
@@ -480,7 +505,7 @@ def run(args: argparse.Namespace) -> Path:
         code_total = 100 * MB
         for language, quota in quota_by_language(code_total, CODE_LANGUAGES).items():
             part = work / f"train-code-{language}.jsonl"
-            files = repo_files(api, STACK, stack_revision, f"data/{language}")
+            files = stack_files[language]
 
             def records() -> Iterable[tuple[str, dict[str, Any], int]]:
                 for remote in files:

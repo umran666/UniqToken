@@ -109,6 +109,19 @@ def test_repo_files_filters_clean_madlad_variant():
     ) == ["data-v1p5/en/clean_docs_v2-00001.jsonl.gz"]
 
 
+def test_source_preflight_checks_metadata_without_downloading(monkeypatch):
+    calls = []
+
+    def metadata(url, **kwargs):
+        calls.append((url, kwargs))
+        return SimpleNamespace(size=123)
+
+    monkeypatch.setattr(freeze, "get_hf_file_metadata", metadata)
+    freeze.preflight_source_access("example/data", "a" * 40, "data/file.parquet", "token")
+    assert calls[0][0].endswith("/datasets/example/data/resolve/" + "a" * 40 + "/data/file.parquet")
+    assert calls[0][1]["token"] == "token"
+
+
 def test_flores_all_parquet_extracts_required_languages(tmp_path):
     path = tmp_path / "dev.parquet"
     columns = {"id": pa.array([17])}
