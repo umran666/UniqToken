@@ -40,6 +40,7 @@ def test_phase_a_quotas_are_decimal_and_exact():
 def test_the_stack_allowlist_is_explicitly_permissive():
     assert {"mit", "apache-2.0", "bsd-3-clause"} <= freeze.PERMISSIVE_STACK_LICENSES
     assert not {"gpl-3.0", "proprietary", "unknown"} & freeze.PERMISSIVE_STACK_LICENSES
+    assert freeze.CODE_SOURCE_DIRECTORIES["cpp"] == "c++"
 
 
 def valid_selection_groups():

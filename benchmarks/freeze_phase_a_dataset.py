@@ -55,7 +55,18 @@ PROSE_STRATA = {
     ),
     "cyrillic_african": (80 * MB, ("ru", "uk", "bg", "sw", "yo", "am")),
 }
-CODE_LANGUAGES = ("python", "javascript", "typescript", "java", "sql", "c", "cpp", "rust", "go")
+CODE_SOURCE_DIRECTORIES = {
+    "python": "python",
+    "javascript": "javascript",
+    "typescript": "typescript",
+    "java": "java",
+    "sql": "sql",
+    "c": "c",
+    "cpp": "c++",
+    "rust": "rust",
+    "go": "go",
+}
+CODE_LANGUAGES = tuple(CODE_SOURCE_DIRECTORIES)
 FLORES_LANGUAGE_FILES = {
     "hi": "hin_Deva",
     "bn": "ben_Beng",
@@ -454,7 +465,8 @@ def run(args: argparse.Namespace) -> Path:
         for language in languages
     }
     stack_files = {
-        language: repo_files(api, STACK, stack_revision, f"data/{language}") for language in CODE_LANGUAGES
+        language: repo_files(api, STACK, stack_revision, f"data/{source_directory}")
+        for language, source_directory in CODE_SOURCE_DIRECTORIES.items()
     }
     preflight_source_access(MADLAD, madlad_revision, madlad_files["en"][0], token)
     preflight_source_access(STACK, stack_revision, stack_files["python"][0], token)
