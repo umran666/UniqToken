@@ -44,6 +44,7 @@ def manifest(tmp_path):
         "local_path": source_path.name,
         "source_file_sha256": h.file_hash(source_path),
         "license": "test",
+        "release_variant": "unit-test-v1",
     }
 
     def row(identifier, text):
@@ -75,15 +76,42 @@ def manifest(tmp_path):
                     "revision": source["revision"],
                     "url": source["url"],
                     "license": source["license"],
+                    "release_variant": source["release_variant"],
+                    "file_bytes": source_path.stat().st_size,
                 }
             ],
+            "source_revisions": {"unit_test": source["revision"]},
         },
         "splits": {},
     }
+    groups = []
     for split, text in (("train", "training text"), ("validation", "validation text"), ("test", "\u4e2d\u6587")):
         path = tmp_path / f"{split}.jsonl"
-        path.write_text(json.dumps(row(split, text)) + "\n", encoding="utf-8")
+        record = row(split, text)
+        path.write_text(json.dumps(record) + "\n", encoding="utf-8")
         data["splits"][split] = {"path": path.name, "sha256": h.file_hash(path)}
+        groups.append(
+            {
+                "split": split,
+                "dataset": source["dataset"],
+                "release_variant": source["release_variant"],
+                "language": record["language"],
+                "domain": record["domain"],
+                "documents": 1,
+                "raw_utf8_bytes": record["raw_utf8_bytes"],
+                "normalized_utf8_bytes": record["normalized_utf8_bytes"],
+            }
+        )
+    groups.sort(
+        key=lambda group: (
+            group["split"],
+            group["dataset"],
+            group["release_variant"],
+            group["language"],
+            group["domain"],
+        )
+    )
+    data["freeze"]["selection"] = {"byte_unit": "MB_decimal", "groups": groups}
     path = tmp_path / "dataset.json"
     path.write_text(json.dumps(data), encoding="utf-8")
     return path
@@ -104,6 +132,9 @@ def replace_split(manifest, split, row):
     target = manifest.parent / data["splits"][split]["path"]
     target.write_text(json.dumps(row), encoding="utf-8")
     data["splits"][split]["sha256"] = h.file_hash(target)
+    group = next(group for group in data["freeze"]["selection"]["groups"] if group["split"] == split)
+    group["raw_utf8_bytes"] = row["raw_utf8_bytes"]
+    group["normalized_utf8_bytes"] = row["normalized_utf8_bytes"]
     manifest.write_text(json.dumps(data), encoding="utf-8")
 
 
@@ -144,9 +175,15 @@ def test_normalization_and_cjk_denominator(manifest):
     assert h.token_metrics(byte_tokenizer(), docs["test"], source_utf8_bytes=6)["tokens_per_unicode_character"] == 3
 
 
-@pytest.mark.parametrize("mutation", ["byte_counts", "untracked_source"])
+@pytest.mark.parametrize("mutation", ["byte_counts", "untracked_source", "selection_accounting"])
 def test_dataset_requires_verified_document_accounting(manifest, mutation):
     data = h.read_json(manifest)
+    if mutation == "selection_accounting":
+        data["freeze"]["selection"]["groups"][0]["normalized_utf8_bytes"] += 1
+        manifest.write_text(json.dumps(data), encoding="utf-8")
+        with pytest.raises(ValueError):
+            h.load_dataset(manifest)
+        return
     target = manifest.parent / data["splits"]["train"]["path"]
     row = json.loads(target.read_text(encoding="utf-8"))
     if mutation == "byte_counts":

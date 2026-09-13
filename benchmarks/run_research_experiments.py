@@ -110,14 +110,30 @@ def load_dataset(manifest_path):
     require(
         isinstance(freeze.get("source_files"), list) and freeze["source_files"], "frozen source-file inventory required"
     )
+    require(
+        isinstance(freeze.get("source_revisions"), dict)
+        and freeze["source_revisions"]
+        and all(isinstance(value, str) and value for value in freeze["source_revisions"].values()),
+        "frozen source revisions required",
+    )
+    selection = freeze.get("selection")
+    require(
+        isinstance(selection, dict)
+        and selection.get("byte_unit") == "MB_decimal"
+        and isinstance(selection.get("groups"), list)
+        and selection["groups"],
+        "frozen selection accounting required",
+    )
     source_inventory = {}
     for source_file in freeze["source_files"]:
         require(
             isinstance(source_file, dict)
             and all(
                 isinstance(source_file.get(k), str) and source_file[k]
-                for k in ("local_path", "sha256", "dataset", "revision", "url", "license")
+                for k in ("local_path", "sha256", "dataset", "revision", "url", "license", "release_variant")
             )
+            and type(source_file.get("file_bytes")) is int
+            and source_file["file_bytes"] > 0
             and re.fullmatch(r"[0-9a-f]{64}", source_file["sha256"]) is not None
             and source_file["revision"].lower() not in {"main", "master", "latest"},
             "invalid pinned source-file inventory",
@@ -127,9 +143,11 @@ def load_dataset(manifest_path):
             local_source.is_file() and file_hash(local_source) == source_file["sha256"],
             "source file missing or hash mismatch",
         )
+        require(local_source.stat().st_size == source_file["file_bytes"], "source file byte count mismatch")
         source_inventory[(source_file["dataset"], source_file["revision"], source_file["local_path"])] = source_file
     require(set(manifest.get("splits", {})) == {"train", "validation", "test"}, "three splits required")
     docs, assignment, document_bytes, seen_ids, seen_text = {}, {}, {}, set(), set()
+    selected_groups = {}
     for split, entry in manifest["splits"].items():
         data_path = path.parent / entry["path"]
         require(file_hash(data_path) == entry.get("sha256"), f"{split} file hash mismatch")
@@ -152,7 +170,15 @@ def load_dataset(manifest_path):
                 isinstance(source, dict)
                 and all(
                     isinstance(source.get(k), str) and source[k]
-                    for k in ("dataset", "revision", "url", "local_path", "source_file_sha256", "license")
+                    for k in (
+                        "dataset",
+                        "revision",
+                        "url",
+                        "local_path",
+                        "source_file_sha256",
+                        "license",
+                        "release_variant",
+                    )
                 )
                 and source["revision"].lower() not in {"main", "master", "latest"}
                 and re.fullmatch(r"[0-9a-f]{64}", source["source_file_sha256"]) is not None,
@@ -194,7 +220,28 @@ def load_dataset(manifest_path):
                     BYTE_BUDGET_FIELD: len(text.encode("utf-8")),
                 }
             )
+            group_key = (split, source["dataset"], source["release_variant"], row["language"], row["domain"])
+            group = selected_groups.setdefault(
+                group_key,
+                {
+                    "split": split,
+                    "dataset": source["dataset"],
+                    "release_variant": source["release_variant"],
+                    "language": row["language"],
+                    "domain": row["domain"],
+                    "documents": 0,
+                    "raw_utf8_bytes": 0,
+                    "normalized_utf8_bytes": 0,
+                },
+            )
+            group["documents"] += 1
+            group["raw_utf8_bytes"] += row["raw_utf8_bytes"]
+            group["normalized_utf8_bytes"] += row["normalized_utf8_bytes"]
         require(docs[split], f"empty {split} split")
+    require(
+        selection["groups"] == [selected_groups[key] for key in sorted(selected_groups)],
+        "frozen selection accounting does not match split contents",
+    )
     dataset = {"manifest": manifest, "assignment_hash": digest(assignment), "manifest_hash": digest(manifest)}
     dataset["document_bytes"] = document_bytes
     dataset["splits"] = {

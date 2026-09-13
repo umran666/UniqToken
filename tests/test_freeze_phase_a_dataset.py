@@ -2,8 +2,11 @@
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
+import pyarrow as pa
+import pyarrow.parquet as pq
 
 from benchmarks import freeze_phase_a_dataset as freeze
 from benchmarks.run_research_experiments import file_hash, normalize
@@ -21,6 +24,8 @@ def source(tmp_path: Path) -> dict[str, str]:
         "local_path_abs": str(path),
         "sha256": file_hash(path),
         "license": "MIT",
+        "release_variant": "test-v1",
+        "file_bytes": path.stat().st_size,
     }
 
 
@@ -35,6 +40,84 @@ def test_phase_a_quotas_are_decimal_and_exact():
 def test_the_stack_allowlist_is_explicitly_permissive():
     assert {"mit", "apache-2.0", "bsd-3-clause"} <= freeze.PERMISSIVE_STACK_LICENSES
     assert not {"gpl-3.0", "proprietary", "unknown"} & freeze.PERMISSIVE_STACK_LICENSES
+
+
+def valid_selection_groups():
+    groups = []
+    for domain, (total, languages) in freeze.PROSE_STRATA.items():
+        for language, size in freeze.quota_by_language(total, languages).items():
+            groups.append(
+                {
+                    "split": "train",
+                    "dataset": freeze.MADLAD,
+                    "release_variant": "data-v1p5/clean_docs_v2",
+                    "language": language,
+                    "domain": domain,
+                    "documents": 1,
+                    "raw_utf8_bytes": size,
+                    "normalized_utf8_bytes": size,
+                }
+            )
+    for language, size in freeze.quota_by_language(100 * freeze.MB, freeze.CODE_LANGUAGES).items():
+        groups.append(
+            {
+                "split": "train",
+                "dataset": freeze.STACK,
+                "release_variant": freeze.STACK_RELEASE,
+                "language": language,
+                "domain": "code",
+                "documents": 1,
+                "raw_utf8_bytes": size,
+                "normalized_utf8_bytes": size,
+            }
+        )
+    for split in ("validation", "test"):
+        for language in freeze.FLORES_LANGUAGE_FILES:
+            groups.append(
+                {
+                    "split": split,
+                    "dataset": "facebook/flores",
+                    "release_variant": "FLORES-200/all",
+                    "language": language,
+                    "domain": "flores200",
+                    "documents": 1,
+                    "raw_utf8_bytes": 1,
+                    "normalized_utf8_bytes": 1,
+                }
+            )
+    return groups
+
+
+def test_selection_gate_enforces_quotas_and_language_coverage():
+    groups = valid_selection_groups()
+    freeze.validate_selection(groups)
+    groups[0]["normalized_utf8_bytes"] -= 1
+    with pytest.raises(ValueError, match="normalized-byte quota"):
+        freeze.validate_selection(groups)
+
+
+def test_repo_files_filters_clean_madlad_variant():
+    class FakeApi:
+        def list_repo_tree(self, *args, **kwargs):
+            return [
+                SimpleNamespace(path="data-v1p5/en/clean_docs_v2-00001.jsonl.gz", size=12),
+                SimpleNamespace(path="data-v1p5/en/noisy_docs_v2-00001.jsonl.gz", size=15),
+            ]
+
+    assert freeze.repo_files(
+        FakeApi(), "example/data", "a" * 40, "data-v1p5/en", filename_prefix="clean_docs_v2-"
+    ) == ["data-v1p5/en/clean_docs_v2-00001.jsonl.gz"]
+
+
+def test_flores_all_parquet_extracts_required_languages(tmp_path):
+    path = tmp_path / "dev.parquet"
+    columns = {"id": pa.array([17])}
+    columns.update({f"sentence_{code}": pa.array([f"text-{code}"]) for code in freeze.FLORES_LANGUAGE_FILES.values()})
+    pq.write_table(pa.table(columns), path)
+    rows = list(freeze.flores_records({"local_path_abs": str(path)}))
+    assert len(rows) == len(freeze.FLORES_LANGUAGE_FILES)
+    assert ("hi", "text-hin_Deva", 17) in rows
+    assert ("am", "text-amh_Ethi", 17) in rows
 
 
 @pytest.mark.parametrize("revision", ["main", "v1.3", "a" * 39, "A" * 40])
@@ -57,7 +140,7 @@ def test_append_exact_records_provenance_and_byte_fields(tmp_path):
         [("abc def", source(tmp_path), 7)], 4, output, language="en", domain="latin_english"
     )
     row = json.loads(output.read_text(encoding="utf-8"))
-    assert stats == {"documents": 1, "normalized_utf8_bytes": 4}
+    assert stats == {"documents": 1, "raw_utf8_bytes": 4, "normalized_utf8_bytes": 4}
     assert row["text"] == "abc "
     assert row["raw_utf8_bytes"] == 4
     assert row["normalized_utf8_bytes"] == 4

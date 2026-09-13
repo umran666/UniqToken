@@ -108,8 +108,14 @@ def json_line(record: dict[str, Any]) -> bytes:
 
 
 def copy_source(
-    repo: str, revision: str, remote_path: str, work: Path, license_name: str, token: str | None
-) -> dict[str, str]:
+    repo: str,
+    revision: str,
+    remote_path: str,
+    work: Path,
+    license_name: str,
+    release_variant: str,
+    token: str | None,
+) -> dict[str, Any]:
     """Download one immutable source file into the future manifest directory."""
     local_dir = work / "sources" / repo.replace("/", "--") / revision
     downloaded = Path(
@@ -123,17 +129,23 @@ def copy_source(
         "revision": revision,
         "url": source_url(repo, revision, remote_path),
         "license": license_name,
+        "release_variant": release_variant,
         "remote_path": remote_path,
+        "file_bytes": downloaded.stat().st_size,
     }
 
 
-def repo_files(api: HfApi, repo: str, revision: str, prefix: str) -> list[str]:
+def repo_files(
+    api: HfApi, repo: str, revision: str, prefix: str, *, filename_prefix: str | None = None
+) -> list[str]:
     paths = [
         entry.path
         for entry in api.list_repo_tree(
             repo, repo_type="dataset", revision=revision, path_in_repo=prefix, recursive=False
         )
-        if hasattr(entry, "size") and getattr(entry, "size")
+        if hasattr(entry, "size")
+        and getattr(entry, "size")
+        and (filename_prefix is None or Path(entry.path).name.startswith(filename_prefix))
     ]
     require(paths, f"no files at pinned {repo}@{revision}:{prefix}")
     return sorted(paths, key=lambda path: hashlib.sha256(path.encode()).hexdigest())
@@ -145,7 +157,7 @@ def source_record(
     identifier: str,
     language: str,
     domain: str,
-    source: dict[str, str],
+    source: dict[str, Any],
     source_record: int,
     truncated: bool,
 ) -> dict[str, Any]:
@@ -186,10 +198,10 @@ def normalized_prefix(text: str, maximum: int) -> str | None:
 
 
 def append_exact(
-    records: Iterable[tuple[str, dict[str, str], int]], target: int, output: Path, *, language: str, domain: str
+    records: Iterable[tuple[str, dict[str, Any], int]], target: int, output: Path, *, language: str, domain: str
 ) -> dict[str, int]:
     """Write a quota exactly, only slicing a final source document on a character boundary."""
-    used, documents = 0, 0
+    used, raw_used, documents = 0, 0, 0
     with output.open("wb") as stream:
         for text, source, record_index in records:
             if not isinstance(text, str) or not text.strip():
@@ -214,13 +226,18 @@ def append_exact(
             )
             stream.write(json_line(record))
             used += record["normalized_utf8_bytes"]
+            raw_used += record["raw_utf8_bytes"]
             documents += 1
             if used == target:
-                return {"documents": documents, "normalized_utf8_bytes": used}
+                return {
+                    "documents": documents,
+                    "raw_utf8_bytes": raw_used,
+                    "normalized_utf8_bytes": used,
+                }
     raise ValueError(f"could not meet exact {target} normalized-byte quota for {language}/{domain}")
 
 
-def madlad_records(source: dict[str, str]) -> Iterable[tuple[str, dict[str, str], int]]:
+def madlad_records(source: dict[str, Any]) -> Iterable[tuple[str, dict[str, Any], int]]:
     with gzip.open(Path(source["local_path_abs"]), "rt", encoding="utf-8") as stream:
         for index, line in enumerate(stream):
             row = json.loads(line)
@@ -229,7 +246,7 @@ def madlad_records(source: dict[str, str]) -> Iterable[tuple[str, dict[str, str]
                 yield text, source, index
 
 
-def stack_records(source: dict[str, str]) -> Iterable[tuple[str, dict[str, str], int]]:
+def stack_records(source: dict[str, Any]) -> Iterable[tuple[str, dict[str, Any], int]]:
     import pyarrow.parquet as pq
 
     table = pq.read_table(source["local_path_abs"], columns=["content", "licenses"])
@@ -243,6 +260,20 @@ def stack_records(source: dict[str, str]) -> Iterable[tuple[str, dict[str, str],
         if not normalized_ids or not set(normalized_ids) <= PERMISSIVE_STACK_LICENSES:
             continue
         yield text, {**source, "license": ",".join(normalized_ids)}, index
+
+
+def flores_records(source: dict[str, Any]) -> Iterable[tuple[str, str, int]]:
+    """Yield language, sentence, and row index from the official `all` parquet config."""
+    import pyarrow.parquet as pq
+
+    columns = ["id", *(f"sentence_{code}" for code in FLORES_LANGUAGE_FILES.values())]
+    table = pq.read_table(source["local_path_abs"], columns=columns)
+    for row_index, row in enumerate(table.to_pylist()):
+        source_index = row.get("id", row_index)
+        for language, code in FLORES_LANGUAGE_FILES.items():
+            text = row.get(f"sentence_{code}")
+            require(isinstance(text, str) and text.strip(), f"FLORES missing {code} sentence")
+            yield language, text, source_index
 
 
 def minhash_signature(text: str) -> tuple[int, ...]:
@@ -294,9 +325,82 @@ def validate_dedup(train: Path, evaluation: list[Path]) -> None:
             )
 
 
+def selection_groups(splits: dict[str, Path]) -> list[dict[str, Any]]:
+    """Aggregate auditable selected-byte totals without discarding language/domain labels."""
+    groups: dict[tuple[str, str, str, str, str], dict[str, Any]] = {}
+    for split, path in splits.items():
+        for row in records_from_jsonl(path):
+            source = row["source"]
+            key = (split, source["dataset"], source["release_variant"], row["language"], row["domain"])
+            group = groups.setdefault(
+                key,
+                {
+                    "split": split,
+                    "dataset": source["dataset"],
+                    "release_variant": source["release_variant"],
+                    "language": row["language"],
+                    "domain": row["domain"],
+                    "documents": 0,
+                    "raw_utf8_bytes": 0,
+                    "normalized_utf8_bytes": 0,
+                },
+            )
+            group["documents"] += 1
+            group["raw_utf8_bytes"] += row["raw_utf8_bytes"]
+            group["normalized_utf8_bytes"] += row["normalized_utf8_bytes"]
+    return [groups[key] for key in sorted(groups)]
+
+
+def validate_selection(groups: list[dict[str, Any]]) -> None:
+    """Enforce the pre-registered Phase A composition before publishing a manifest."""
+    require(groups and all(group["documents"] > 0 for group in groups), "empty selected corpus group")
+    require(
+        all(group["raw_utf8_bytes"] > 0 and group["normalized_utf8_bytes"] > 0 for group in groups),
+        "selected corpus group lacks byte accounting",
+    )
+    train = [group for group in groups if group["split"] == "train"]
+    for stratum, (total, languages) in PROSE_STRATA.items():
+        selected = [group for group in train if group["domain"] == stratum]
+        require({group["language"] for group in selected} == set(languages), f"incomplete {stratum} coverage")
+        require(
+            sum(group["normalized_utf8_bytes"] for group in selected) == total,
+            f"incorrect {stratum} normalized-byte quota",
+        )
+        require(
+            all(
+                group["dataset"] == MADLAD and group["release_variant"] == "data-v1p5/clean_docs_v2"
+                for group in selected
+            ),
+            f"incorrect {stratum} source",
+        )
+    code = [group for group in train if group["domain"] == "code"]
+    require({group["language"] for group in code} == set(CODE_LANGUAGES), "incomplete code-language coverage")
+    require(sum(group["normalized_utf8_bytes"] for group in code) == 100 * MB, "incorrect code byte quota")
+    require(
+        all(group["dataset"] == STACK and group["release_variant"] == STACK_RELEASE for group in code),
+        "incorrect code source",
+    )
+    require(
+        sum(group["normalized_utf8_bytes"] for group in train if group["domain"] != "code") == 400 * MB,
+        "incorrect prose byte quota",
+    )
+    for split in ("validation", "test"):
+        evaluation = [group for group in groups if group["split"] == split]
+        require(
+            {group["language"] for group in evaluation} == set(FLORES_LANGUAGE_FILES),
+            f"incomplete FLORES-200 {split} coverage",
+        )
+        require(
+            all(group["domain"] == "flores200" and group["release_variant"] == "FLORES-200/all" for group in evaluation),
+            f"incorrect FLORES-200 {split} source",
+        )
+
+
 def build_manifest(
-    work: Path, source_files: list[dict[str, str]], splits: dict[str, Path], *, revisions: dict[str, str]
+    work: Path, source_files: list[dict[str, Any]], splits: dict[str, Path], *, revisions: dict[str, str]
 ) -> dict[str, Any]:
+    groups = selection_groups(splits)
+    validate_selection(groups)
     return {
         "schema_version": 2,
         "dataset_id": "phase-a-madlad400-data-v1p5-clean-docs-v2-the-stack-v1p3-flores200",
@@ -313,6 +417,7 @@ def build_manifest(
                 "code_normalized_utf8_bytes": 100 * MB,
                 "byte_unit": "MB_decimal",
                 "flores_devtest_role": "test_only",
+                "groups": groups,
             },
         },
         "splits": {name: {"path": path.name, "sha256": file_hash(path)} for name, path in splits.items()},
@@ -326,17 +431,20 @@ def run(args: argparse.Namespace) -> Path:
     require(args.stack_release == STACK_RELEASE, f"Phase A requires The Stack release {STACK_RELEASE}")
     output = Path(args.output).resolve()
     require(not output.exists(), "refuse to overwrite a frozen dataset directory")
+    output.parent.mkdir(parents=True, exist_ok=True)
     token = args.hf_token or os.environ.get("HF_TOKEN") or os.environ.get("HUGGING_FACE_HUB_TOKEN")
     api = HfApi(token=token)
     work = Path(tempfile.mkdtemp(prefix=f"{output.name}.partial-", dir=output.parent))
     try:
-        source_files: list[dict[str, str]] = []
-        source_by_key: dict[tuple[str, str], dict[str, str]] = {}
+        source_files: list[dict[str, Any]] = []
+        source_by_key: dict[tuple[str, str], dict[str, Any]] = {}
 
-        def get_source(repo: str, revision: str, remote_path: str, license_name: str) -> dict[str, str]:
+        def get_source(
+            repo: str, revision: str, remote_path: str, license_name: str, release_variant: str
+        ) -> dict[str, Any]:
             key = (repo, remote_path)
             if key not in source_by_key:
-                source = copy_source(repo, revision, remote_path, work, license_name, token)
+                source = copy_source(repo, revision, remote_path, work, license_name, release_variant, token)
                 source["local_path_abs"] = str(work / source["local_path"])
                 source_by_key[key] = source
                 source_files.append({k: v for k, v in source.items() if k != "local_path_abs"})
@@ -346,11 +454,25 @@ def run(args: argparse.Namespace) -> Path:
         for stratum, (total, languages) in PROSE_STRATA.items():
             for language, quota in quota_by_language(total, languages).items():
                 part = work / f"train-prose-{language}.jsonl"
-                files = repo_files(api, MADLAD, madlad_revision, f"data-v1p5/{language}")
+                files = repo_files(
+                    api,
+                    MADLAD,
+                    madlad_revision,
+                    f"data-v1p5/{language}",
+                    filename_prefix="clean_docs_v2-",
+                )
 
-                def records() -> Iterable[tuple[str, dict[str, str], int]]:
+                def records() -> Iterable[tuple[str, dict[str, Any], int]]:
                     for remote in files:
-                        yield from madlad_records(get_source(MADLAD, madlad_revision, remote, MADLAD_LICENSE))
+                        yield from madlad_records(
+                            get_source(
+                                MADLAD,
+                                madlad_revision,
+                                remote,
+                                MADLAD_LICENSE,
+                                "data-v1p5/clean_docs_v2",
+                            )
+                        )
 
                 append_exact(records(), quota, part, language=language, domain=stratum)
                 train_parts.append(part)
@@ -360,9 +482,11 @@ def run(args: argparse.Namespace) -> Path:
             part = work / f"train-code-{language}.jsonl"
             files = repo_files(api, STACK, stack_revision, f"data/{language}")
 
-            def records() -> Iterable[tuple[str, dict[str, str], int]]:
+            def records() -> Iterable[tuple[str, dict[str, Any], int]]:
                 for remote in files:
-                    yield from stack_records(get_source(STACK, stack_revision, remote, STACK_LICENSE))
+                    yield from stack_records(
+                        get_source(STACK, stack_revision, remote, STACK_LICENSE, args.stack_release)
+                    )
 
             append_exact(records(), quota, part, language=language, domain="code")
             train_parts.append(part)
@@ -376,26 +500,29 @@ def run(args: argparse.Namespace) -> Path:
         splits: dict[str, Path] = {"train": train}
         for split, folder in (("validation", "dev"), ("test", "devtest")):
             target = work / f"{split}.jsonl"
+            remote = f"data/all/{folder}-00000-of-00001.parquet"
+            source = get_source(
+                args.flores_repo,
+                flores_revision,
+                remote,
+                args.flores_license,
+                "FLORES-200/all",
+            )
             with target.open("wb") as stream:
-                for language, flores_code in FLORES_LANGUAGE_FILES.items():
-                    remote = f"{folder}/{flores_code}.{folder}"
-                    source = get_source(args.flores_repo, flores_revision, remote, args.flores_license)
-                    for index, text in enumerate(
-                        Path(source["local_path_abs"]).read_text(encoding="utf-8").splitlines()
-                    ):
-                        stream.write(
-                            json_line(
-                                source_record(
-                                    text,
-                                    identifier=f"{args.flores_repo}:{remote}:{index}",
-                                    language=language,
-                                    domain="flores200",
-                                    source=source,
-                                    source_record=index,
-                                    truncated=False,
-                                )
+                for language, text, index in flores_records(source):
+                    stream.write(
+                        json_line(
+                            source_record(
+                                text,
+                                identifier=f"{args.flores_repo}:{remote}:{language}:{index}",
+                                language=language,
+                                domain="flores200",
+                                source=source,
+                                source_record=index,
+                                truncated=False,
                             )
                         )
+                    )
             splits[split] = target
 
         validate_dedup(train, [splits["validation"], splits["test"]])

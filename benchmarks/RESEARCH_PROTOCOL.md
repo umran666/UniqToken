@@ -93,7 +93,9 @@ Provide a manifest (paths relative to the manifest):
   "normalization": "NFKC_unicode_spaces_v1",
   "freeze": {
     "immutable": true,
-    "source_files": [{"local_path": "sources/...", "sha256": "actual SHA-256", "dataset": "pinned dataset", "revision": "immutable commit", "url": "pinned source URL", "license": "applicable license"}]
+    "source_files": [{"local_path": "sources/...", "sha256": "actual SHA-256", "file_bytes": 123, "dataset": "pinned dataset", "revision": "immutable commit", "release_variant": "release or variant", "url": "pinned source URL", "license": "applicable license"}],
+    "source_revisions": {"dataset": "immutable commit"},
+    "selection": {"byte_unit": "MB_decimal", "groups": [{"split": "train", "dataset": "pinned dataset", "release_variant": "release or variant", "language": "en", "domain": "latin_english", "documents": 1, "raw_utf8_bytes": 21, "normalized_utf8_bytes": 21}]}
   },
   "splits": {
     "train": {"path": "train.jsonl", "sha256": "actual file SHA-256"},
@@ -106,7 +108,8 @@ Provide a manifest (paths relative to the manifest):
 The runner verifies source-file hashes, nonempty splits, globally unique IDs,
 document byte counts, source provenance, and no duplicate normalized documents
 within or across splits. Ordering is fingerprinted. It accepts only immutable,
-local source inventories; no experiment-time network fetching occurs. Split before
+local source inventories and recomputes every per-language/domain selection group;
+no experiment-time network fetching occurs. Split before
 tokenizer training and freeze language/domain assignments externally.
 
 Each split and ordered document entry records both `source_utf8_bytes` (the
