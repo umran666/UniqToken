@@ -332,6 +332,7 @@ def train_tokenizer(name, texts, budget, directory):
             shuffle_input_sentence=False,
             input_sentence_size=0,
             num_threads=1,
+            train_extremely_large_corpus=True,
             minloglevel=2,
             max_sentence_length=max(len(t.encode("utf-8")) for t in texts) + 1,
         )

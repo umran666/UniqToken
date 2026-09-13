@@ -175,6 +175,21 @@ def test_normalization_and_cjk_denominator(manifest):
     assert h.token_metrics(byte_tokenizer(), docs["test"], source_utf8_bytes=6)["tokens_per_unicode_character"] == 3
 
 
+def test_sentencepiece_training_uses_large_corpus_integer_width(monkeypatch, tmp_path):
+    import sentencepiece as spm
+
+    seen = {}
+
+    def capture(**kwargs):
+        seen.update(kwargs)
+        raise RuntimeError("captured trainer configuration")
+
+    monkeypatch.setattr(spm.SentencePieceTrainer, "train", capture)
+    with pytest.raises(RuntimeError, match="captured trainer configuration"):
+        h.train_tokenizer("sp_unigram", ["training text"], 384, tmp_path / "sp")
+    assert seen["train_extremely_large_corpus"] is True
+
+
 @pytest.mark.parametrize("separator", ["\u0085", "\u2028", "\u2029"])
 def test_dataset_jsonl_allows_embedded_unicode_line_separators(manifest, separator):
     replace_split(manifest, "test", {"id": "test", "text": f"a{separator}b"})
