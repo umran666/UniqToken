@@ -162,6 +162,36 @@ def test_append_exact_records_provenance_and_byte_fields(tmp_path):
     assert row["dedup"]["status"] == "accepted_after_exact_and_near_eval_check"
 
 
+def test_completed_partition_and_sources_can_resume(tmp_path):
+    work = tmp_path / "freeze.partial-test"
+    work.mkdir()
+    pinned = source(work)
+    part = work / "train-prose-en.jsonl"
+    freeze.append_exact([("abcd", pinned, 0)], 4, part, language="en", domain="latin_english")
+    assert freeze.completed_part(part, 4, language="en", domain="latin_english")
+    resumed = freeze.resume_sources(part, work)
+    assert len(resumed) == 1
+    assert resumed[0]["sha256"] == pinned["sha256"]
+    assert resumed[0]["local_path_abs"] == str(work / pinned["local_path"])
+
+
+def test_copy_source_reuses_existing_pinned_file(tmp_path, monkeypatch):
+    work = tmp_path / "freeze.partial-test"
+    local = work / "sources" / "example--data" / ("a" * 40) / "data" / "source.txt"
+    local.parent.mkdir(parents=True)
+    local.write_text("already downloaded", encoding="utf-8")
+    monkeypatch.setattr(
+        freeze,
+        "hf_hub_download",
+        lambda *args, **kwargs: pytest.fail("existing source must not be downloaded again"),
+    )
+    result = freeze.copy_source(
+        "example/data", "a" * 40, "data/source.txt", work, "MIT", "v1", token=None
+    )
+    assert result["sha256"] == file_hash(local)
+    assert result["file_bytes"] == local.stat().st_size
+
+
 def write_rows(path: Path, texts: list[str]) -> None:
     path.write_text(
         "".join(json.dumps({"text": text}, ensure_ascii=False) + "\n" for text in texts), encoding="utf-8"

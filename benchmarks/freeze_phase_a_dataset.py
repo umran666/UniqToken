@@ -14,7 +14,7 @@ import json
 import os
 from pathlib import Path
 import re
-import shutil
+import sys
 import tempfile
 from typing import Any, Iterable
 
@@ -129,8 +129,20 @@ def copy_source(
 ) -> dict[str, Any]:
     """Download one immutable source file into the future manifest directory."""
     local_dir = work / "sources" / repo.replace("/", "--") / revision
-    downloaded = Path(
-        hf_hub_download(repo, remote_path, repo_type="dataset", revision=revision, local_dir=local_dir, token=token)
+    existing = local_dir / remote_path
+    downloaded = (
+        existing
+        if existing.is_file()
+        else Path(
+            hf_hub_download(
+                repo,
+                remote_path,
+                repo_type="dataset",
+                revision=revision,
+                local_dir=local_dir,
+                token=token,
+            )
+        )
     )
     relative = downloaded.relative_to(work).as_posix()
     return {
@@ -254,6 +266,51 @@ def append_exact(
                     "normalized_utf8_bytes": used,
                 }
     raise ValueError(f"could not meet exact {target} normalized-byte quota for {language}/{domain}")
+
+
+def completed_part(path: Path, target: int, *, language: str, domain: str) -> bool:
+    """Validate a resumable partition; incomplete partitions may be regenerated."""
+    if not path.is_file() or path.stat().st_size == 0:
+        return False
+    total = 0
+    for row in records_from_jsonl(path):
+        require(row.get("language") == language and row.get("domain") == domain, "resumed partition metadata mismatch")
+        text = row.get("text")
+        require(isinstance(text, str), "resumed partition contains invalid text")
+        require(
+            row.get("raw_utf8_bytes") == len(text.encode("utf-8"))
+            and row.get("normalized_utf8_bytes") == len(normalize(text).encode("utf-8")),
+            "resumed partition byte accounting mismatch",
+        )
+        total += row["normalized_utf8_bytes"]
+    require(total <= target, "resumed partition exceeds its normalized-byte quota")
+    return total == target
+
+
+def resume_sources(path: Path, work: Path) -> list[dict[str, Any]]:
+    """Recover and verify the source inventory referenced by a completed partition."""
+    sources: dict[tuple[str, str], dict[str, Any]] = {}
+    for row in records_from_jsonl(path):
+        recorded = row["source"]
+        key = (recorded["dataset"], recorded["remote_path"])
+        if key in sources:
+            continue
+        local = work / recorded["local_path"]
+        require(local.is_file(), "resumed source file is missing")
+        require(file_hash(local) == recorded["source_file_sha256"], "resumed source hash mismatch")
+        sources[key] = {
+            "local_path": recorded["local_path"],
+            "local_path_abs": str(local),
+            "sha256": recorded["source_file_sha256"],
+            "dataset": recorded["dataset"],
+            "revision": recorded["revision"],
+            "url": recorded["url"],
+            "license": STACK_LICENSE if recorded["dataset"] == STACK else recorded["license"],
+            "release_variant": recorded["release_variant"],
+            "remote_path": recorded["remote_path"],
+            "file_bytes": local.stat().st_size,
+        }
+    return list(sources.values())
 
 
 def madlad_records(source: dict[str, Any]) -> Iterable[tuple[str, dict[str, Any], int]]:
@@ -477,10 +534,29 @@ def run(args: argparse.Namespace) -> Path:
             f"data/all/{folder}-00000-of-00001.parquet",
             token,
         )
-    work = Path(tempfile.mkdtemp(prefix=f"{output.name}.partial-", dir=output.parent))
+    if args.resume_partial is None:
+        work = Path(tempfile.mkdtemp(prefix=f"{output.name}.partial-", dir=output.parent))
+    else:
+        work = Path(args.resume_partial).resolve()
+        require(
+            work.is_dir()
+            and work.parent == output.parent
+            and work.name.startswith(f"{output.name}.partial-")
+            and not (work / "manifest.json").exists(),
+            "resume directory is not a valid unpublished freeze staging directory",
+        )
     try:
         source_files: list[dict[str, Any]] = []
         source_by_key: dict[tuple[str, str], dict[str, Any]] = {}
+
+        def register_source(source: dict[str, Any]) -> dict[str, Any]:
+            key = (source["dataset"], source["remote_path"])
+            previous = source_by_key.get(key)
+            require(previous is None or previous["sha256"] == source["sha256"], "conflicting resumed source")
+            if previous is None:
+                source_by_key[key] = source
+                source_files.append({k: v for k, v in source.items() if k != "local_path_abs"})
+            return source_by_key[key]
 
         def get_source(
             repo: str, revision: str, remote_path: str, license_name: str, release_variant: str
@@ -489,8 +565,7 @@ def run(args: argparse.Namespace) -> Path:
             if key not in source_by_key:
                 source = copy_source(repo, revision, remote_path, work, license_name, release_variant, token)
                 source["local_path_abs"] = str(work / source["local_path"])
-                source_by_key[key] = source
-                source_files.append({k: v for k, v in source.items() if k != "local_path_abs"})
+                register_source(source)
             return source_by_key[key]
 
         train_parts: list[Path] = []
@@ -498,6 +573,12 @@ def run(args: argparse.Namespace) -> Path:
             for language, quota in quota_by_language(total, languages).items():
                 part = work / f"train-prose-{language}.jsonl"
                 files = madlad_files[language]
+
+                if completed_part(part, quota, language=language, domain=stratum):
+                    for source in resume_sources(part, work):
+                        register_source(source)
+                    train_parts.append(part)
+                    continue
 
                 def records() -> Iterable[tuple[str, dict[str, Any], int]]:
                     for remote in files:
@@ -518,6 +599,12 @@ def run(args: argparse.Namespace) -> Path:
         for language, quota in quota_by_language(code_total, CODE_LANGUAGES).items():
             part = work / f"train-code-{language}.jsonl"
             files = stack_files[language]
+
+            if completed_part(part, quota, language=language, domain="code"):
+                for source in resume_sources(part, work):
+                    register_source(source)
+                train_parts.append(part)
+                continue
 
             def records() -> Iterable[tuple[str, dict[str, Any], int]]:
                 for remote in files:
@@ -578,7 +665,7 @@ def run(args: argparse.Namespace) -> Path:
         os.replace(work, output)
         return output / "manifest.json"
     except Exception:
-        shutil.rmtree(work, ignore_errors=True)
+        print(f"freeze staging preserved for validated resume: {work}", file=sys.stderr)
         raise
 
 
@@ -592,6 +679,7 @@ def main() -> None:
     parser.add_argument("--flores-revision", required=True)
     parser.add_argument("--flores-license", required=True)
     parser.add_argument("--hf-token", default=None)
+    parser.add_argument("--resume-partial", type=Path, default=None)
     print(run(parser.parse_args()))
 
 
