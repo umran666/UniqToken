@@ -904,3 +904,16 @@ def test_old_or_ambiguous_accounting_schema_rejected(staged, field):
     a["metadata"][field] = 1 if field == "research_schema_version" else "utf8_bytes"
     with pytest.raises(ValueError):
         h.validate_research_ledger(a, identity, a["metadata"]["dataset"])
+
+
+def test_token_metrics_reads_nested_custom_model_id_mapping():
+    class Inner:
+        id_to_token = {4: "a", 5: "<0xFF>"}
+
+    class Outer:
+        model = Inner()
+
+    tok = h.ResearchTokenizer("uniq_unigram", Outer(), {"a": 4, "<0xFF>": 5})
+    tok.encode = lambda text: [4, 5]
+    metric = h.token_metrics(tok, ["a"], source_utf8_bytes=1)
+    assert metric["byte_fallback_tokens"] == 1

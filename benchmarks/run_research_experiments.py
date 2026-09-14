@@ -374,7 +374,11 @@ class ResearchTokenizer:
     def piece_for_id(self, token_id):
         if self.name.startswith("sp_") and hasattr(self.model, "id_to_piece"):
             return self.model.id_to_piece(token_id)
-        return self.model.id_to_token[token_id]
+        id_to_token = getattr(self.model, "id_to_token", None)
+        if id_to_token is None:
+            id_to_token = getattr(getattr(self.model, "model", None), "id_to_token", None)
+        require(id_to_token is not None, f"{self.name}: model has no ID-to-token mapping")
+        return id_to_token[token_id]
 
 
 def validate_tokenizer(tok, budget):
