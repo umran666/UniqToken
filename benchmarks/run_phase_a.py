@@ -173,6 +173,7 @@ def validate_stage_ledger(ledger, identity, source, output, stage, conditions):
     rows = ledger.get("records", [])
     research.require(len(rows) == len(conditions), "incomplete Phase A stage ledger")
     for row, expected in zip(rows, conditions):
+        research.require("migration" not in row or stage == "A-SCREEN", "migrated conditions are screening-only")
         research.require(row.get("result_label") == metadata["result_label"], "stage result label mismatch")
         _validate_condition(row, expected, identity, source, metadata["training"], metadata["validation"], output)
     return ledger
@@ -193,6 +194,12 @@ def write_selection(screening_path, output, dataset_path):
 
 
 def _validate_condition(row, expected, identity, source, training, validation, output):
+    if "migration" in row:
+        from benchmarks.phase_a_migrate import validate_migrated
+
+        validate_migrated(row, expected, identity, source, training, validation, output)
+        # Training identity stays original; current evaluation identity is checked above.
+        identity = row["migration"]["original_plan"]["identity"]
     name, vocab = expected
     research.require((row.get("tokenizer"), row.get("vocab_budget")) == expected, "condition mismatch")
     research.require(row.get("actual_vocab_size") == vocab, "vocabulary target mismatch")
@@ -239,7 +246,7 @@ def _stage_plan(stage, identity, source, training, validation, conditions, selec
     }
 
 
-def run_stage(args):
+def prepare_stage(args):
     stage = args.stage
     research.require(stage in ("A-SCREEN", "A-CONFIRM"), "invalid Phase A stage")
     train_rows, full_train, validation_rows, full_validation, source = load_stage_source(args.dataset)
@@ -295,6 +302,14 @@ def run_stage(args):
         "assignment_hash": research.digest([research.digest(text) for text in validation_texts]),
     }
     plan = _stage_plan(stage, identity, source, training, validation, conditions, selection)
+    return plan, training_texts, validation_texts, conditions
+
+
+def run_stage(args):
+    plan, training_texts, validation_texts, conditions = prepare_stage(args)
+    identity, source = plan["identity"], plan["dataset"]
+    training, validation = plan["training"], plan["validation"]
+    stage = plan["stage"]
     output = Path(args.output)
     if output.exists():
         research.require(args.resume and output.is_dir(), "output exists; use --resume for an incomplete stage")
@@ -310,7 +325,8 @@ def run_stage(args):
         index = int(path.stem.split("-")[1])
         research.require(index < len(conditions) and index not in existing, "unexpected condition index")
         envelope = research.read_json(path)
-        research.require(envelope.get("status") == "condition_complete", "incomplete condition")
+        expected_status = "condition_revalidated" if "migration" in envelope.get("record", {}) else "condition_complete"
+        research.require(envelope.get("status") == expected_status, "incomplete condition")
         existing[index] = _validate_condition(envelope["record"], conditions[index], identity, source, training, validation, output)
     records = []
     for index, (name, vocab) in enumerate(conditions):
@@ -363,8 +379,17 @@ def main():
     select.add_argument("--dataset", type=Path, required=True)
     select.add_argument("--screening", type=Path, required=True)
     select.add_argument("--output", type=Path, required=True)
+    migrate_parser = subparsers.add_parser("phase-a-migrate", help="Revalidate approved saved screening tokenizers")
+    migrate_parser.add_argument("--source", type=Path, required=True)
+    migrate_parser.add_argument("--output", type=Path, required=True)
+    migrate_parser.add_argument("--dataset", type=Path, required=True)
+    migrate_parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
-    if args.command == "select":
+    if args.command == "phase-a-migrate":
+        from benchmarks.phase_a_migrate import migrate
+
+        print(json.dumps(migrate(args), indent=2))
+    elif args.command == "select":
         write_selection(args.screening, args.output, args.dataset)
     else:
         run_stage(args)

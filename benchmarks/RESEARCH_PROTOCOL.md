@@ -295,6 +295,78 @@ files, but no complete ledger is written. `--resume` consumes only conditions th
 match the current plan, code/build identity, dataset, tokenizer configuration,
 budget, metrics, and artifacts. Any mismatch aborts.
 
+### Narrow A-SCREEN provenance migration exception
+
+`python -m benchmarks.run_phase_a phase-a-migrate --source SOURCE --output NEW_OUTPUT
+--dataset FROZEN_MANIFEST [--dry-run]` revalidates saved tokenizer artifacts without
+training. It is restricted to completed SentencePiece Unigram, SentencePiece BPE,
+and Boundary-BPE A-SCREEN conditions trained at commit
+`996536ba0c3b27560bc6c6b4abfabb11d0f9ab74`. It does not accept A-CONFIRM, LM Phase B/C,
+UniqToken conditions, chained migrations, or an existing output directory.
+
+Migration policy `screen_sp_boundary_metric_accessor_v1` approves the exact
+`ResearchTokenizer.piece_for_id` correction introduced in `f4d43c1`: read either a
+direct model ID map or the nested CustomTokenizer model ID map. It also approves
+the exact reviewed stage-runner integration blob pinned in `phase_a_migrate.py`.
+Only the migration module, its regression tests, the accessor regression tests,
+and this protocol document are additional permitted support files. All other Git
+tree entries must match the original commit. An arbitrary edit in an approved
+filename is insufficient: runtime files must match the pinned Git blob hashes.
+Any new runtime change requires a new reviewed policy, not a CLI override. The
+policy implementation is trusted verifier code and must be reviewed and committed.
+
+Both old and current worktrees must have recorded clean identities. The original
+source hash is checked against its Git tree; the current source hash must match
+its committed tree. Dependency/Python versions and the extension binary hash must
+match exactly. Frozen manifest, split hashes, normalization, complete condition
+grid, training and screening-validation assignments, tokenizer configuration,
+special-token IDs, exact vocabulary budget and model hashes must match. The saved
+model is loaded and its actual vocabulary and byte/special-token accounting checked.
+Neither FLORES devtest nor the confirmation validation partition is evaluated.
+
+The command copies the original plan and condition JSON bytes into `originals/`
+in a new output directory and verifies copied tokenizer artifacts. It recomputes
+screening-validation metrics using the current metric implementation. Original
+records and artifacts remain untouched. A new `condition_revalidated` envelope
+retains the original `git_commit`, extension/dataset/configuration/artifact hashes,
+vocabulary, special-token configuration and training time/throughput. Its
+`record.migration` object records schema version 1, explicit `trained_commit` and
+`revalidated_commit`, UTC timestamp, full current runtime identity, approval policy,
+original plan, and SHA-256 links to the byte-preserved original evidence. Thus
+TRAINED and REVALIDATED are distinct events; current metrics never imply retraining.
+
+Dry-run validates eligibility and loads/hashes saved models, but does not evaluate,
+train, write outputs, or produce results. Actual migration writes each new condition
+atomically and publishes the new plan only after every selected condition succeeds.
+A failed partial migration cannot be resumed as an experiment; retain it as failed
+evidence and retry into another new directory. No ledger is written by migration.
+`screen --resume` against the migrated directory verifies the lineage and skips
+only the migrated conditions; missing conditions train normally under the current
+commit. The final ledger is written only after all 15 conditions pass validation.
+Final ledger validation rechecks migration evidence; migrated conditions are
+accepted only in A-SCREEN. This exception does not migrate LM ledgers or bypass
+provenance. Any field or code change outside the rule requires a fresh experiment.
+
+For the nine saved Modal conditions, first retrieve `/screen-linux-001` from volume
+`uniqtoken-screen-results-996536b`, including its plan, nine condition JSON files
+and model directories. Preserve that directory unchanged. Commit the reviewed
+migration harness, then use a Linux runtime matching the original Python/dependency
+versions and extension hash (the Windows installation will not qualify). Use local
+container disk for atomic hard-link publication, and explicitly persist the output,
+including `originals/`, to Modal storage. The existing Modal deployment wrapper
+must be updated to retain/restore this evidence before it can resume migrated runs.
+
+```bash
+python -m benchmarks.run_phase_a phase-a-migrate --source /frozen-results/screen-linux-001 --output /work/screen-revalidated --dataset /frozen/manifest.json --dry-run
+python -m benchmarks.run_phase_a phase-a-migrate --source /frozen-results/screen-linux-001 --output /work/screen-revalidated --dataset /frozen/manifest.json
+# Separate, explicitly authorized experiment action after successful revalidation:
+python -m benchmarks.run_phase_a screen --resume --dataset /frozen/manifest.json --output /work/screen-revalidated
+```
+
+These commands are instructions, not experiments performed while implementing the
+migration mechanism. Training metrics retain their original measurements and are
+never recomputed, relabeled as current training, or manually adjusted.
+
 PowerShell commands, from the repository root, after choosing immutable source
 commits and a licensed FLORES-200 source:
 
