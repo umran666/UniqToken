@@ -66,3 +66,17 @@ def test_gzip_reader_uses_exact_record_index(tmp_path):
 def test_resource_bound_does_not_relax_quota():
     with pytest.raises(ValueError, match="declared bound"):
         w.select_exact([record("a" * (w.MAX_TARGET + 2))], 1)
+
+
+def test_tail_can_fill_exact_quota_with_additional_whole_source(monkeypatch):
+    monkeypatch.setattr(w, "MAX_TARGET", 8)
+    rows = [w.restored_record(record(s), s) for s in ["aaaaaa", "bbbb"]]
+    extra = w.restored_record(record("ccc"), "ccc")
+    chosen, _ = w.select_whole_tail(rows, 9, lambda: iter([extra]))
+    assert [r["text"] for r in chosen] == ["aaaaaa", "ccc"]
+
+
+def test_tail_excludes_exact_duplicate_candidates():
+    row = w.restored_record(record("aaa"), "aaa")
+    with pytest.raises(ValueError, match="no exact whole-record tail"):
+        w.select_whole_tail([row], 6, lambda: iter([copy.deepcopy(row)]))

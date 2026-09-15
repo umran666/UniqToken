@@ -20,7 +20,8 @@ import subprocess
 from tools import phase_b_exposure as base
 from tools.phase_b_exact_exposure import subset_indices, MAX_TARGET, MAX_DOCUMENTS
 
-POLICY = "restore_upstream_then_exact_whole_record_removal_v1"
+POLICY = "whole_upstream_prefix_exact_tail_v2"
+TAIL_CANDIDATES = 2048
 
 
 def restored_record(row, text):
@@ -82,6 +83,45 @@ def upstream_rows(path, wanted):
                     return
 
 
+def select_whole_tail(rows, quota, additions):
+    """Retain a whole-record prefix, solve its bounded residual over whole records."""
+    prefix, candidates, used = [], [], 0
+    for row in rows:
+        size = row["normalized_utf8_bytes"]
+        if quota - used > MAX_TARGET and used + size <= quota:
+            prefix.append(row)
+            used += size
+        else:
+            candidates.append(row)
+    target = quota - used
+    base.require(0 <= target <= MAX_TARGET, "whole-record tail target exceeds search bound")
+    if not target:
+        return prefix, {"tail_target": 0, "candidate_count": 0}
+    seen = {r["whole_record_provenance"]["upstream_text_sha256"] for r in prefix}
+    eligible = []
+
+    def consider(row):
+        digest = row["whole_record_provenance"]["upstream_text_sha256"]
+        size = row["normalized_utf8_bytes"]
+        if digest not in seen and 0 < size <= target:
+            seen.add(digest)
+            eligible.append(row)
+
+    for row in candidates:
+        consider(row)
+    for row in additions():
+        if len(eligible) >= TAIL_CANDIDATES:
+            break
+        consider(row)
+    base.require(len(eligible) <= MAX_DOCUMENTS, "tail candidate bound exceeded")
+    indices, dimensions = subset_indices([r["normalized_utf8_bytes"] for r in eligible], target)
+    base.require(indices is not None, "no exact whole-record tail subset in pinned sources")
+    selected = prefix + [eligible[i] for i in indices]
+    base.require(sum(r["normalized_utf8_bytes"] for r in selected) == quota, "tail quota mismatch")
+    return selected, {"tail_target": target, **dimensions,
+                      "candidate_ids": [r["id"] for r in eligible]}
+
+
 def regenerate(args):
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=False)
@@ -133,12 +173,36 @@ def regenerate(args):
             by_stratum[row["domain"], row["language"]].append(row)
         base.require(set(by_stratum) == set(quotas) and len(quotas) == 30, "stratum mismatch")
         for key, group in by_stratum.items():
-            chosen, removed = select_exact(group, quotas[key])
+            def additions():
+                known = {(r["source"]["local_path"], r["source"]["source_record"]) for r in group}
+                paths = list(dict.fromkeys(r["source"]["local_path"] for r in group))
+                # Same cached shard order and upstream record order as the freezer.
+                for local in paths:
+                    last_historical = max(index for path, index in known if path == local)
+                    source = {**inventory[local], "local_path_abs": str(root / local)}
+                    if source["dataset"] == freezer.MADLAD:
+                        iterator = freezer.madlad_records(source)
+                    else:
+                        license_entry = next(s for s in inventory.values() if s["local_path"].endswith("/licenses.json"))
+                        license_path = root / license_entry["local_path"]
+                        base.require(base.file_hash(license_path) == license_entry["sha256"], "license allowlist hash mismatch")
+                        allowlist = freezer.stack_license_allowlist({"local_path_abs": str(license_path)})
+                        iterator = freezer.stack_records(source, allowlist)
+                    for text, provenance, index in iterator:
+                        if index <= last_historical or not text.strip() or freezer.RESERVED_CORPUS_TEXT.search(text):
+                            continue
+                        row = freezer.source_record(text, identifier=f"whole:{source['dataset']}:{source['remote_path']}:{index}",
+                            language=key[1], domain=key[0], source=provenance, source_record=index, truncated=False)
+                        row = restored_record(row, text)
+                        row["whole_record_provenance"]["original_training_id"] = None
+                        yield row
+            chosen, search = select_whole_tail(group, quotas[key], additions)
             base.require(all(not freezer.RESERVED_CORPUS_TEXT.search(r["text"]) for r in chosen),
                          "restored source contains reserved corpus text")
             selected.extend(chosen)
             reports.append({"domain": key[0], "language": key[1], "quota": quotas[key],
-                            "selected_documents": len(chosen), "removed_ids": removed})
+                            "selected_documents": len(chosen), "search": search})
+            print(f"Exact whole-record quota packed: {key[0]}/{key[1]}", flush=True)
         base.publish(output / "packing.json", {"policy": POLICY, "strata": reports,
                      "restored_records": [r["whole_record_provenance"] | {"id": r["id"]}
                                           for r in restored if r["whole_record_provenance"]["original_was_truncated"]]})
