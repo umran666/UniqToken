@@ -63,7 +63,8 @@ def verify(report_path, expected_sha, snapshot, output_path):
     report = h.read_json(report_path)
     h.require(report["content_sha256"] == h.digest({k: v for k, v in report.items() if k != "content_sha256"}),
               "preflight content hash mismatch")
-    h.require(report["preflight_schema_version"] == 2, "unsupported preflight evidence schema")
+    version = report["preflight_schema_version"]
+    h.require(version in (2, 3), "unsupported preflight evidence schema")
     def check_inputs():
         h.require(h.file_hash(report_path) == expected_sha, "preflight report changed during verification")
         for path, expected in report["input_hashes"].items():
@@ -116,9 +117,21 @@ def verify(report_path, expected_sha, snapshot, output_path):
                 h.require(count == len(counts) and original["complete_document_bytes"][h.BYTE_BUDGET_FIELD] == 1_000_000,
                           "byte exposure mismatch")
             coverage = min(30, computed["fully_predicted_documents"])
+            minimum = 30 if version == 2 else 1
+            if version == 3:
+                h.require(original["coverage_policy_version"] == "flop_fixed_budget_one_complete_document_v1"
+                          and original["minimum_fully_predicted_documents"] == 1
+                          and original["fully_predicted_documents"] == computed["fully_predicted_documents"],
+                          "coverage policy/accounting mismatch")
+                h.require(original["coverage_gate"] == ("PASS" if coverage >= minimum else "BLOCKED"),
+                          "coverage gate mismatch")
+                if regime == "flops":
+                    target = report["budgets"]["flops"]
+                    h.require(original["flop_target"] == target and original["flop_tolerance"] == 0.01
+                              and original["flop_interval"] == [0.99 * target, target], "FLOP interval mismatch")
             runs[regime] = {**computed, "complete_document_bytes": original["complete_document_bytes"],
                             "coverage_documents_fully_predicted": coverage,
-                            "coverage_gate": "PASS" if coverage == 30 else "BLOCKED"}
+                            "coverage_gate": "PASS" if coverage >= minimum else "BLOCKED"}
             if coverage != original["coverage_documents_completed"]:
                 counter_notes.append({"tokenizer": record["tokenizer"], "vocab_budget": record["vocab_budget"],
                                       "regime": regime, "byte_accounted_coverage": original["coverage_documents_completed"],

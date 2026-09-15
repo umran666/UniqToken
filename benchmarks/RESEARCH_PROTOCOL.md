@@ -504,3 +504,39 @@ after all eighteen conditions validate against that locked plan. On failure the
 plan and any complete conditions remain evidence, not a complete ledger. Consumers
 must use this gate's ledger validator with the pinned selection and input evidence,
 not treat an arbitrary eighteen-row JSON as a valid screening result.
+
+### Approved coverage and upstream-record correction
+
+The fixed FLOP target remains 1e11, accepted in [0.99e11, 1e11]. Coverage is
+diagnostic: require at least one fully predicted document, and report the actual
+count for every condition. Consuming all text targets and EOS counts as a fully
+predicted document even when the stop occurs before the existing byte-prefix
+counter increments. Both counters remain explicit; larger vocabularies are not
+excluded based on a 30-document threshold. Core FLOPs and vocabulary-dependent
+output-projection FLOPs remain separate; total analytical FLOPs match the budget.
+
+The exposure with SHA-256
+`8569e8045997b20d7cafa64ea4f02394bcc8e240d7586a9365c35ea38fdc6893`
+is rejected because it includes an upstream prefix. Its historical receipts are
+preserved and do not authorize training. Regeneration restores complete source
+records from the same pinned local shards, preserves the 400 MB prose / 100 MB
+code quotas and 30 strata, and records a new manifest hash. A deterministic
+whole-record prefix and bounded exact tail search fills each source quota;
+no prefix of an upstream document is eligible. Every retained upstream record
+and source file is checked, followed by exact and existing MinHash/LSH near-
+duplicate checks within train and against evaluation, used solely for deduplication.
+An incomplete or unsuccessful attempt publishes rejection evidence only.
+
+The nine-tokenizer selection and its SHA remain historical and unchanged.
+A new source manifest explicitly links to that selection and its original source
+manifest. It changes LM training exposure, not the recorded provenance of the
+already-trained tokenizer artifacts. Validation and test split hashes remain
+unchanged. Exact 1 MB exposure construction uses the same stratum allocations,
+ranking, whole-record packing, and independent verification, with newly computed
+membership/order and hashes. Its tokenizer-only preflight must run afresh.
+
+The historical preflight implementation is committed at
+`2a6252091d0c75a107fbd35606d781714716316b`. The replacement pipeline must record
+its own tested commit and relevant file hashes. A committed historical harness
+does not by itself make the replacement pipeline launchable. Runtime and Modal
+operational verification remain subsequent gates; no GPU experiment is authorized.

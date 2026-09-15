@@ -191,7 +191,7 @@ def successful_child(attempt, mode, deadline):
         sample, reports = x.solve_all(all_strata(), b.quotas())
         b.publish(attempt / "search.json", {"all_exact": True, "strata": reports})
         b.publish(attempt / "candidate.json", {"sample": sample, "search": reports,
-                                             "provenance": {"fixture": True}})
+                                             "provenance": {"fixture": True, "source_manifest_sha256": b.SOURCE_SHA}})
     else:
         candidate = b.read_json(attempt / "candidate.json")
         x.verify_witness(all_strata(), b.quotas(), candidate["sample"])

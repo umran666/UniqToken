@@ -80,3 +80,59 @@ def test_tail_excludes_exact_duplicate_candidates():
     row = w.restored_record(record("aaa"), "aaa")
     with pytest.raises(ValueError, match="no exact whole-record tail"):
         w.select_whole_tail([row], 6, lambda: iter([copy.deepcopy(row)]))
+
+
+@pytest.fixture
+def regeneration_lineage(tmp_path):
+    source = {
+        "dataset_id": "fixture", "normalization": "NFKC_unicode_spaces_v1",
+        "freeze": {"source_revisions": {"dataset": "frozen"}},
+        "splits": {"validation": {"sha256": "v"}, "test": {"sha256": "t"}},
+        "whole_record_regeneration": {
+            "policy": w.POLICY, "historical_source_manifest_sha256": w.base.SOURCE_SHA,
+            "unchanged_selection_sha256": w.base.SELECTION_SHA,
+            "all_selected_text_verified_against_upstream": True,
+            "deduplication": "passed_existing_exact_and_minhash_lsh_train_evaluation_checks",
+        },
+    }
+    selection = {"dataset": {"dataset_id": "fixture", "normalization": source["normalization"],
+                  "source_revisions": source["freeze"]["source_revisions"],
+                  "validation_file_sha256": "v", "untouched_test_file_sha256": "t"}}
+    path = tmp_path / "manifest.json"
+    w.base.publish(path, source)
+    w.base.publish(tmp_path / "receipt.json", {"status": "whole_upstream_source_frozen",
+                   "manifest_sha256": w.base.file_hash(path)})
+    return source, path, selection
+
+
+def test_explicit_regeneration_lineage_preserves_selection(regeneration_lineage):
+    source, path, selection = regeneration_lineage
+    before = copy.deepcopy(selection)
+    w.base.validate_regenerated_source(source, path, selection)
+    assert selection == before
+
+
+@pytest.mark.parametrize("field", ["policy", "historical_source_manifest_sha256",
+                                  "unchanged_selection_sha256", "deduplication",
+                                  "all_selected_text_verified_against_upstream"])
+def test_invalid_regeneration_lineage_rejected(regeneration_lineage, field):
+    source, path, selection = regeneration_lineage
+    source["whole_record_regeneration"][field] = "changed"
+    with pytest.raises(ValueError):
+        w.base.validate_regenerated_source(source, path, selection)
+
+
+@pytest.mark.parametrize("split", ["validation", "test"])
+def test_regeneration_cannot_change_evaluation(regeneration_lineage, split):
+    source, path, selection = regeneration_lineage
+    source["splits"][split]["sha256"] = "changed"
+    with pytest.raises(ValueError, match="evaluation split"):
+        w.base.validate_regenerated_source(source, path, selection)
+
+
+def test_changed_manifest_receipt_rejected(regeneration_lineage):
+    source, path, selection = regeneration_lineage
+    with path.open("a", encoding="utf-8") as stream:
+        stream.write(" ")
+    with pytest.raises(ValueError, match="unverified regenerated"):
+        w.base.validate_regenerated_source(source, path, selection)

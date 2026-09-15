@@ -6,6 +6,7 @@ An unsuccessful packing attempt is evidence, not an executable exposure manifest
 from __future__ import annotations
 
 import argparse
+import copy
 from collections import defaultdict, deque
 from fractions import Fraction
 import hashlib
@@ -83,9 +84,12 @@ def quotas():
 def input_context(selection_path, source_path):
     """Extract only provenance/training metadata, never selection metrics/models."""
     require(file_hash(selection_path) == SELECTION_SHA, "frozen selection SHA mismatch")
-    require(file_hash(source_path) == SOURCE_SHA, "source manifest SHA mismatch")
+    source_sha = file_hash(source_path)
     selection = read_json(selection_path)
     source = read_json(source_path)
+    regenerated = source_sha != SOURCE_SHA
+    if regenerated:
+        validate_regenerated_source(source, source_path, selection)
     require(selection["dataset"]["manifest_sha256"] == SOURCE_SHA, "selection dataset mismatch")
     require(source["schema_version"] == 2 and source["freeze"]["immutable"] is True, "unfrozen source")
     require(source["normalization"] == selection["dataset"]["normalization"] == "NFKC_unicode_spaces_v1",
@@ -94,14 +98,41 @@ def input_context(selection_path, source_path):
     require(source["freeze"]["source_revisions"] == selection["dataset"]["source_revisions"], "revision mismatch")
     for split, key in (("train", "train_file_sha256"), ("validation", "validation_file_sha256"),
                        ("test", "untouched_test_file_sha256")):
-        require(source["splits"][split]["sha256"] == selection["dataset"][key], "split provenance mismatch")
-    training = selection["training"]
+        if split != "train" or not regenerated:
+            require(source["splits"][split]["sha256"] == selection["dataset"][key], "split provenance mismatch")
+    training = copy.deepcopy(selection["training"])
     require(training["assignment_hash"] == training["screen_selection"]["assignment_hash"], "parent assignment mismatch")
+    if regenerated:
+        training["_recompute_regenerated_parent"] = True
+        load_parent(source_path, source, training)
+    dataset = copy.deepcopy(selection["dataset"])
+    dataset["manifest_sha256"] = source_sha
+    dataset["train_file_sha256"] = source["splits"]["train"]["sha256"]
     return source, training, {
-        "selection_sha256": SELECTION_SHA, "source_manifest_sha256": SOURCE_SHA,
-        "dataset": selection["dataset"], "parent_training_assignment_hash": training["assignment_hash"],
+        "selection_sha256": SELECTION_SHA, "source_manifest_sha256": source_sha,
+        "historical_selection_source_sha256": SOURCE_SHA,
+        "dataset": dataset, "parent_training_assignment_hash": training["assignment_hash"],
         "validation_assignment_hash": selection["validation"]["assignment_hash"],
     }
+
+
+def validate_regenerated_source(source, source_path, selection):
+    receipt = read_json(Path(source_path).parent / "receipt.json")
+    require(receipt["status"] == "whole_upstream_source_frozen"
+            and receipt["manifest_sha256"] == file_hash(source_path), "unverified regenerated source")
+    repair = source["whole_record_regeneration"]
+    require(repair["policy"] == "whole_upstream_prefix_exact_tail_v2"
+            and repair["historical_source_manifest_sha256"] == SOURCE_SHA
+            and repair["unchanged_selection_sha256"] == SELECTION_SHA, "invalid source regeneration lineage")
+    require(repair["all_selected_text_verified_against_upstream"] is True
+            and repair["deduplication"] == "passed_existing_exact_and_minhash_lsh_train_evaluation_checks",
+            "missing whole-record verification")
+    require(source["dataset_id"] == selection["dataset"]["dataset_id"]
+            and source["normalization"] == selection["dataset"]["normalization"]
+            and source["freeze"]["source_revisions"] == selection["dataset"]["source_revisions"],
+            "regenerated source identity changed")
+    for split, field in (("validation", "validation_file_sha256"), ("test", "untouched_test_file_sha256")):
+        require(source["splits"][split]["sha256"] == selection["dataset"][field], "evaluation split changed")
 
 
 def load_parent(source_path, source, training):
@@ -129,6 +160,10 @@ def load_parent(source_path, source, training):
             seen_ids.add(row["id"])
             seen_texts.add(text_hash)
             require(row["dedup"]["status"] == "accepted_after_exact_and_near_eval_check", "unverified dedup status")
+            if "whole_record_regeneration" in source:
+                require(row["dedup"].get("truncated_to_quota") is False, "truncated regenerated document")
+                require(hashlib.sha256(row["text"].encode("utf-8")).hexdigest() ==
+                        row["whole_record_provenance"]["upstream_text_sha256"], "whole upstream text hash mismatch")
             provenance = row["source"]
             original = inventory[provenance["local_path"]]
             # Stack shards describe per-record licensing; the already-hashed train
@@ -148,6 +183,15 @@ def load_parent(source_path, source, training):
                 "normalized_text_hash": text_hash, "normalized_utf8_bytes": length,
                 "source_utf8_bytes": row["raw_utf8_bytes"], "source": provenance, "dedup": row["dedup"],
             })
+    if training.pop("_recompute_regenerated_parent", False):
+        for group in group_info:
+            key = group["domain"], group["language"]
+            group["actual_bytes"], group["documents"] = used[key], counts[key]
+        assignment = digest([d["normalized_text_hash"] for d in documents])
+        training["assignment_hash"] = training["screen_selection"]["assignment_hash"] = assignment
+        training["documents"] = len(documents)
+        training["normalized_utf8_bytes"] = sum(used.values())
+        training["source_utf8_bytes"] = sum(d["source_utf8_bytes"] for d in documents)
     for group in group_info:
         key = group["domain"], group["language"]
         require(used[key] == group["actual_bytes"] and counts[key] == group["documents"], "parent group mismatch")

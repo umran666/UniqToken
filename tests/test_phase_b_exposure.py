@@ -187,7 +187,7 @@ def test_sampler_is_standard_library_only_and_has_no_preflight_api():
             imported.update(alias.name.split(".")[0] for alias in node.names)
         elif isinstance(node, ast.ImportFrom):
             imported.add(node.module.split(".")[0])
-    assert imported <= {"__future__", "argparse", "collections", "fractions", "hashlib", "json", "os", "pathlib",
+    assert imported <= {"__future__", "argparse", "collections", "copy", "fractions", "hashlib", "json", "os", "pathlib",
                         "re", "subprocess", "tempfile", "unicodedata"}
     assert not hasattr(e, "preflight") and not hasattr(e, "encode")
     # Adding unrelated score fields cannot affect candidate choice/order.

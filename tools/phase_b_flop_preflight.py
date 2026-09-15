@@ -17,10 +17,11 @@ import time
 
 from benchmarks import run_phase_b_screen as screen
 from benchmarks import run_research_experiments as h
-from tools.phase_b_exposure import quotas
+from tools.phase_b_exposure import quotas, validate_regenerated_source
 
 
-VERSION = 2
+VERSION = 3
+COVERAGE_POLICY = "flop_fixed_budget_one_complete_document_v1"
 STATUS = "tokenizer_flop_preflight_feasible"
 REJECTED = "tokenizer_flop_preflight_rejected"
 
@@ -46,6 +47,9 @@ def check_source(selection, source, source_path):
     h.require(source["schema_version"] == h.DATASET_MANIFEST_SCHEMA, "unsupported source manifest schema")
     h.require(source["freeze"]["immutable"] is True, "source manifest is not immutable")
     dataset = selection["dataset"]
+    regenerated = "whole_record_regeneration" in source
+    if regenerated:
+        validate_regenerated_source(source, source_path, selection)
     h.require(source["dataset_id"] == dataset["dataset_id"], "dataset identity mismatch")
     h.require(source["normalization"] == dataset["normalization"] == h.NORMALIZATION, "normalization mismatch")
     h.require(source["freeze"]["source_revisions"] == dataset["source_revisions"], "source revision mismatch")
@@ -55,7 +59,8 @@ def check_source(selection, source, source_path):
         "test": "untouched_test_file_sha256",
     }
     for split, field in split_fields.items():
-        h.require(source["splits"][split]["sha256"] == dataset[field], f"{split} split provenance mismatch")
+        if split != "train" or not regenerated:
+            h.require(source["splits"][split]["sha256"] == dataset[field], f"{split} split provenance mismatch")
     root = Path(source_path).resolve().parent
     train_path = (root / source["splits"]["train"]["path"]).resolve()
     h.require(train_path.is_relative_to(root), "training path escapes frozen source directory")
@@ -213,11 +218,15 @@ def schedule(encoded, vocab, regime, budget, context):
         h.require(budget * 0.99 <= flops <= budget, "FLOP budget cannot be matched within 1%")
     else:
         h.require(completed == len(encoded), "byte budget did not consume every frozen document")
+    fully_predicted = completed
+    if regime == "flops" and terminal_targets == len(encoded[completed % len(encoded)]) + 1:
+        fully_predicted += 1
     return {
         "training_steps": steps,
         "training_target_tokens": targets,
         "training_sequence_length_squared_sum": squares,
         "completed_training_documents": completed,
+        "fully_predicted_documents": fully_predicted,
         "partial_final_window": partial_final_window,
         "terminal_document_target_tokens": terminal_targets if regime == "flops" else 0,
         **h.flop_accounting(vocab, h.SCREEN, targets, squares),
@@ -254,7 +263,13 @@ def condition_report(source, sample, documents, *, flops_budget, byte_budget, co
                     "complete_document_bytes": h.byte_totals(document_bytes, count),
                     "training_byte_scope": "complete_document_prefix",
                     "coverage_documents_completed": min(count, coverage_count),
-                    "status": "blocked_coverage_prefix" if count < coverage_count else "feasible"})
+                    "coverage_policy_version": COVERAGE_POLICY,
+                    "minimum_fully_predicted_documents": 1,
+                    "coverage_gate": "PASS" if run["fully_predicted_documents"] >= 1 else "BLOCKED",
+                    "flop_target": flops_budget if regime == "flops" else None,
+                    "flop_tolerance": 0.01 if regime == "flops" else None,
+                    "flop_interval": [0.99 * flops_budget, flops_budget] if regime == "flops" else None,
+                    "status": "blocked_zero_complete_documents" if run["fully_predicted_documents"] < 1 else "feasible"})
         run["completed_document_bytes"] = run["complete_document_bytes"][h.BYTE_BUDGET_FIELD]
         run["completed_document_order_sha256"] = h.digest([input_order[i % len(documents)] for i in range(count)])
         run["strata"] = []
@@ -302,6 +317,8 @@ def condition_report(source, sample, documents, *, flops_budget, byte_budget, co
 
 
 def preflight(args):
+    h.require(args.exposure_sha256 != "8569e8045997b20d7cafa64ea4f02394bcc8e240d7586a9365c35ea38fdc6893",
+              "historical exposure rejected for upstream truncation; regenerate")
     selection_path, source_path, exposure_path, phase_a_path = map(Path, (args.selection, args.source, args.exposure, args.phase_a))
     require_sha(selection_path, args.selection_sha256, "selection")
     require_sha(source_path, args.source_sha256, "source manifest")
@@ -319,13 +336,22 @@ def preflight(args):
     h.require(selection["selection_schema_version"] == screen.VERSION and selection["phase"] == "B-SCREEN", "invalid selection")
     h.require(selection["test_metrics_used"] is False and selection["lm_results_used"] is False,
               "selection contamination")
-    h.require(selection["dataset"]["manifest_sha256"] == args.source_sha256, "selection/source mismatch")
+    if "whole_record_regeneration" in source:
+        validate_regenerated_source(source, source_path, selection)
+    else:
+        h.require(selection["dataset"]["manifest_sha256"] == args.source_sha256, "selection/source mismatch")
     h.require(selection["safety_caps"] == {"flops": args.flops, "bytes": args.bytes}, "prescribed budget mismatch")
     h.require(selection["model_config_cpu_template"] == h.model_config("B", "cpu"), "model configuration changed")
     train_path = check_source(selection, source, source_path)
     pinned_paths = (selection_path, source_path, exposure_path, phase_a_path, train_path,
                     exposure_path.parent / "receipt.json", Path(__file__))
     input_hashes = {str(path.resolve()): h.file_hash(path) for path in pinned_paths}
+    for dependency in (Path(__file__).with_name("phase_b_exposure.py"),
+                       h.ROOT / "benchmarks" / "phase_b_rejected_exposure.json"):
+        input_hashes[str(dependency.resolve())] = h.file_hash(dependency)
+    if "whole_record_regeneration" in source:
+        source_receipt = source_path.parent / "receipt.json"
+        input_hashes[str(source_receipt.resolve())] = h.file_hash(source_receipt)
     identity = h.runtime_identity()
     historical = selection["phase_a_identity"]
     runtime_blockers = []

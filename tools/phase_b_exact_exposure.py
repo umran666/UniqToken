@@ -280,7 +280,7 @@ def publish_success(attempt, plan):
     sample = candidate["sample"]
     receipt = {"status": "exact_packing_feasible", "final_exposure_sha256": manifest_hash,
                "policy_sha256": plan["policy_sha256"], "plan_sha256": base.file_hash(attempt / "plan.json"),
-               "selection_sha256": base.SELECTION_SHA, "source_manifest_sha256": base.SOURCE_SHA,
+               "selection_sha256": base.SELECTION_SHA, "source_manifest_sha256": candidate["provenance"]["source_manifest_sha256"],
                "normalized_utf8_bytes": sample["normalized_utf8_bytes"], "source_utf8_bytes": sample["source_utf8_bytes"],
                "selected_documents": sample["selected_documents"], "strata_exact": len(sample["strata"]),
                "independent_verification": "PASS", "tokenizer_flop_preflight_run": False, "lm_training_run": False}

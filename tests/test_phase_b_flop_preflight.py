@@ -142,7 +142,7 @@ def test_full_schedule_advances_after_coverage_prefix(condition):
 
 def test_blocked_flops_still_get_complete_byte_accounting(condition):
     source, sample, texts, ids, calls, context = condition
-    row = p.condition_report(source, sample, texts, flops_budget=h.training_flops(16384, h.SCREEN, 2),
+    row = p.condition_report(source, sample, texts, flops_budget=h.training_flops(16384, h.SCREEN, 1),
                              byte_budget=sample["normalized_utf8_bytes"], context=context)
     assert calls == texts and row["status"] == "blocked"
     byte = row["regimes"]["bytes"]
@@ -150,6 +150,20 @@ def test_blocked_flops_still_get_complete_byte_accounting(condition):
     assert byte["complete_document_bytes"][h.BYTE_BUDGET_FIELD] == sample["normalized_utf8_bytes"]
     assert sum(s[h.BYTE_BUDGET_FIELD] for s in byte["strata"]) == sample["normalized_utf8_bytes"]
     assert len(row["encoded_document_accounting"]) == len(texts)
+
+
+def test_one_complete_terminal_document_passes_approved_policy(condition):
+    source, sample, texts, ids, calls, context = condition
+    budget = h.training_flops(16384, h.SCREEN, 2)
+    row = p.condition_report(source, sample, texts, flops_budget=budget,
+                             byte_budget=sample["normalized_utf8_bytes"], context=context)
+    run = row["regimes"]["flops"]
+    assert row["status"] == "feasible"
+    assert run["completed_training_documents"] == 0
+    assert run["fully_predicted_documents"] == 1
+    assert run["terminal_document"]["fully_predicted"] is True
+    assert run["coverage_gate"] == "PASS"
+    assert run["flop_interval"] == [0.99 * budget, budget]
 
 
 def test_changed_order_and_byte_budget_rejected(condition):
@@ -315,3 +329,9 @@ def test_explicit_hash_pin_rejects_changed_evidence(tmp_path):
     path.write_text("{}", encoding="utf-8")
     with pytest.raises(ValueError, match="changed or stale"):
         p.require_sha(path, "0" * 64, "fixture")
+
+
+def test_rejected_historical_exposure_cannot_be_reused_under_new_policy():
+    args = SimpleNamespace(exposure_sha256="8569e8045997b20d7cafa64ea4f02394bcc8e240d7586a9365c35ea38fdc6893")
+    with pytest.raises(ValueError, match="historical exposure rejected"):
+        p.preflight(args)
