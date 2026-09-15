@@ -1,8 +1,9 @@
 # Final experiment harness
 
 This is an execution protocol, not a result report. Tokenizer stages run from the
-repository root using `python -m benchmarks.run_phase_a`. LM stages remain in
-`python -m benchmarks.run_research_experiments`. The older
+repository root using `python -m benchmarks.run_phase_a`. The selected one-seed
+LM screen uses `python -m benchmarks.run_phase_b_screen`; the older LM interfaces
+in `run_research_experiments` do not accept the new staged evidence. The older
 `run_matched_budget_eval.py` remains a train/validation diagnostic, not the final
 research runner. Historical ledgers are unchanged and cannot enter this protocol.
 
@@ -76,19 +77,22 @@ minimum frequency 1, and explicit Python EM (`min_edge_log_prob=-inf`). Seed min
 and encoding may use installed native operations. No tokenizer algorithm changes
 are introduced by this protocol.
 
-Phase B loads the exact Phase A artifacts and screens the full cohort/grid under
-both matching regimes with one paired LM seed. It evaluates validation NLL only.
+Phase B loads the nine explicitly selected Phase A artifacts described in the
+version-1 gate below, under both matching regimes with one paired LM seed (18 runs).
+It evaluates validation NLL only.
 LM test loss is not computed or available for condition selection. Caps per
 condition are 100 billion estimated FLOPs and 1,000,000 normalized training bytes;
 these are safety limits, not claims of scientifically sufficient training.
 
-Phase C requires a complete Phase B ledger and an explicit selection JSON bound
+The future Phase C protocol requires a complete Phase B ledger and an explicit selection JSON bound
 to its SHA-256 hash. Only selected tokenizer/vocabulary/regime triples run, each
 with three distinct new paired LM seeds. Validation and test NLL are evaluated
 once at the end of the fixed training budget; there is no test-driven checkpoint
 selection. Publish the selection rationale and all successes/failures. Selection
 is not evidence that an omitted baseline lost. Tokenizers are frozen from A;
 the three seeds measure LM training variation, not tokenizer retraining variation.
+The older Phase C CLI cannot consume the new B-SCREEN schema; that interface must
+be reviewed separately before any confirmation is authorized or attempted.
 
 ## Data and normalization
 
@@ -380,8 +384,8 @@ python -m benchmarks.run_phase_a confirm --dataset artifacts/data/manifest.json 
 These are commands for future experiments, not runs performed during harness
 development. The first command runs only A-SCREEN; it cannot start A-CONFIRM or an
 LM stage. The selection and confirmation commands are separate, explicit actions.
-Do not pass the new staged ledgers into the older LM runner until that later
-interface is explicitly reviewed; this redesign does not run or alter LM phases.
+Do not pass staged ledgers into the older `run_research_experiments B` entry point.
+The selected LM screening interface is specified below; it does not start Phase C.
 
 Before C, author `artifacts/selection.json` with this structure, replacing the
 screening hash and choosing actual conditions from B based on validation:
@@ -401,3 +405,102 @@ dataset, source tree, dependency/extension build, or altered tokenizer requires 
 fresh A/B chain. Before Phase A, supply licensed frozen data, complete deduplication,
 freeze training settings, verify the runtime/build, and commit the reviewed harness.
 Exact 64K feasibility across all five trainers remains to be established by A.
+
+## Selected Phase B screening gate (version 1)
+
+`python -m benchmarks.run_phase_b_screen` consumes a completed A-SCREEN ledger
+as immutable historical input. It never retrains or relabels those tokenizers.
+The user-declared selection is exactly `sp_unigram`, `boundary_bpe`, and
+`uniq_superbpe`, each at 16384, 32768, and 65536 entries, including the same four
+special tokens and 256 byte tokens. The seed is exactly 0. Both `flops` and `bytes`
+are required, giving **nine tokenizer conditions and eighteen LM runs**. These
+are SCREENING results, not confirmation. No test loss is computed or selected on.
+
+This is an explicit selection after observing tokenizer screening, but before LM
+results. It is not the earlier A-CONFIRM policy of selecting a compression winner
+per vocabulary. SentencePiece Unigram is the probabilistic baseline; Boundary-BPE
+is the required historical comparison; UniqToken SuperBPE is the proposed method.
+64K is mandatory. Excluding SPM-BPE and UT-Unigram is a user-declared comparison
+choice, not evidence that they lost. **Higher bytes per token is better compression**;
+lower tokens per Unicode character is better. Do not invert this direction or
+describe Boundary-BPE as the current compression winner without supporting data.
+No historical ledger, including its `selection: null`, is modified by this gate.
+
+`freeze` validates all fifteen Phase A records and loads/hash-checks their saved
+models, including the byte-preserved `originals/` migration lineage. It reconstructs
+training and screening-validation assignments from the frozen local corpus and
+requires exact equality with Phase A. Test is declared by manifest hash but never
+opened. The selection contains the original trained/revalidated provenance,
+artifact/configuration hashes, dataset and assignment hashes, rationale, a whitelist
+of Phase A validation metrics, seed, regimes, model template, and version. It has a
+canonical content SHA-256 and an externally pinned SHA-256 of the complete JSON.
+Exclusive atomic creation refuses overwrites. The same inputs deterministically
+produce the same selection, with no timestamp-driven selection changes.
+
+The new harness may consume older Phase A artifacts without falsifying their
+commits: every executable file present in the Phase A Git tree must still match
+that tree, checked using Git clean filters (LF/CRLF checkout differences are not
+code changes). The old source hash is independently checked against that Git tree.
+All current executable files, including this new runner, are additionally pinned
+by a Git-normalized implementation digest in the selection. New code changes
+invalidate this pin. This is historical-input verification, not a relaxation of
+the Phase A migration/resume policy. No LM ledger migration is implemented.
+
+Execution requires a clean committed harness, the same tokenizer extension binary
+digest and Python/SentencePiece/NumPy/regex versions as Phase A. Torch may be a GPU
+build; its exact version, device and all runtime/source hashes are recorded in the
+execution plan and checked for changes throughout the run. The extension digest
+uses the existing `runtime_identity` binary-inventory convention, not a renamed
+raw `.so` SHA-256. Selection verification on Windows does not assert Linux execution
+readiness. Rebuild/install and verify the pinned Linux tokenizer runtime before running.
+
+The model remains the existing untied 2-layer, 128-dimensional, 4-head decoder-only
+causal Transformer, FFN width 512, context 128, float32, batch size 1. The parameter
+breakdown, analytical core/output-projection/total FLOPs and estimator version,
+normalized/source training bytes, total validation NLL, token CE, BPB and token
+perplexity retain the definitions above. In particular, total analytical compute
+includes vocabulary-dependent output projection. Byte matching uses an exact
+whole-document prefix of the same representative Phase A training assignment for
+every tokenizer; raw/source bytes are secondary audit totals. A FLOP-matched final
+partial document contributes tokens/FLOPs but is excluded from complete-document
+byte-exposure totals, as explicitly recorded by `training_byte_scope`.
+
+LM screening uses the existing screening-validation partition (not independent
+confirmation validation). This reuse must not be described as confirmation. The
+other validation partition remains reserved and final test is never opened. All
+validation text tokens plus EOS are scored under the existing causal window rule:
+`BPB = total_nll_nats / (normalized_utf8_bytes * ln(2))`. Cross-entropy is NLL per
+predicted token, not masked/cloze perplexity. Token perplexity is not directly
+comparable across tokenizer vocabularies.
+
+Both budgets must be explicitly passed before execution. Existing screening caps
+remain 1e11 analytical FLOPs and 1,000,000 normalized bytes per run; bytes must end
+on a whole-document boundary. The FLOP budget must support one-percent resolution
+even at 64K. These small caps limit feasibility screening, not evidence of LM
+superiority. They do not guarantee multilingual exposure in the training prefix.
+There is no automatic device substitution, tokenizer substitution, seed search,
+confirmation stage, or budget increase.
+
+```bash
+python -m benchmarks.run_phase_b_screen freeze --phase-a PHASE_A_DIR/ledger.json --dataset FROZEN/manifest.json --output SELECTION.json
+# Use the full-file SHA-256 printed by freeze, pinned outside the selection file.
+python -m benchmarks.run_phase_b_screen preflight --phase-a PHASE_A_DIR/ledger.json --dataset FROZEN/manifest.json --selection SELECTION.json --selection-sha256 SHA256 --flops FLOP_BUDGET --bytes EXACT_DOCUMENT_PREFIX_BYTES --device cuda
+# Separate authorization required. Configure deterministic CUDA before Python starts.
+export CUBLAS_WORKSPACE_CONFIG=:4096:8
+# This command runs only one-seed LM screening.
+python -m benchmarks.run_phase_b_screen run --phase-a PHASE_A_DIR/ledger.json --dataset FROZEN/manifest.json --selection SELECTION.json --selection-sha256 SHA256 --flops FLOP_BUDGET --bytes EXACT_DOCUMENT_PREFIX_BYTES --device cuda --output NEW_PHASE_B_DIR
+```
+
+Preflight verifies data, artifacts and selection without LM training or validation
+inference. It reports configuration validity separately from runtime readiness.
+CUDA availability, device index and deterministic cuBLAS configuration are checked;
+the cuBLAS setting is locked in the plan. Set it before CUDA preflight as well.
+Execution writes an immutable plan and selection snapshot before the first model
+is created. Before and after every condition it verifies the selection, snapshot,
+plan, manifest, input ledger and live runtime identity. Artifacts are hash-checked
+again when loaded. An existing output directory is refused; no Phase B resume is
+silently inferred. Each condition is atomic, and `ledger.json` is published only
+after all eighteen conditions validate against that locked plan. On failure the
+plan and any complete conditions remain evidence, not a complete ledger. Consumers
+must use this gate's ledger validator with the pinned selection and input evidence,
+not treat an arbitrary eighteen-row JSON as a valid screening result.
