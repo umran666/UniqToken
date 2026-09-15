@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "status": "rejected_upstream_document_truncation",
+  "selection_sha256": "d3449786b636216057e01e1372b4805c1181c481ca521a74c9e29e07676a0ea4",
+  "rejected_source_manifest_sha256": "2ad27746d9c139c8d7e814e89c977c9bd4410033d5c1b97b673ee1b893ece7ff",
+  "rejected_exposure_sha256": "8569e8045997b20d7cafa64ea4f02394bcc8e240d7586a9365c35ea38fdc6893",
+  "historical_preflight_commit": "2a6252091d0c75a107fbd35606d781714716316b",
+  "reason": "Exposure position 17 preserves only an 84-byte prefix of a 2049-byte upstream MADLAD document.",
+  "historical_artifacts_preserved": true,
+  "phase_b_results_associated": false,
+  "authorized_for_lm_execution": false,
+  "replacement_rule": "Whole upstream records only; same source revisions, normalization, strata and exact byte budgets; new manifest and exposure hashes required."
+}

@@ -1,6 +1,6 @@
 # Phase B FLOP Coverage-Policy Amendment Review
 
-Status: review proposal only. This document does not authorize Phase B, change the frozen selection, change the 1 MB exposure, change tokenizer artifacts, or alter historical results.
+Status: approved at the methodological level by the user. Implementation and provenance gates remain launch-blocking. The budget remains exactly 1,000,000 normalized bytes; the quota-truncated exposure is rejected and must be regenerated.
 
 ## Existing protocol
 
@@ -48,7 +48,7 @@ Every FLOP-matched condition record must include:
 - `terminal_document.target_tokens_consumed_including_eos`
 - `coverage_gate`
 
-The ledger must reject records missing these fields or reporting a coverage count below 14. Byte-matched records remain governed by the exact 1,000,000 normalized-byte requirement and are not converted into FLOP-matched records.
+The ledger must reject records missing these fields or reporting a fully predicted-document count below 1. Byte-matched records remain governed by the exact 1,000,000 normalized-byte requirement and are not converted into FLOP-matched records.
 
 ## Why this is not a post-hoc relaxation
 

@@ -4,7 +4,7 @@ Status: launch-blocking review. No frozen selection, exposure, tokenizer artifac
 
 ## `truncated_to_quota` trace
 
-The flag is produced by `benchmarks/freeze_phase_a_dataset.py:write_partition`. When the next upstream record exceeds the remaining normalized-byte quota, `normalized_prefix()` selects a UTF-8-safe prefix and `source_record(..., truncated=True)` writes it into the frozen Phase A training corpus.
+The flag is produced by `benchmarks/freeze_phase_a_dataset.py:append_exact`. When the next upstream record exceeds the remaining normalized-byte quota, `normalized_prefix()` selects a UTF-8-safe prefix and `source_record(..., truncated=True)` writes it into the frozen Phase A training corpus.
 
 The Phase B exposure contains one such record:
 
@@ -18,7 +18,7 @@ Therefore the record is a whole document only relative to the already quota-trun
 
 ### Gate decision
 
-**Unresolved; launch blocked.** Do not remove the flag, edit the record, or regenerate the exposure while claiming the frozen exposure is unchanged. The choices requiring an explicit protocol decision are:
+**Decision: regenerate; launch blocked pending verification.** The user rejected permitting quota-truncated source records. Preserve the original evidence and create a new source manifest and exact exposure. The previously reviewed alternatives were:
 
 1. regenerate the source manifest and exposure from untruncated upstream documents, which changes the exposure provenance and requires a new frozen exposure hash; or
 2. amend the protocol to define whole-document inclusion relative to the Phase A quota-truncated corpus and explicitly disclose that upstream records may be prefix-truncated.
@@ -36,7 +36,7 @@ The exact read-only preflight implementation used for v6 is:
 - `tests/test_phase_b_flop_preflight.py`
 - frozen selection/exposure/source/Phase A artifact paths and hashes recorded in `artifacts/phase-b-flop-preflight-v6/preflight-rejection.json`
 
-The protocol amendment is committed as `f2e8d24bac96ac9483459e1a255b256f4b684c06`. The preflight implementation itself still needs a dedicated clean commit before launch; unrelated untracked files must remain untouched and need not be deleted.
+The protocol amendment was committed as `f2e8d24bac96ac9483459e1a255b256f4b684c06`. The exact v6 preflight and exposure implementation was subsequently committed as `2a6252091d0c75a107fbd35606d781714716316b`. This supersedes the earlier statement that it was uncommitted. That revision preserves the historical implementation; it is not a launchable implementation of the newly approved coverage policy or regenerated dataset. The eventual launch receipt must pin the subsequent tested implementation commit and file hashes explicitly. Unrelated untracked files must remain untouched.
 
 ## Operations gate
 
