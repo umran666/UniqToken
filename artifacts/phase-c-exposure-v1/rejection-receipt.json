@@ -1,0 +1,6 @@
+{
+  "status": "phase_c_exposure_rejected",
+  "error": "ValueError: exact-tail candidate bound exceeded",
+  "authorized_for_phase_c_training": false,
+  "test_split_opened": false
+}

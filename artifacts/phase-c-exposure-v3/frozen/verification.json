@@ -1,0 +1,12 @@
+{
+  "status": "PASS",
+  "fresh_source_reread": true,
+  "membership": "PASS",
+  "whole_documents": "PASS",
+  "phase_b_exclusion": "PASS",
+  "all_30_exact_quotas": "PASS",
+  "global_source_order": "PASS",
+  "normalized_utf8_bytes": 300000000,
+  "selected_documents": 42897,
+  "test_split_opened": false
+}

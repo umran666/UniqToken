@@ -1,0 +1,10 @@
+{
+  "status": "phase_c_exposure_frozen",
+  "authorized_for_phase_c_training": false,
+  "exposure_sha256": "88c6661699025bb90c1a42b9b24adbc3b523b79282f3925e6a40653f7e4fa5f8",
+  "verification_sha256": "79278c86801e6235aedae8927c7f5d26bc6720e20af1e8582e2bbd5f4dbc7dbc",
+  "confirmation_validation_sha256": "e58d1c961ac4220ae8b0d48278702a09c851956dfdf0a6a3f30250135dbc47c1",
+  "normalized_utf8_bytes": 300000000,
+  "selected_documents": 42897,
+  "test_split_opened": false
+}
