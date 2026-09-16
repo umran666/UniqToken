@@ -484,12 +484,15 @@ confirmation stage, or budget increase.
 ```bash
 python -m benchmarks.run_phase_b_screen freeze --phase-a PHASE_A_DIR/ledger.json --dataset FROZEN/manifest.json --output SELECTION.json
 # Use the full-file SHA-256 printed by freeze, pinned outside the selection file.
-python -m benchmarks.run_phase_b_screen preflight --phase-a PHASE_A_DIR/ledger.json --dataset FROZEN/manifest.json --selection SELECTION.json --selection-sha256 SHA256 --flops FLOP_BUDGET --bytes EXACT_DOCUMENT_PREFIX_BYTES --device cuda
+python -m benchmarks.run_phase_b_screen preflight --phase-a PHASE_A_DIR/ledger.json --dataset HISTORICAL_PHASE_A/manifest.json --selection SELECTION.json --selection-sha256 SELECTION_SHA256 --source-manifest WHOLE_SOURCE/manifest.json --source-manifest-sha256 SOURCE_SHA256 --exposure-manifest EXACT_EXPOSURE/exposure.json --exposure-manifest-sha256 EXPOSURE_SHA256 --flops 100000000000 --bytes 1000000 --device cuda
 # Separate authorization required. Configure deterministic CUDA before Python starts.
 export CUBLAS_WORKSPACE_CONFIG=:4096:8
 # This command runs only one-seed LM screening.
-python -m benchmarks.run_phase_b_screen run --phase-a PHASE_A_DIR/ledger.json --dataset FROZEN/manifest.json --selection SELECTION.json --selection-sha256 SHA256 --flops FLOP_BUDGET --bytes EXACT_DOCUMENT_PREFIX_BYTES --device cuda --output NEW_PHASE_B_DIR
+python -m benchmarks.run_phase_b_screen run --phase-a PHASE_A_DIR/ledger.json --dataset HISTORICAL_PHASE_A/manifest.json --selection SELECTION.json --selection-sha256 SELECTION_SHA256 --source-manifest WHOLE_SOURCE/manifest.json --source-manifest-sha256 SOURCE_SHA256 --exposure-manifest EXACT_EXPOSURE/exposure.json --exposure-manifest-sha256 EXPOSURE_SHA256 --flops 100000000000 --bytes 1000000 --device cuda --output NEW_PHASE_B_DIR
 ```
+
+After interruption, repeat the identical `run` command with `--resume`. No other
+argument, file, runtime identity or committed implementation may differ.
 
 Preflight verifies data, artifacts and selection without LM training or validation
 inference. It reports configuration validity separately from runtime readiness.
@@ -498,10 +501,19 @@ the cuBLAS setting is locked in the plan. Set it before CUDA preflight as well.
 Execution writes an immutable plan and selection snapshot before the first model
 is created. Before and after every condition it verifies the selection, snapshot,
 plan, manifest, input ledger and live runtime identity. Artifacts are hash-checked
-again when loaded. An existing output directory is refused; no Phase B resume is
-silently inferred. Each condition is atomic, and `ledger.json` is published only
-after all eighteen conditions validate against that locked plan. On failure the
-plan and any complete conditions remain evidence, not a complete ledger. Consumers
+again when loaded. The executable Phase B training dataset is constructed only
+from the explicitly supplied, hash-verified exact exposure manifest; the historical
+Phase A stratified-corpus reconstruction is unreachable from LM execution. Source
+membership, document order, normalized/source byte totals, exact quotas and the
+exposure receipt are verified before tokenizer or LM initialization.
+
+An existing output directory is accepted only with `--resume`. Its immutable plan,
+selection snapshot and every complete condition are revalidated against the live
+runtime, source, exposure, tokenizer artifacts, protocol and condition assignment
+before any condition is skipped. A mismatch aborts the entire resume. Each condition
+is atomic, and `ledger.json` is published only after all eighteen conditions validate
+against that locked plan. On failure the plan and complete conditions remain evidence,
+not a complete ledger. Consumers
 must use this gate's ledger validator with the pinned selection and input evidence,
 not treat an arbitrary eighteen-row JSON as a valid screening result.
 

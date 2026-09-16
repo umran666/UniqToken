@@ -16,6 +16,7 @@ from benchmarks import run_phase_a as stages
 from benchmarks import run_research_experiments as h
 
 VERSION = 1
+FROZEN_SELECTION_IMPLEMENTATION_HASH = "0abc0a063da3268fed64fc617ae43229415c24c8f5f6f035095444c110312642"
 POLICY = "user_declared_three_baselines_all_vocabularies_v1"
 NAMES = ("sp_unigram", "boundary_bpe", "uniq_superbpe")
 CONDITIONS = tuple((name, vocab) for vocab in h.VOCABS for name in NAMES)
@@ -67,6 +68,7 @@ def implementation_hash():
 
 
 def dataset_context(path):
+    """Reconstruct historical Phase A assignments for selection verification only."""
     rows, texts, validation_rows, validation, source = stages.load_stage_source(path)
     train, info = stages.stratified_screen_training(rows, texts)
     pairs, _ = stages.partition_validation(validation_rows, validation)
@@ -89,6 +91,77 @@ def dataset_context(path):
         "documents": len(heldout), "assignment_hash": h.digest([h.digest(text) for text in heldout]),
     }
     return {"train": train, "validation": heldout}, byte_rows, source, training, evaluation
+
+
+def frozen_exposure_context(args, selection):
+    """Build the executable Phase B dataset exclusively from the frozen exposure."""
+    from tools import phase_b_flop_preflight as exposure_gate
+
+    source_path = Path(args.source_manifest)
+    exposure_path = Path(args.exposure_manifest)
+    exposure_gate.require_sha(source_path, args.source_manifest_sha256, "source manifest")
+    exposure_gate.require_sha(exposure_path, args.exposure_manifest_sha256, "exposure manifest")
+    source = h.read_json(source_path)
+    exposure = h.read_json(exposure_path)
+    receipt_path = exposure_path.parent / "receipt.json"
+    h.require(receipt_path.is_file(), "exact exposure receipt missing")
+    receipt = h.read_json(receipt_path)
+    train_path = exposure_gate.check_source(selection, source, source_path)
+    sample = exposure_gate.check_exposure(
+        exposure, receipt, args.selection_sha256, args.source_manifest_sha256
+    )
+    train = exposure_gate.load_frozen_documents(sample, train_path)
+    validation_rows, validation = stages._load_rows(source_path, source, "validation")
+    pairs, _ = stages.partition_validation(validation_rows, validation)
+    heldout = [text for _, text in pairs]
+    h.require(
+        not {h.digest(text) for text in train}.intersection(h.digest(text) for text in heldout),
+        "exposure/validation leakage",
+    )
+    byte_rows = {
+        "train": [
+            {
+                h.BYTE_BUDGET_FIELD: row["normalized_utf8_bytes"],
+                h.BYTE_AUDIT_FIELD: row["source_utf8_bytes"],
+            }
+            for row in sample["ordered_documents"]
+        ],
+        "validation": [
+            {
+                h.BYTE_BUDGET_FIELD: len(text.encode("utf-8")),
+                h.BYTE_AUDIT_FIELD: row["raw_utf8_bytes"],
+            }
+            for row, text in pairs
+        ],
+    }
+    training = {
+        "scope": "frozen_exact_phase_b_exposure",
+        "normalized_utf8_bytes": sample["normalized_utf8_bytes"],
+        "source_utf8_bytes": sample["source_utf8_bytes"],
+        "documents": sample["selected_documents"],
+        "assignment_hash": sample["ordered_exposure_hash"],
+    }
+    evaluation = {
+        "partition_version": stages.VALIDATION_PARTITION_VERSION,
+        "partition": "screening",
+        **h.byte_totals(byte_rows["validation"]),
+        "unicode_characters": sum(map(len, heldout)),
+        "documents": len(heldout),
+        "assignment_hash": h.digest([h.digest(text) for text in heldout]),
+    }
+    h.require(evaluation == selection["validation"], "frozen validation assignment changed")
+    h.require(h.byte_totals(byte_rows["train"]) == {
+        h.BYTE_BUDGET_FIELD: 1_000_000,
+        h.BYTE_AUDIT_FIELD: sample["source_utf8_bytes"],
+    }, "frozen exposure byte accounting mismatch")
+    provenance = {
+        "source_manifest_sha256": args.source_manifest_sha256,
+        "exposure_manifest_sha256": args.exposure_manifest_sha256,
+        "exposure_content_sha256": exposure["content_sha256"],
+        "exposure_order_sha256": sample["ordered_exposure_hash"],
+        "exposure_receipt_sha256": h.file_hash(receipt_path),
+    }
+    return {"train": train, "validation": heldout}, byte_rows, training, evaluation, provenance
 
 
 def verify_phase_a(path, dataset_path):
@@ -164,8 +237,17 @@ def freeze(args):
 def check_selection(path, expected_hash, ledger, ledger_path, identity):
     h.require(re.fullmatch(r"[0-9a-f]{64}", expected_hash or "") is not None, "explicit selection SHA-256 required")
     h.require(h.file_hash(path) == expected_hash, "selection changed or stale")
-    expected = selection_payload(ledger, h.file_hash(ledger_path), implementation_hash())
-    h.require(h.read_json(path) == expected, "selection/configuration/implementation mismatch")
+    frozen = h.read_json(path)
+    selection_implementation = frozen.get("implementation_git_blob_hash")
+    h.require(
+        selection_implementation
+        in {FROZEN_SELECTION_IMPLEMENTATION_HASH, implementation_hash()},
+        "selection/configuration/implementation mismatch: unrecognized selection implementation",
+    )
+    expected = selection_payload(
+        ledger, h.file_hash(ledger_path), selection_implementation
+    )
+    h.require(frozen == expected, "selection/configuration/implementation mismatch")
     return expected
 
 
@@ -186,9 +268,10 @@ def check_runtime(identity, historical, device="cpu"):
 
 
 def prepare(args, *, execution=False):
-    ledger, docs, byte_rows = verify_phase_a(args.phase_a, args.dataset)
+    ledger, _, _ = verify_phase_a(args.phase_a, args.dataset)
     identity = h.runtime_identity()
     selection = check_selection(args.selection, args.selection_sha256, ledger, args.phase_a, identity)
+    docs, byte_rows, training, validation, exposure = frozen_exposure_context(args, selection)
     h.require(math.isfinite(args.flops) and 0 < args.flops <= 1e11, "invalid/excessive screening FLOP budget")
     h.require(args.flops >= 100 * h.training_flops(max(h.VOCABS), h.SCREEN, 1),
               "screening FLOP budget too small for one-percent resolution")
@@ -203,6 +286,7 @@ def prepare(args, *, execution=False):
         "selection_content_sha256": selection["content_sha256"], "selection": selection,
         "data_split": "document_disjoint_train_screening_validation_test_not_opened",
         "test_access": "forbidden_not_opened", "seeds": [0],
+        "training": training, "validation": validation, **exposure,
         "conditions": [[n, v, regime, 0] for n, v in CONDITIONS for regime in h.REGIMES],
         "model_config": h.model_config("B", args.device), "budgets": {"flops": args.flops, "bytes": args.bytes},
         "cuda_workspace_config": os.environ.get("CUBLAS_WORKSPACE_CONFIG") if args.device.startswith("cuda") else None,
@@ -222,9 +306,12 @@ def validate_result(row, expected, plan, source, byte_rows):
         "selection_sha256": plan["selection_sha256"], "model_config": plan["model_config"],
         "special_tokens": h.SPECIAL_IDS, "requested_budget": plan["budgets"][regime],
         "tokenizer_artifact_hash": h.digest(source["artifact_hashes"]),
-        "dataset_manifest_hash": plan["selection"]["dataset"]["manifest_sha256"],
-        "training_assignment_hash": plan["selection"]["training"]["assignment_hash"],
-        "validation_assignment_hash": plan["selection"]["validation"]["assignment_hash"],
+        "dataset_manifest_hash": plan["source_manifest_sha256"],
+        "training_assignment_hash": plan["training"]["assignment_hash"],
+        "validation_assignment_hash": plan["validation"]["assignment_hash"],
+        "coverage_policy_version": "flop_fixed_budget_one_complete_document_v1",
+        "minimum_fully_predicted_documents": 1,
+        "coverage_gate": "PASS",
         **h.parameter_accounting(vocab, cfg, plan["model_config"]["context"]),
     }
     h.require(all(row.get(k) == v for k, v in required.items()), "LM provenance/configuration/parameter mismatch")
@@ -233,6 +320,8 @@ def validate_result(row, expected, plan, source, byte_rows):
     h.require(type(targets) is int and type(squares) is int and targets > 0
               and targets <= squares <= targets * plan["model_config"]["context"] and row["training_steps"] > 0,
               "invalid/no-op training accounting")
+    h.require(type(row.get("fully_predicted_documents")) is int and row["fully_predicted_documents"] >= 1,
+              "FLOP-matched run predicted no complete document")
     h.require(all(row.get(k) == v for k, v in h.flop_accounting(vocab, cfg, targets, squares).items()), "FLOP accounting mismatch")
     complete = row["completed_training_documents"]
     h.require(row["training_byte_scope"] == "complete_document_prefix", "ambiguous byte accounting")
@@ -244,7 +333,7 @@ def validate_result(row, expected, plan, source, byte_rows):
     else:
         h.require(0.99 * plan["budgets"][regime] <= row["actual_analytical_flops"] <= plan["budgets"][regime], "FLOP matching mismatch")
     metric = row["validation"]
-    validation = plan["selection"]["validation"]
+    validation = plan["validation"]
     expected_targets = source["validation"]["tokens"] + validation["documents"]
     h.require(metric["target_tokens_including_eos"] == expected_targets, "held-out token count mismatch")
     h.require(metric == h.nll_metrics(metric["total_nll_nats"], expected_targets, validation["normalized_utf8_bytes"],
@@ -268,27 +357,87 @@ def check_execution_lock(args, output, plan):
     h.require(h.read_json(output / "selection.json") == plan["selection"], "execution selection changed")
     h.require(h.file_hash(args.phase_a) == plan["selection"]["phase_a_ledger_sha256"], "Phase A ledger changed")
     h.require(h.file_hash(args.dataset) == plan["selection"]["dataset"]["manifest_sha256"], "dataset manifest changed")
+    h.require(h.file_hash(args.source_manifest) == plan["source_manifest_sha256"], "source manifest changed")
+    h.require(h.file_hash(args.exposure_manifest) == plan["exposure_manifest_sha256"], "exposure manifest changed")
     h.require(h.runtime_identity() == plan["identity"], "runtime changed during screening")
     if plan["model_config"]["device"].startswith("cuda"):
         h.require(os.environ.get("CUBLAS_WORKSPACE_CONFIG") == plan["cuda_workspace_config"], "CUDA configuration changed")
 
 
+def train_phase_b_condition(tok, docs, regime, budget, device, byte_rows):
+    """Run the unchanged LM loop and independently attach approved coverage accounting."""
+    from tools.phase_b_flop_preflight import schedule
+
+    measured = h.train_lm(
+        tok, docs, h.SCREEN, 128, regime, budget, 0, device, False, document_bytes=byte_rows
+    )
+    encoded = [tok.encode(text) for text in docs["train"]]
+    accounting = schedule(encoded, len(tok.vocab), regime, budget, 128)
+    for field in (
+        "training_steps",
+        "training_target_tokens",
+        "training_sequence_length_squared_sum",
+        "completed_training_documents",
+        "core_analytical_flops",
+        "output_projection_flops",
+        "actual_analytical_flops",
+        "flop_estimator_version",
+    ):
+        h.require(measured[field] == accounting[field], f"runtime/preflight scheduler mismatch: {field}")
+    measured.update({
+        key: accounting[key]
+        for key in ("fully_predicted_documents", "partial_final_window", "terminal_document_target_tokens")
+    })
+    measured.update({
+        "coverage_policy_version": "flop_fixed_budget_one_complete_document_v1",
+        "minimum_fully_predicted_documents": 1,
+        "coverage_gate": "PASS",
+    })
+    return measured
+
+
+def load_resume_records(args, output, plan, ledger, byte_rows):
+    h.require(h.read_json(output / "plan.json") == plan, "resume plan/provenance mismatch")
+    h.require(h.read_json(output / "selection.json") == plan["selection"], "resume selection mismatch")
+    h.require(not (output / "ledger.json").exists(), "completed Phase B ledger cannot resume")
+    records = {}
+    for path in sorted(output.glob("condition-*.json")):
+        h.require(re.fullmatch(r"condition-\d{3}\.json", path.name) is not None, "invalid checkpoint filename")
+        index = int(path.stem.removeprefix("condition-"))
+        h.require(index < len(plan["conditions"]) and index not in records, "unexpected/duplicate checkpoint")
+        envelope = h.read_json(path)
+        h.require(envelope.get("status") == "condition_complete", "incomplete checkpoint")
+        row = envelope.get("record")
+        source = next(r for r in ledger["records"] if (r["tokenizer"], r["vocab_budget"]) == tuple(plan["conditions"][index][:2]))
+        h.require(h.artifact_hashes(Path(args.phase_a).parent / source["artifact"]) == source["artifact_hashes"],
+                  "resume tokenizer artifact mismatch")
+        validate_result(row, plan["conditions"][index], plan, source, byte_rows)
+        records[index] = row
+    return records
+
+
 def run(args):
     output = Path(args.output)
-    h.require(not output.exists(), "output exists; Phase B cannot overwrite or silently resume")
     plan, ledger, docs, byte_rows = prepare(args, execution=True)
-    output.mkdir(parents=True)
-    h.write_new_json_atomic(output / "selection.json", plan["selection"])
-    h.write_new_json_atomic(output / "plan.json", plan)
-    records = []
+    resume = bool(getattr(args, "resume", False))
+    if output.exists():
+        h.require(resume and output.is_dir(), "output exists; use --resume for a provenance-matched partial Phase B run")
+        records = load_resume_records(args, output, plan, ledger, byte_rows)
+    else:
+        h.require(not resume, "resume requires an existing partial Phase B directory")
+        output.mkdir(parents=True)
+        h.write_new_json_atomic(output / "selection.json", plan["selection"])
+        h.write_new_json_atomic(output / "plan.json", plan)
+        records = {}
     for index, condition in enumerate(plan["conditions"]):
         check_execution_lock(args, output, plan)
+        if index in records:
+            continue
         name, vocab, regime, seed = condition
         source = next(r for r in ledger["records"] if (r["tokenizer"], r["vocab_budget"]) == (name, vocab))
         tok = h.load_tokenizer(source, Path(args.phase_a).parent)
         started = time.perf_counter()
-        measured = h.train_lm(tok, docs, h.SCREEN, plan["model_config"]["context"], regime,
-                              plan["budgets"][regime], seed, args.device, False, document_bytes=byte_rows)
+        measured = train_phase_b_condition(tok, docs, regime, plan["budgets"][regime], args.device, byte_rows)
         row = {
             **measured, "tokenizer": name, "vocab_budget": vocab, "actual_vocab_size": len(tok.vocab),
             "budget_regime": regime, "seed": seed, "model_kind": "causal_transformer", "result_label": "SCREENING",
@@ -296,9 +445,9 @@ def run(args):
             "git_commit": plan["identity"]["commit_hash"], "extension_hash": plan["identity"]["extension_hash"],
             "selection_sha256": plan["selection_sha256"], "special_tokens": h.SPECIAL_IDS,
             "tokenizer_artifact_hash": h.digest(source["artifact_hashes"]),
-            "dataset_manifest_hash": plan["selection"]["dataset"]["manifest_sha256"],
-            "training_assignment_hash": plan["selection"]["training"]["assignment_hash"],
-            "validation_assignment_hash": plan["selection"]["validation"]["assignment_hash"],
+            "dataset_manifest_hash": plan["source_manifest_sha256"],
+            "training_assignment_hash": plan["training"]["assignment_hash"],
+            "validation_assignment_hash": plan["validation"]["assignment_hash"],
             "wall_clock_seconds": time.perf_counter() - started,
         }
         check_execution_lock(args, output, plan)
@@ -306,8 +455,10 @@ def run(args):
                   "tokenizer artifact changed during condition")
         validate_result(row, condition, plan, source, byte_rows)
         h.write_new_json_atomic(output / f"condition-{index:03d}.json", {"status": "condition_complete", "record": row})
-        records.append(row)
-    result = {"metadata": {**plan, "status": "complete"}, "records": records}
+        records[index] = row
+    h.require(set(records) == set(range(18)), "incomplete Phase B checkpoints")
+    ordered = [records[index] for index in range(18)]
+    result = {"metadata": {**plan, "status": "complete"}, "records": ordered}
     validate_ledger(result, plan, ledger, byte_rows)
     check_execution_lock(args, output, plan)
     for source in plan["selection"]["conditions"]:
@@ -329,9 +480,15 @@ def main():
         if command != "freeze":
             child.add_argument("--selection", type=Path, required=True)
             child.add_argument("--selection-sha256", required=True)
+            child.add_argument("--source-manifest", type=Path, required=True)
+            child.add_argument("--source-manifest-sha256", required=True)
+            child.add_argument("--exposure-manifest", type=Path, required=True)
+            child.add_argument("--exposure-manifest-sha256", required=True)
             child.add_argument("--flops", type=float, required=True)
             child.add_argument("--bytes", type=int, required=True)
             child.add_argument("--device", default="cpu")
+            if command == "run":
+                child.add_argument("--resume", action="store_true")
     args = parser.parse_args()
     if args.command == "freeze":
         result = freeze(args)
