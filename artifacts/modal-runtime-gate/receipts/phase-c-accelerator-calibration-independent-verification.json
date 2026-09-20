@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "status": "INDEPENDENT_VERIFICATION_COMPLETE",
+  "phase_c_conditions_started": 0,
+  "validation_scored": false,
+  "test_split_opened": false,
+  "launch_authorized": false,
+  "calibration_commit": "cea54b22864823cf9aa054e410dee652451e5886",
+  "feasibility_receipt_sha256": "813ad3300a10451ddf3c0097b4c05f8e6bcefb4df519c30abaee4cd79ae7866d",
+  "records": [
+    {
+      "gpu": "T4",
+      "status": "VERIFIED",
+      "decision": "FAIL",
+      "measurement_file_sha256": "edda5e5e999cc147263279f01447a390f73d524bcd7c950c0dddd99e3bc8ffbf",
+      "billing_file_sha256": "a5050d41431d38a7b46c800d23f4dcbef18c8e061cb56f218d2de88bc9a76a09",
+      "sample_documents": 203,
+      "sample_normalized_utf8_bytes": 999753,
+      "steps_per_tokenizer": 256,
+      "measured_wall_seconds": 251.570379372,
+      "app_metered_usage_usd": 0.07,
+      "projected_grid_hours": 63.78622025795758,
+      "projected_grid_cost_usd": 57.84848858658483,
+      "projected_grid_hours_with_50pct_allowance": 95.67933038693637,
+      "projected_grid_cost_with_50pct_allowance_usd": 86.77273287987724,
+      "verified_remaining_workspace_capacity_usd": 13.71
+    },
+    {
+      "gpu": "A100-40GB",
+      "status": "VERIFIED",
+      "decision": "FAIL",
+      "measurement_file_sha256": "dd7a90483dd290c26c90a871ecd1a619f7757b66347cf255226b62c4504584e9",
+      "billing_file_sha256": "269453703eb85267b6adf4d44fd7628a1a52c91ad43e439b41adecddae5a47a7",
+      "sample_documents": 203,
+      "sample_normalized_utf8_bytes": 999753,
+      "steps_per_tokenizer": 256,
+      "measured_wall_seconds": 150.672829405,
+      "app_metered_usage_usd": 0.1,
+      "projected_grid_hours": 42.72696809445476,
+      "projected_grid_cost_usd": 103.19895876215374,
+      "projected_grid_hours_with_50pct_allowance": 64.09045214168214,
+      "projected_grid_cost_with_50pct_allowance_usd": 154.7984381432306,
+      "verified_remaining_workspace_capacity_usd": 13.6
+    }
+  ],
+  "content_sha256": "92b0e380e308ac561a9d48112f9a279dd0b2a76c5792f6dba66256a652b86871"
+}
