@@ -1,0 +1,117 @@
+{
+  "schema_version": 1,
+  "status": "CALIBRATION_COMPLETE_COST_GATE_NOT_CLEARED",
+  "purpose": "non_experimental_training_stack_calibration",
+  "experiments_started": false,
+  "validation_scored": false,
+  "test_split_opened": false,
+  "started_utc": "2026-09-20T05:40:36.541130+00:00",
+  "ended_utc": "2026-09-20T05:45:07.199184+00:00",
+  "wall_seconds": 270.658166741,
+  "hard_step_cap_per_tokenizer": 256,
+  "sample_max_normalized_utf8_bytes": 1000000,
+  "sample_normalized_utf8_bytes": 999753,
+  "sample_ordered_text_hash": "76c8f5a5701860c4291468f8bb145f168704bd93b474aaa08e4db4b7ec29f028",
+  "sample_scope": "first_complete_documents_of_frozen_phase_c_training_exposure",
+  "runtime": {
+    "identity": {
+      "ledger_schema_version": 3,
+      "commit_hash": "73ffdd8a28e536917dcc337d183fa7ff3bcbb681",
+      "working_tree_dirty": false,
+      "source_hash": "c8d368d048be31934460cfe884dec8bd81691164af0f3618053453823da42d50",
+      "extension_hash": "b98f262df1c63e1b4fd0cfa38f5b673ce4affd8f8349bd6f642c13ef2c47db42",
+      "extension_status": "installed",
+      "versions": {
+        "python": "3.10.17",
+        "torch": "2.6.0+cu124",
+        "sentencepiece": "0.2.1",
+        "numpy": "2.2.6",
+        "regex": "2026.4.4"
+      }
+    },
+    "os": "Linux-4.19.0-gvisor-x86_64-with-glibc2.36",
+    "python": "3.10.17",
+    "packages": {
+      "python": "3.10.17",
+      "torch": "2.6.0+cu124",
+      "sentencepiece": "0.2.1",
+      "numpy": "2.2.6",
+      "regex": "2026.4.4"
+    },
+    "extension_binary_sha256": "111c996c2c7c46630f250a0c1c8f47498762b9b336edc85a72b044500c6aab08",
+    "torch_cuda_version": "12.4",
+    "gpu_name": "NVIDIA L4",
+    "nvidia_smi": "NVIDIA L4, 580.95.05, 23034 MiB",
+    "environment": {
+      "CUBLAS_WORKSPACE_CONFIG": ":4096:8",
+      "PYTHONHASHSEED": "0",
+      "OMP_NUM_THREADS": "4",
+      "MKL_NUM_THREADS": "4",
+      "RAYON_NUM_THREADS": "1",
+      "TOKENIZERS_PARALLELISM": null
+    }
+  },
+  "provenance": {
+    "phase_c_protocol_sha256": "2aac9a7d6d80f1c26a8716316d2458b4261c9b6219c18a5b78b49a55f0d6f335",
+    "phase_b_report_sha256": "1d43311cd2a0cc4c917bacce019928dc612c79d008819ed53aed4bb2270168ce",
+    "phase_b_ledger_sha256": "0c145550a2b10b266f83d35e4cc5edc335eb401e0e133ebd09d908402539fb33",
+    "source_manifest_sha256": "af11dc30fc96c683f92434d27c79fc45dd649dfb3787c6d9b02f81075aedd0c5",
+    "exposure_manifest_sha256": "88c6661699025bb90c1a42b9b24adbc3b523b79282f3925e6a40653f7e4fa5f8",
+    "exposure_receipt_sha256": "05ef9ab1308ba453ecf3e4cfb3bce1dfd4fadb976b04af3ce089d373c8dfc43c",
+    "validation_receipt_sha256": "e58d1c961ac4220ae8b0d48278702a09c851956dfdf0a6a3f30250135dbc47c1"
+  },
+  "feasibility_receipt_sha256": "813ad3300a10451ddf3c0097b4c05f8e6bcefb4df519c30abaee4cd79ae7866d",
+  "records": [
+    {
+      "tokenizer": "sp_unigram",
+      "vocab_budget": 16384,
+      "tokenizer_artifact_hash": "1a1f33f2750dd96c6fec4a324b4d9139a12d7b69e99eb254c207a6be42ae881e",
+      "sample_documents": 203,
+      "sample_normalized_utf8_bytes": 999753,
+      "encoded_tokens_excluding_eos": 326830,
+      "model_and_optimizer_init_seconds": 4.023732072000001,
+      "tokenization_seconds": 0.45498916499998643,
+      "training_seconds": 3.904649445000004,
+      "training_steps": 256,
+      "training_target_tokens": 31027,
+      "measured_training_steps_per_second": 65.56286386421041
+    },
+    {
+      "tokenizer": "boundary_bpe",
+      "vocab_budget": 16384,
+      "tokenizer_artifact_hash": "408aa4ac3898bcac8784c31737233c327887f75cb77f7bf6c3c9e8d38993cda6",
+      "sample_documents": 203,
+      "sample_normalized_utf8_bytes": 999753,
+      "encoded_tokens_excluding_eos": 441540,
+      "model_and_optimizer_init_seconds": 0.041581438999998,
+      "tokenization_seconds": 146.85183341600003,
+      "training_seconds": 3.2045478160000016,
+      "training_steps": 256,
+      "training_target_tokens": 31453,
+      "measured_training_steps_per_second": 79.88646595373501
+    },
+    {
+      "tokenizer": "uniq_superbpe",
+      "vocab_budget": 16384,
+      "tokenizer_artifact_hash": "61722b42fb966c584d6a71a46df38e790470eb2429d480bfe3613785133d3cea",
+      "sample_documents": 203,
+      "sample_normalized_utf8_bytes": 999753,
+      "encoded_tokens_excluding_eos": 332949,
+      "model_and_optimizer_init_seconds": 0.04144403200001534,
+      "tokenization_seconds": 3.3952222059999713,
+      "training_seconds": 3.077315215999988,
+      "training_steps": 256,
+      "training_target_tokens": 31458,
+      "measured_training_steps_per_second": 83.18939791054574
+    }
+  ],
+  "hourly_rate_usd": 1.115712,
+  "projection": {
+    "lower_bound_wall_seconds": 237949.46593093243,
+    "lower_bound_wall_hours": 66.09707386970345,
+    "lower_bound_cost_usd": 73.74529848131458,
+    "scope": "training_and_tokenization_lower_bound_only",
+    "unmeasured": "validation, orchestration, checkpointing, billing variance"
+  },
+  "content_sha256": "5e50acf753bacb483c40d15321db0ee9691b4c9f202a5be24b503417e147d2eb"
+}

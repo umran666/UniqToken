@@ -1,0 +1,61 @@
+{
+  "schema_version": 1,
+  "status": "PHASE_C_LAUNCH_BLOCKED",
+  "scope": "non_experimental_gpu_calibration_and_billing_review",
+  "calibration_commit": "73ffdd8a28e536917dcc337d183fa7ff3bcbb681",
+  "calibration_receipt": "phase-c-gpu-calibration-measurement.json",
+  "calibration_receipt_file_sha256": "4d1eb65e0d8ba6554fc730966e4b1e492c9f839c14d47308c20fd28198ae1894",
+  "calibration_receipt_content_sha256": "5e50acf753bacb483c40d15321db0ee9691b4c9f202a5be24b503417e147d2eb",
+  "modal_app_url": "https://modal.com/apps/opzgameryt/main/ap-qC1VDS9Jzyn8TnuLaASPJf",
+  "billing_page_url": "https://modal.com/settings/opzgameryt/usage?tab=budgets",
+  "billing_cycle": "2026-09-01_to_2026-10-01",
+  "workspace_before": {
+    "observed_local": "2026-09-20T11:08:58+05:30",
+    "usage_usd": 16.12,
+    "hard_usage_limit_usd": 30.0,
+    "remaining_to_hard_limit_usd": 13.88,
+    "charges_usd": 0.0,
+    "post_credit_spend_limit_usd": 13.0
+  },
+  "workspace_after": {
+    "observed_local": "2026-09-20T11:15:53+05:30",
+    "usage_usd": 16.18,
+    "hard_usage_limit_usd": 30.0,
+    "remaining_to_hard_limit_usd": 13.82,
+    "charges_usd": 0.0,
+    "post_credit_spend_limit_usd": 13.0
+  },
+  "app_metered_usage_usd": 0.09,
+  "app_metered_breakdown_usd": {
+    "l4": 0.06,
+    "cpu": 0.02,
+    "memory": 0.01
+  },
+  "billing_note": "App total and workspace before/after delta are distinct dashboard observations; do not equate them because of timing and rounding.",
+  "published_price_source": "https://modal.com/pricing",
+  "published_price_observed_on": "2026-09-20",
+  "published_hourly_rate_for_l4_4_cpu_16_gib_usd": 1.115712,
+  "calibration": {
+    "sample_documents": 203,
+    "sample_normalized_utf8_bytes": 999753,
+    "optimizer_steps_per_tokenizer": 256,
+    "completed_wall_seconds": 270.658166741,
+    "projected_full_grid_hours": 66.09707386970345,
+    "projected_full_grid_cost_usd": 73.74529848131458,
+    "interpretation": "Point extrapolation of measured short-slice tokenization and optimizer timing. Validation, orchestration, checkpointing, and billing variance are excluded. The calibration receipt calls this a lower bound, but sampling variation means it is not a mathematical lower bound."
+  },
+  "runtime_review": {
+    "python": "3.10.17",
+    "torch": "2.6.0+cu124",
+    "cuda": "12.4",
+    "gpu": "NVIDIA L4",
+    "driver": "580.95.05",
+    "extension_signature": "b98f262df1c63e1b4fd0cfa38f5b673ce4affd8f8349bd6f642c13ef2c47db42",
+    "clean_working_tree": true,
+    "thread_environment_caveat": "Modal set OMP_NUM_THREADS and MKL_NUM_THREADS to 4 on the 4-CPU calibration container, despite the wrapper setting 2. The earlier two-CPU fingerprint recorded 2. A future launch must explicitly bind its actual thread environment."
+  },
+  "phase_c_conditions_started": 0,
+  "validation_scored": false,
+  "test_split_opened": false,
+  "decision": "Do not launch frozen Phase C: measured-slice cost projection exceeds fresh remaining workspace capacity by more than fivefold."
+}
