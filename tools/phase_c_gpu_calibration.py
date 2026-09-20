@@ -36,8 +36,8 @@ def training_prefix(texts, max_bytes=MAX_SLICE_BYTES):
     return selected, used
 
 
-def projected_lower_bound(records, feasibility, hourly_rate):
-    """Exclude validation and orchestration overhead; sufficient only for rejection."""
+def extrapolate_cost(records, feasibility, hourly_rate):
+    """Short-slice timing extrapolation, not a mathematical bound."""
     h.require(math.isfinite(hourly_rate) and hourly_rate > 0, "invalid metered hourly rate")
     by_name = {row["tokenizer"]: row for row in records}
     h.require(set(by_name) == set(phase_c.NAMES), "incomplete calibration cohort")
@@ -52,9 +52,9 @@ def projected_lower_bound(records, feasibility, hourly_rate):
             + row["training_seconds"] / row["training_steps"] * condition["training_steps"]
         )
         seconds += len(phase_c.SEEDS) * per_seed
-    return {"lower_bound_wall_seconds": seconds,
-            "lower_bound_wall_hours": seconds / 3600,
-            "lower_bound_cost_usd": seconds / 3600 * hourly_rate}
+    return {"extrapolated_wall_seconds": seconds,
+            "extrapolated_wall_hours": seconds / 3600,
+            "extrapolated_cost_usd": seconds / 3600 * hourly_rate}
 
 
 def extension_binary():
@@ -68,7 +68,7 @@ def extension_binary():
     return binaries[0]
 
 
-def runtime_fingerprint(identity):
+def runtime_fingerprint(identity, device):
     import torch
 
     binary_hash = h.file_hash(extension_binary())
@@ -76,35 +76,42 @@ def runtime_fingerprint(identity):
     h.require(identity["extension_hash"] == EXPECTED_EXTENSION_SHA256, "Phase A Rust extension hash changed")
     h.require(platform.python_version() == "3.10.17", "Phase A Python version changed")
     h.require(torch.__version__ == "2.6.0+cu124", "pinned PyTorch changed")
-    h.require(torch.version.cuda == "12.4" and torch.cuda.is_available(), "pinned CUDA unavailable")
+    h.require(torch.version.cuda == "12.4", "pinned PyTorch CUDA build changed")
     h.require(os.environ.get("CUBLAS_WORKSPACE_CONFIG") == ":4096:8", "deterministic CUDA setting changed")
-    driver = subprocess.run(
-        ["nvidia-smi", "--query-gpu=name,driver_version,memory.total", "--format=csv,noheader"],
-        check=True, capture_output=True, text=True,
-    ).stdout.strip()
-    h.require(torch.cuda.get_device_name(0) == "NVIDIA L4", "calibration requires L4")
+    h.require(device in ("cuda", "cpu"), "unsupported calibration device")
+    if device == "cuda":
+        h.require(torch.cuda.is_available() and torch.cuda.get_device_name(0) == "NVIDIA L4",
+                  "calibration requires L4")
+        driver = subprocess.run(
+            ["nvidia-smi", "--query-gpu=name,driver_version,memory.total", "--format=csv,noheader"],
+            check=True, capture_output=True, text=True,
+        ).stdout.strip()
+        gpu_name = torch.cuda.get_device_name(0)
+    else:
+        driver = gpu_name = None
     return {
         "identity": identity, "os": platform.platform(), "python": platform.python_version(),
         "packages": identity["versions"], "extension_binary_sha256": binary_hash,
-        "torch_cuda_version": torch.version.cuda, "gpu_name": torch.cuda.get_device_name(0),
-        "nvidia_smi": driver,
+        "device": device, "torch_cuda_version": torch.version.cuda, "gpu_name": gpu_name,
+        "nvidia_smi": driver, "torch_num_threads": torch.get_num_threads(),
         "environment": {key: os.environ.get(key) for key in (
             "CUBLAS_WORKSPACE_CONFIG", "PYTHONHASHSEED", "OMP_NUM_THREADS", "MKL_NUM_THREADS",
             "RAYON_NUM_THREADS", "TOKENIZERS_PARALLELISM")},
     }
 
 
-def measure_condition(tok, texts, seed):
+def measure_condition(tok, texts, seed, device):
     import torch
     import torch.nn.functional as F
 
     torch.manual_seed(seed)
     torch.use_deterministic_algorithms(True)
     started = time.perf_counter()
-    model = h.CausalMiniTransformer(len(tok.vocab), h.SCREEN, 128).to(device="cuda", dtype=torch.float32)
+    model = h.CausalMiniTransformer(len(tok.vocab), h.SCREEN, 128).to(device=device, dtype=torch.float32)
     optimizer = torch.optim.AdamW(model.parameters(), lr=h.SCREEN.lr, betas=(0.9, 0.999),
                                   eps=1e-8, weight_decay=0.01)
-    torch.cuda.synchronize()
+    if device == "cuda":
+        torch.cuda.synchronize()
     init_seconds = time.perf_counter() - started
     h.require(sum(p.numel() for p in model.parameters()) == h.parameter_count(len(tok.vocab), h.SCREEN, 128)[0],
               "calibration model differs from Phase C")
@@ -119,14 +126,15 @@ def measure_condition(tok, texts, seed):
     for x, y in windows:
         model.train()
         optimizer.zero_grad(set_to_none=True)
-        logits = model(torch.tensor([x], device="cuda"))
-        loss = F.cross_entropy(logits.view(-1, logits.size(-1)), torch.tensor(y, device="cuda"))
+        logits = model(torch.tensor([x], device=device))
+        loss = F.cross_entropy(logits.view(-1, logits.size(-1)), torch.tensor(y, device=device))
         h.require(bool(torch.isfinite(loss)), "non-finite calibration computation")
         loss.backward()
         optimizer.step()
         completed += 1
         targets += len(y)
-    torch.cuda.synchronize()
+    if device == "cuda":
+        torch.cuda.synchronize()
     training_seconds = time.perf_counter() - started
     h.require(completed == STEPS_PER_TOKENIZER, "training-only slice has too few windows")
     return {
@@ -143,8 +151,8 @@ def run(args):
     started = time.perf_counter()
     plan, phase_a, docs, _ = phase_c.prepare(args, execution=True)
     h.require(plan["identity"]["working_tree_dirty"] is False, "calibration requires a clean committed harness")
-    h.require(args.device == "cuda", "GPU calibration requires cuda")
-    fingerprint = runtime_fingerprint(plan["identity"])
+    h.require(args.device in ("cuda", "cpu"), "unsupported calibration device")
+    fingerprint = runtime_fingerprint(plan["identity"], args.device)
     feasibility = h.read_json(args.feasibility_receipt)
     body = dict(feasibility)
     expected = body.pop("content_sha256")
@@ -161,13 +169,20 @@ def run(args):
         tok = h.load_tokenizer(source, Path(args.phase_a).parent)
         row = {"tokenizer": name, "vocab_budget": phase_c.VOCAB,
                "tokenizer_artifact_hash": h.digest(source["artifact_hashes"]),
-               **measure_condition(tok, texts, seed=0)}
+               **measure_condition(tok, texts, seed=0, device=args.device)}
         records.append(row)
         print(f"Calibrated {name}: {row['measured_training_steps_per_second']:.2f} steps/s", flush=True)
-    projection = projected_lower_bound(records, feasibility, args.hourly_rate)
+    projection = extrapolate_cost(records, feasibility, args.hourly_rate)
+    projection.update({
+        "overhead_margin_factor": 1.5,
+        "cost_with_margin_usd": 1.5 * projection["extrapolated_cost_usd"],
+        "wall_with_margin_hours": 1.5 * projection["extrapolated_wall_hours"],
+        "interpretation": "Point extrapolation from a small training slice; the margin is not a guaranteed upper bound.",
+    })
     receipt = {
         "schema_version": VERSION, "status": "CALIBRATION_COMPLETE_COST_GATE_NOT_CLEARED",
         "purpose": "non_experimental_training_stack_calibration", "experiments_started": False,
+        "device": args.device,
         "validation_scored": False, "test_split_opened": False,
         "started_utc": started_utc, "ended_utc": datetime.now(timezone.utc).isoformat(),
         "wall_seconds": time.perf_counter() - started, "hard_step_cap_per_tokenizer": STEPS_PER_TOKENIZER,
