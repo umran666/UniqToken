@@ -72,7 +72,8 @@ def runtime_fingerprint(identity):
     import torch
 
     binary_hash = h.file_hash(extension_binary())
-    h.require(binary_hash == EXPECTED_EXTENSION_SHA256, "Phase A Rust extension hash changed")
+    h.require(h.digest([binary_hash]) == identity["extension_hash"], "installed Rust extension identity mismatch")
+    h.require(identity["extension_hash"] == EXPECTED_EXTENSION_SHA256, "Phase A Rust extension hash changed")
     h.require(platform.python_version() == "3.10.17", "Phase A Python version changed")
     h.require(torch.__version__ == "2.6.0+cu124", "pinned PyTorch changed")
     h.require(torch.version.cuda == "12.4" and torch.cuda.is_available(), "pinned CUDA unavailable")

@@ -1,6 +1,7 @@
 """Guardrails for the non-experimental Phase C GPU calibration."""
 from __future__ import annotations
 
+import sys
 from types import SimpleNamespace
 
 import pytest
@@ -15,6 +16,23 @@ def test_training_prefix_uses_ordered_complete_documents():
     assert calibration.training_prefix(texts, 6) == (["aa", "bbb"], 5)
     with pytest.raises(ValueError, match="no complete"):
         calibration.training_prefix(texts, 1)
+
+
+def test_runtime_uses_harness_extension_signature_not_raw_binary_hash(monkeypatch):
+    raw = "a" * 64
+    signature = h.digest([raw])
+    assert signature != raw
+    monkeypatch.setattr(calibration, "EXPECTED_EXTENSION_SHA256", signature)
+    monkeypatch.setattr(calibration, "extension_binary", lambda: "binary.so")
+    monkeypatch.setattr(h, "file_hash", lambda _: raw)
+    monkeypatch.setattr(calibration.platform, "python_version", lambda: "3.10.17")
+    monkeypatch.setenv("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
+    monkeypatch.setattr(calibration.subprocess, "run", lambda *args, **kwargs: SimpleNamespace(stdout="NVIDIA L4, driver"))
+    monkeypatch.setitem(sys.modules, "torch", SimpleNamespace(
+        __version__="2.6.0+cu124", version=SimpleNamespace(cuda="12.4"),
+        cuda=SimpleNamespace(is_available=lambda: True, get_device_name=lambda _: "NVIDIA L4")))
+    fingerprint = calibration.runtime_fingerprint({"extension_hash": signature, "versions": {}})
+    assert fingerprint["extension_binary_sha256"] == raw
 
 
 def test_projection_is_training_only_lower_bound_and_three_seed():
@@ -43,7 +61,8 @@ def test_projection_refuses_incomplete_or_uncapped_records(bad_records):
 
 
 def test_run_uses_training_prefix_only_and_never_scores_validation(monkeypatch, tmp_path):
-    plan = {"identity": {"commit_hash": "a" * 40}, "provenance": {"source": "frozen"}}
+    plan = {"identity": {"commit_hash": "a" * 40, "working_tree_dirty": False},
+            "provenance": {"source": "frozen"}}
     phase_a = {"records": [{"tokenizer": name, "vocab_budget": phase_c.VOCAB,
                             "artifact_hashes": {"model": name}} for name in phase_c.NAMES]}
     docs = {"train": ["a" * 600_000, "b" * 500_000], "validation": ["held out"]}
