@@ -1,0 +1,112 @@
+{
+  "phase_c_feasibility_schema_version": 1,
+  "status": "BLOCKED_COST_AND_WALL_TIME",
+  "experiments_started": false,
+  "test_split_opened": false,
+  "conditions": 9,
+  "records": [
+    {
+      "tokenizer": "sp_unigram",
+      "vocab_budget": 16384,
+      "documents": 42897,
+      "normalized_utf8_bytes": 300000000,
+      "encoded_tokens_excluding_eos": 100993951,
+      "ordered_document_lengths_sha256": "115f892ca72ec532d2a3aab8df379fa19ffe53c7d26f8906cbc22314ebd671ee",
+      "encoding_workers": 32,
+      "training_steps": 810744,
+      "training_target_tokens": 101036848,
+      "training_sequence_length_squared_sum": 12814912124,
+      "core_analytical_flops": 277743241383936,
+      "output_projection_flops": 1271337767141376,
+      "actual_analytical_flops": 1549081008525312,
+      "flop_estimator_version": "dense_matmul_forward_backward_v1",
+      "tokenizer_preflight_seconds": 13.422115362,
+      "phase_b_reference_wall_seconds": 70.844414888,
+      "phase_b_reference_training_steps": 2843,
+      "wall_time_estimator": "phase_b_same_architecture_l4_seconds_per_training_step_v1",
+      "estimated_wall_seconds_per_seed": 20202.84358211631,
+      "estimated_wall_seconds_three_seeds": 60608.53074634893
+    },
+    {
+      "tokenizer": "boundary_bpe",
+      "vocab_budget": 16384,
+      "documents": 42897,
+      "normalized_utf8_bytes": 300000000,
+      "encoded_tokens_excluding_eos": 120974040,
+      "ordered_document_lengths_sha256": "c01a07a70aa4f62ea28d9b9fec91448b064fc7dd24e21567e9f19b57853b12ea",
+      "encoding_workers": 32,
+      "training_steps": 966793,
+      "training_target_tokens": 121016937,
+      "training_sequence_length_squared_sum": 15373287907,
+      "core_analytical_flops": 332741515846656,
+      "output_projection_flops": 1522745468780544,
+      "actual_analytical_flops": 1855486984627200,
+      "flop_estimator_version": "dense_matmul_forward_backward_v1",
+      "tokenizer_preflight_seconds": 583.064469522,
+      "phase_b_reference_wall_seconds": 449.2024188390001,
+      "phase_b_reference_training_steps": 3388,
+      "wall_time_estimator": "phase_b_same_architecture_l4_seconds_per_training_step_v1",
+      "estimated_wall_seconds_per_seed": 128183.51656334515,
+      "estimated_wall_seconds_three_seeds": 384550.54969003546
+    },
+    {
+      "tokenizer": "uniq_superbpe",
+      "vocab_budget": 16384,
+      "documents": 42897,
+      "normalized_utf8_bytes": 300000000,
+      "encoded_tokens_excluding_eos": 99678356,
+      "ordered_document_lengths_sha256": "54c31b2dce4107265476c8a5663d99195de07be92e030f08bb473deb2137ab3d",
+      "encoding_workers": 32,
+      "training_steps": 800499,
+      "training_target_tokens": 99721253,
+      "training_sequence_length_squared_sum": 12647061201,
+      "core_analytical_flops": 274123725327360,
+      "output_projection_flops": 1254783751028736,
+      "actual_analytical_flops": 1528907476356096,
+      "flop_estimator_version": "dense_matmul_forward_backward_v1",
+      "tokenizer_preflight_seconds": 29.752171288,
+      "phase_b_reference_wall_seconds": 88.2940531669999,
+      "phase_b_reference_training_steps": 2838,
+      "wall_time_estimator": "phase_b_same_architecture_l4_seconds_per_training_step_v1",
+      "estimated_wall_seconds_per_seed": 24904.616372843644,
+      "estimated_wall_seconds_three_seeds": 74713.84911853092
+    }
+  ],
+  "total_estimated_wall_seconds": 519872.92955491535,
+  "total_estimated_wall_hours": 144.4091470985876,
+  "pricing": {
+    "observed_at": "2026-09-16",
+    "source": "https://modal.com/pricing",
+    "modal_configuration": {
+      "gpu": "L4",
+      "cpu_cores": 4,
+      "memory_gib": 16
+    },
+    "hourly_components_usd": {
+      "l4_gpu": 0.7992,
+      "four_cpu_cores": 0.5676479999999999,
+      "sixteen_gib_memory": 0.12787199999999999
+    },
+    "total_per_hour_usd": 1.49472
+  },
+  "estimated_modal_cost_usd": 215.85124035120086,
+  "conservative_workspace_capacity_upper_bound_usd": 13.0,
+  "estimator_limitations": [
+    "Wall time scales Phase B observed total condition time by training-step count.",
+    "It includes Phase B tokenization and validation overhead proportionally and is an estimate, not a runtime result.",
+    "Pricing is the public rate observed on the recorded date; launch requires a fresh dashboard capacity receipt.",
+    "The capacity input is the last pre-Phase-B value, so current remaining capacity can only be lower."
+  ],
+  "provenance": {
+    "phase_c_protocol_sha256": "2aac9a7d6d80f1c26a8716316d2458b4261c9b6219c18a5b78b49a55f0d6f335",
+    "phase_b_report_sha256": "1d43311cd2a0cc4c917bacce019928dc612c79d008819ed53aed4bb2270168ce",
+    "phase_b_ledger_sha256": "0c145550a2b10b266f83d35e4cc5edc335eb401e0e133ebd09d908402539fb33",
+    "source_manifest_sha256": "af11dc30fc96c683f92434d27c79fc45dd649dfb3787c6d9b02f81075aedd0c5",
+    "exposure_manifest_sha256": "88c6661699025bb90c1a42b9b24adbc3b523b79282f3925e6a40653f7e4fa5f8",
+    "exposure_receipt_sha256": "05ef9ab1308ba453ecf3e4cfb3bce1dfd4fadb976b04af3ce089d373c8dfc43c",
+    "validation_receipt_sha256": "e58d1c961ac4220ae8b0d48278702a09c851956dfdf0a6a3f30250135dbc47c1"
+  },
+  "runner_commit": "441770d8329fb5ebe72abc56ff6c4618ae07250e",
+  "runner_working_tree_dirty": false,
+  "content_sha256": "df42720f0aaec57a5b73e77eb08087ed817fc73205725eb01ab72aba32849afa"
+}

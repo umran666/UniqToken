@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "status": "PHASE_C_LAUNCH_BLOCKED",
+  "scope": "non_experimental_t4_calibration_and_billing_review",
+  "gpu": "T4",
+  "calibration_commit": "cea54b22864823cf9aa054e410dee652451e5886",
+  "measurement_sha256": "edda5e5e999cc147263279f01447a390f73d524bcd7c950c0dddd99e3bc8ffbf",
+  "measurement_content_sha256": "98b87caf29d3eb3c2ebc30dea4a74910bf661d03e92ad4af04cdd4b48cc94609",
+  "modal_app_url": "https://modal.com/apps/opzgameryt/main/ap-joTOkXFq1NFslaJgKIXVne",
+  "billing_page_url": "https://modal.com/settings/opzgameryt/usage?tab=budgets",
+  "billing_cycle": "2026-09-01_to_2026-10-01",
+  "workspace_before": {
+    "observed_local": "2026-09-20T14:20:00+05:30",
+    "usage_usd": 16.22,
+    "hard_usage_limit_usd": 30.0,
+    "remaining_to_hard_limit_usd": 13.78,
+    "charges_usd": 0.0,
+    "post_credit_spend_limit_usd": 13.0
+  },
+  "workspace_after": {
+    "observed_local": "2026-09-20T14:35:36+05:30",
+    "usage_usd": 16.29,
+    "hard_usage_limit_usd": 30.0,
+    "remaining_to_hard_limit_usd": 13.71,
+    "charges_usd": 0.0,
+    "post_credit_spend_limit_usd": 13.0
+  },
+  "app_metered_usage_usd": 0.07,
+  "billing_note": "The app total and rounded workspace delta are separate dashboard observations; neither is substituted for the other.",
+  "published_price_source": "https://modal.com/pricing",
+  "published_price_observed_date": "2026-09-20",
+  "published_hourly_rate_usd": 0.906912,
+  "runtime": {
+    "python": "3.10.17",
+    "torch": "2.6.0+cu124",
+    "cuda": "12.4",
+    "gpu_name": "Tesla T4",
+    "gpu_memory_total_mib": 15360,
+    "driver": "580.95.05",
+    "extension_signature": "b98f262df1c63e1b4fd0cfa38f5b673ce4affd8f8349bd6f642c13ef2c47db42",
+    "omp_num_threads": 4,
+    "mkl_num_threads": 4,
+    "clean_working_tree": true
+  },
+  "phase_c_conditions_started": 0,
+  "validation_scored": false,
+  "test_split_opened": false,
+  "scientific_protocol_changed": false,
+  "decision": "FAIL",
+  "content_sha256": "f60c90c49b7096090bbe8925dde994b7f33699d1567c1e662b6f0b0f4398a9a5"
+}

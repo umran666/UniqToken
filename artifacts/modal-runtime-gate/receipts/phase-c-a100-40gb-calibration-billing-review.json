@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "status": "PHASE_C_LAUNCH_BLOCKED",
+  "scope": "non_experimental_a100_40gb_calibration_and_billing_review",
+  "gpu": "A100-40GB",
+  "calibration_commit": "cea54b22864823cf9aa054e410dee652451e5886",
+  "measurement_sha256": "dd7a90483dd290c26c90a871ecd1a619f7757b66347cf255226b62c4504584e9",
+  "measurement_content_sha256": "7086b5bd96d7da2daf8cfb53d7aae01563605d9029988308020df8f6334ae9c8",
+  "modal_app_url": "https://modal.com/apps/opzgameryt/main/ap-XQNN3jPF4id9yYQDJU4oFj",
+  "billing_page_url": "https://modal.com/settings/opzgameryt/usage?tab=budgets",
+  "billing_cycle": "2026-09-01_to_2026-10-01",
+  "workspace_before": {
+    "observed_local": "2026-09-20T14:35:36+05:30",
+    "usage_usd": 16.29,
+    "hard_usage_limit_usd": 30.0,
+    "remaining_to_hard_limit_usd": 13.71,
+    "charges_usd": 0.0,
+    "post_credit_spend_limit_usd": 13.0
+  },
+  "workspace_after": {
+    "observed_local": "2026-09-20T14:47:52+05:30",
+    "usage_usd": 16.40,
+    "hard_usage_limit_usd": 30.0,
+    "remaining_to_hard_limit_usd": 13.60,
+    "charges_usd": 0.0,
+    "post_credit_spend_limit_usd": 13.0
+  },
+  "app_metered_usage_usd": 0.10,
+  "billing_note": "The app total and rounded workspace delta are separate dashboard observations; neither is substituted for the other.",
+  "published_price_source": "https://modal.com/pricing",
+  "published_price_observed_date": "2026-09-20",
+  "published_hourly_rate_usd": 2.415312,
+  "runtime": {
+    "python": "3.10.17",
+    "torch": "2.6.0+cu124",
+    "cuda": "12.4",
+    "gpu_name": "NVIDIA A100-SXM4-40GB",
+    "gpu_memory_total_mib": 40960,
+    "driver": "580.95.05",
+    "extension_signature": "b98f262df1c63e1b4fd0cfa38f5b673ce4affd8f8349bd6f642c13ef2c47db42",
+    "omp_num_threads": 4,
+    "mkl_num_threads": 4,
+    "clean_working_tree": true
+  },
+  "phase_c_conditions_started": 0,
+  "validation_scored": false,
+  "test_split_opened": false,
+  "scientific_protocol_changed": false,
+  "decision": "FAIL",
+  "content_sha256": "9fb2920ae37f1ffde11f9a08663f798ecc096c6de4606a6bf725e1b19bca4033"
+}

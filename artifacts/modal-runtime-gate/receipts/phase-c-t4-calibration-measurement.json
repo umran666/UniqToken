@@ -1,0 +1,140 @@
+{
+  "schema_version": 1,
+  "status": "CALIBRATION_COMPLETE_COST_GATE_NOT_CLEARED",
+  "purpose": "non_experimental_training_stack_calibration",
+  "experiments_started": false,
+  "device": "cuda",
+  "validation_scored": false,
+  "test_split_opened": false,
+  "started_utc": "2026-09-20T09:00:38.079006+00:00",
+  "ended_utc": "2026-09-20T09:04:49.649381+00:00",
+  "wall_seconds": 251.570379372,
+  "hard_step_cap_per_tokenizer": 256,
+  "sample_max_normalized_utf8_bytes": 1000000,
+  "sample_normalized_utf8_bytes": 999753,
+  "sample_ordered_text_hash": "76c8f5a5701860c4291468f8bb145f168704bd93b474aaa08e4db4b7ec29f028",
+  "sample_scope": "first_complete_documents_of_frozen_phase_c_training_exposure",
+  "safety_limits": {
+    "max_wall_seconds": 480.0,
+    "max_compute_cost_usd": 0.35,
+    "modal_hard_timeout_seconds": 540
+  },
+  "runtime": {
+    "identity": {
+      "ledger_schema_version": 3,
+      "commit_hash": "cea54b22864823cf9aa054e410dee652451e5886",
+      "working_tree_dirty": false,
+      "source_hash": "c8d368d048be31934460cfe884dec8bd81691164af0f3618053453823da42d50",
+      "extension_hash": "b98f262df1c63e1b4fd0cfa38f5b673ce4affd8f8349bd6f642c13ef2c47db42",
+      "extension_status": "installed",
+      "versions": {
+        "python": "3.10.17",
+        "torch": "2.6.0+cu124",
+        "sentencepiece": "0.2.1",
+        "numpy": "2.2.6",
+        "regex": "2026.4.4"
+      }
+    },
+    "os": "Linux-4.19.0-gvisor-x86_64-with-glibc2.36",
+    "python": "3.10.17",
+    "packages": {
+      "python": "3.10.17",
+      "torch": "2.6.0+cu124",
+      "sentencepiece": "0.2.1",
+      "numpy": "2.2.6",
+      "regex": "2026.4.4"
+    },
+    "extension_binary_sha256": "111c996c2c7c46630f250a0c1c8f47498762b9b336edc85a72b044500c6aab08",
+    "device": "cuda",
+    "torch_cuda_version": "12.4",
+    "gpu_name": "Tesla T4",
+    "expected_gpu": "T4",
+    "nvidia_smi": "Tesla T4, 580.95.05, 15360 MiB",
+    "driver_version": "580.95.05",
+    "gpu_memory_total_mib": 15360,
+    "torch_num_threads": 4,
+    "environment": {
+      "CUBLAS_WORKSPACE_CONFIG": ":4096:8",
+      "PYTHONHASHSEED": "0",
+      "OMP_NUM_THREADS": "4",
+      "MKL_NUM_THREADS": "4",
+      "RAYON_NUM_THREADS": "1",
+      "TOKENIZERS_PARALLELISM": null
+    }
+  },
+  "provenance": {
+    "phase_c_protocol_sha256": "2aac9a7d6d80f1c26a8716316d2458b4261c9b6219c18a5b78b49a55f0d6f335",
+    "phase_b_report_sha256": "1d43311cd2a0cc4c917bacce019928dc612c79d008819ed53aed4bb2270168ce",
+    "phase_b_ledger_sha256": "0c145550a2b10b266f83d35e4cc5edc335eb401e0e133ebd09d908402539fb33",
+    "source_manifest_sha256": "af11dc30fc96c683f92434d27c79fc45dd649dfb3787c6d9b02f81075aedd0c5",
+    "exposure_manifest_sha256": "88c6661699025bb90c1a42b9b24adbc3b523b79282f3925e6a40653f7e4fa5f8",
+    "exposure_receipt_sha256": "05ef9ab1308ba453ecf3e4cfb3bce1dfd4fadb976b04af3ce089d373c8dfc43c",
+    "validation_receipt_sha256": "e58d1c961ac4220ae8b0d48278702a09c851956dfdf0a6a3f30250135dbc47c1"
+  },
+  "feasibility_receipt_sha256": "813ad3300a10451ddf3c0097b4c05f8e6bcefb4df519c30abaee4cd79ae7866d",
+  "records": [
+    {
+      "tokenizer": "sp_unigram",
+      "vocab_budget": 16384,
+      "tokenizer_artifact_hash": "1a1f33f2750dd96c6fec4a324b4d9139a12d7b69e99eb254c207a6be42ae881e",
+      "sample_documents": 203,
+      "sample_normalized_utf8_bytes": 999753,
+      "encoded_tokens_excluding_eos": 326830,
+      "model_and_optimizer_init_seconds": 3.503240051000006,
+      "tokenization_seconds": 0.4155266500000039,
+      "training_seconds": 3.6768747330000053,
+      "total_condition_seconds": 7.596070444999995,
+      "peak_gpu_memory_bytes": 167647744,
+      "training_steps": 256,
+      "training_target_tokens": 31027,
+      "measured_training_steps_per_second": 69.62434637829682
+    },
+    {
+      "tokenizer": "boundary_bpe",
+      "vocab_budget": 16384,
+      "tokenizer_artifact_hash": "408aa4ac3898bcac8784c31737233c327887f75cb77f7bf6c3c9e8d38993cda6",
+      "sample_documents": 203,
+      "sample_normalized_utf8_bytes": 999753,
+      "encoded_tokens_excluding_eos": 441540,
+      "model_and_optimizer_init_seconds": 0.04048155099999917,
+      "tokenization_seconds": 140.59483448499998,
+      "training_seconds": 3.1403698210000073,
+      "total_condition_seconds": 143.776162838,
+      "peak_gpu_memory_bytes": 167647744,
+      "training_steps": 256,
+      "training_target_tokens": 31453,
+      "measured_training_steps_per_second": 81.51906131822409
+    },
+    {
+      "tokenizer": "uniq_superbpe",
+      "vocab_budget": 16384,
+      "tokenizer_artifact_hash": "61722b42fb966c584d6a71a46df38e790470eb2429d480bfe3613785133d3cea",
+      "sample_documents": 203,
+      "sample_normalized_utf8_bytes": 999753,
+      "encoded_tokens_excluding_eos": 332949,
+      "model_and_optimizer_init_seconds": 0.039440415000001394,
+      "tokenization_seconds": 3.259079820000011,
+      "training_seconds": 3.1161655540000197,
+      "total_condition_seconds": 6.415033905000001,
+      "peak_gpu_memory_bytes": 167647744,
+      "training_steps": 256,
+      "training_target_tokens": 31458,
+      "measured_training_steps_per_second": 82.15224626669446
+    }
+  ],
+  "hourly_rate_usd": 0.906912,
+  "published_price_source": "https://modal.com/pricing",
+  "published_price_observed_date": "2026-09-20",
+  "projection": {
+    "extrapolated_wall_seconds": 229630.39292864728,
+    "extrapolated_wall_hours": 63.78622025795758,
+    "extrapolated_cost_usd": 57.84848858658483,
+    "overhead_margin_factor": 1.5,
+    "cost_with_margin_usd": 86.77273287987724,
+    "wall_with_margin_hours": 95.67933038693637,
+    "interpretation": "Point extrapolation from a small training slice; the margin is not a guaranteed upper bound.",
+    "scope": "training_and_tokenization_point_extrapolation",
+    "unmeasured": "validation, orchestration, checkpointing, billing variance"
+  },
+  "content_sha256": "98b87caf29d3eb3c2ebc30dea4a74910bf661d03e92ad4af04cdd4b48cc94609"
+}
