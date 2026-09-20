@@ -6,6 +6,37 @@ import json
 import math
 from pathlib import Path
 import time
+import multiprocessing
+from concurrent.futures import ProcessPoolExecutor
+
+_worker_tokenizer = None
+
+
+def initialize_encoder(source, root):
+    global _worker_tokenizer
+    _worker_tokenizer = h.load_tokenizer(source, Path(root))
+
+
+def encode_length(text):
+    return len(_worker_tokenizer.encode(text))
+
+
+def document_lengths(source, root, texts, workers):
+    """Ordered process map; workers use the unchanged tokenizer and roundtrip checks."""
+    h.require(type(workers) is int and 1 <= workers <= 32, "invalid worker count")
+    if workers == 1:
+        tok = h.load_tokenizer(source, Path(root))
+        return [len(tok.encode(text)) for text in texts]
+    with ProcessPoolExecutor(max_workers=workers,
+                             mp_context=multiprocessing.get_context("spawn"),
+                             initializer=initialize_encoder,
+                             initargs=(source, str(root))) as pool:
+        result = []
+        for length in pool.map(encode_length, texts, chunksize=8):
+            result.append(length)
+            if len(result) % 1000 == 0:
+                print(f"{source['tokenizer']}: {len(result)}/{len(texts)} documents", flush=True)
+        return result
 
 from benchmarks import run_phase_c_confirm as phase_c
 from benchmarks import run_research_experiments as h
@@ -22,9 +53,13 @@ MEMORY_GIB = 16
 
 
 def analytical_schedule(encoded, vocab=phase_c.VOCAB, context=128):
+    return schedule_lengths([len(ids) for ids in encoded], vocab, context)
+
+
+def schedule_lengths(lengths, vocab=phase_c.VOCAB, context=128):
     targets = squares = steps = 0
-    for ids in encoded:
-        remaining = len(ids) + 1  # EOS is a causal target.
+    for count in lengths:
+        remaining = count + 1  # EOS is a causal target.
         while remaining:
             length = min(context, remaining)
             targets += length
@@ -67,6 +102,7 @@ def run(args):
         "normalized_utf8_bytes": phase_c.EXPOSURE_BYTES,
         "capacity_upper_bound_usd": args.available_workspace_capacity,
         "pricing_observed_at": PRICE_OBSERVED_AT, "pricing_source": PRICE_SOURCE,
+        "encoding_workers": args.workers,
     }
     if output.exists():
         h.require(args.resume and output.is_dir(), "output exists; use --resume for exact feasibility provenance")
@@ -89,15 +125,16 @@ def run(args):
                         if (row["tokenizer"], row["vocab_budget"], row["budget_regime"])
                         == (name, phase_c.VOCAB, "bytes"))
         started = time.monotonic()
-        tok = h.load_tokenizer(source, Path(args.phase_a).parent)
-        encoded = [tok.encode(text) for text in docs["train"]]
-        accounting = analytical_schedule(encoded)
+        lengths = document_lengths(source, Path(args.phase_a).parent, docs["train"], args.workers)
+        accounting = schedule_lengths(lengths)
         seconds_per_step = baseline["wall_clock_seconds"] / baseline["training_steps"]
         estimated_seconds = accounting["training_steps"] * seconds_per_step
         record = {
             "tokenizer": name, "vocab_budget": phase_c.VOCAB,
-            "documents": len(encoded), "normalized_utf8_bytes": phase_c.EXPOSURE_BYTES,
-            "encoded_tokens_excluding_eos": sum(map(len, encoded)),
+            "documents": len(lengths), "normalized_utf8_bytes": phase_c.EXPOSURE_BYTES,
+            "encoded_tokens_excluding_eos": sum(lengths),
+            "ordered_document_lengths_sha256": h.digest(lengths),
+            "encoding_workers": args.workers,
             **accounting, "tokenizer_preflight_seconds": time.monotonic() - started,
             "phase_b_reference_wall_seconds": baseline["wall_clock_seconds"],
             "phase_b_reference_training_steps": baseline["training_steps"],
@@ -145,6 +182,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--resume", action="store_true")
+    parser.add_argument("--workers", type=int, default=1)
     parser.add_argument("--available-workspace-capacity", type=float, required=True)
     # Reuse the runner's exact provenance CLI surface.
     parser.add_argument("--phase-a", type=Path, required=True)
