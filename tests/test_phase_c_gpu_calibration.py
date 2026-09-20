@@ -103,5 +103,6 @@ def test_run_uses_training_prefix_only_and_never_scores_validation(monkeypatch, 
                for _, texts, seed, device in seen)
     assert result["sample_normalized_utf8_bytes"] == 600_000
     assert result["projection"]["cost_with_margin_usd"] == 1.5 * result["projection"]["extrapolated_cost_usd"]
+    assert result["projection"]["scope"] == "training_and_tokenization_point_extrapolation"
     assert result["validation_scored"] is False and result["test_split_opened"] is False
     assert h.read_json(args.output) == result

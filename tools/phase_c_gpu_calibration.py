@@ -192,7 +192,7 @@ def run(args):
         "runtime": fingerprint, "provenance": plan["provenance"],
         "feasibility_receipt_sha256": h.file_hash(args.feasibility_receipt),
         "records": records, "hourly_rate_usd": args.hourly_rate,
-        "projection": {**projection, "scope": "training_and_tokenization_lower_bound_only",
+        "projection": {**projection, "scope": "training_and_tokenization_point_extrapolation",
                        "unmeasured": "validation, orchestration, checkpointing, billing variance"},
     }
     receipt["content_sha256"] = h.digest(receipt)

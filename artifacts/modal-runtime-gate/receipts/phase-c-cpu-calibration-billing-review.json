@@ -1,0 +1,65 @@
+{
+  "schema_version": 1,
+  "status": "PHASE_C_LAUNCH_BLOCKED",
+  "scope": "non_experimental_cpu_calibration_and_billing_review",
+  "calibration_commit": "8122a525f43edf8645f1e7bc95bd8bfdcf8fa7dc",
+  "calibration_receipt": "phase-c-cpu-calibration-measurement.json",
+  "calibration_receipt_file_sha256": "561586a754555078d2cd2e7e22f1a94b7fc637d0248a6ab38767c02d5f3b3d67",
+  "calibration_receipt_content_sha256": "e6fbd61e5224b9d9860a1cd536f4b3ea35a63fbdc301004005877b930dfbcfa4",
+  "modal_app_url": "https://modal.com/apps/opzgameryt/main/ap-O4WHpv5XU4absVanffGfq2",
+  "billing_page_url": "https://modal.com/settings/opzgameryt/usage?tab=budgets",
+  "billing_cycle": "2026-09-01_to_2026-10-01",
+  "workspace_before": {
+    "observed_local": "2026-09-20T11:21:48+05:30",
+    "usage_usd": 16.21,
+    "hard_usage_limit_usd": 30.0,
+    "remaining_to_hard_limit_usd": 13.79,
+    "charges_usd": 0.0,
+    "post_credit_spend_limit_usd": 13.0
+  },
+  "workspace_after": {
+    "observed_local": "2026-09-20T11:33:46+05:30",
+    "usage_usd": 16.22,
+    "hard_usage_limit_usd": 30.0,
+    "remaining_to_hard_limit_usd": 13.78,
+    "charges_usd": 0.0,
+    "post_credit_spend_limit_usd": 13.0
+  },
+  "app_metered_usage_usd": 0.02,
+  "app_metered_details_usd": {
+    "function": 0.01,
+    "image_build": 0.01
+  },
+  "billing_note": "The app total and the workspace before/after delta are distinct dashboard observations; neither is substituted for the other.",
+  "published_price_source": "https://modal.com/pricing",
+  "published_price_observed_on": "2026-09-20",
+  "published_hourly_rate_for_2_cpu_8_gib_usd": 0.158256,
+  "calibration": {
+    "sample_documents": 203,
+    "sample_normalized_utf8_bytes": 999753,
+    "optimizer_steps_per_tokenizer": 256,
+    "completed_wall_seconds": 238.354790178,
+    "extrapolated_full_grid_hours": 159.32433992117177,
+    "extrapolated_full_grid_cost_usd": 25.21403273856496,
+    "overhead_margin_factor": 1.5,
+    "cost_with_margin_usd": 37.82104910784744,
+    "interpretation": "Short-slice point extrapolation, not a mathematical lower or upper bound. The immutable measurement receipt's scope string says lower_bound_only; that wording is incorrect and is superseded by this review. The 50 percent allowance is not a guarantee."
+  },
+  "runtime_review": {
+    "device": "cpu",
+    "cpu_cores": 2,
+    "memory_gib": 8,
+    "python": "3.10.17",
+    "torch": "2.6.0+cu124",
+    "extension_signature": "b98f262df1c63e1b4fd0cfa38f5b673ce4affd8f8349bd6f642c13ef2c47db42",
+    "omp_num_threads": 2,
+    "mkl_num_threads": 2,
+    "clean_working_tree": true,
+    "full_exposure_encoded_memory_feasible": "not_established"
+  },
+  "phase_c_conditions_started": 0,
+  "validation_scored": false,
+  "test_split_opened": false,
+  "scientific_protocol_changed": false,
+  "decision": "Do not launch frozen Phase C on this CPU configuration. Both the raw point extrapolation and the projection with a 50 percent overhead allowance exceed verified remaining workspace capacity."
+}
