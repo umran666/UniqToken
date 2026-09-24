@@ -16,7 +16,7 @@
   <a href="https://colab.research.google.com/github/umran666/UniqToken/blob/main/notebooks/quickstart.ipynb"><img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"></a>
   <a href="https://github.com/umran666/UniqToken/actions/workflows/ci.yml"><img src="https://github.com/umran666/UniqToken/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
   <a href="https://github.com/umran666/UniqToken/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License"></a>
-  <img src="https://img.shields.io/badge/python-3.9%20%7C%203.10%20%7C%203.11%20%7C%203.12-blue.svg" alt="Python">
+  <img src="https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12-blue.svg" alt="Python">
   <img src="https://img.shields.io/badge/rust-1.75+-orange.svg" alt="Rust">
   <img src="https://img.shields.io/badge/version-1.0.0-blue.svg" alt="Version">
   <img src="https://img.shields.io/badge/dependencies-regex-brightgreen.svg" alt="Dependencies">
@@ -151,7 +151,7 @@ maturin develop --manifest-path crates/uniqtoken_core/Cargo.toml --release
 
 | Extra | Command | What it adds |
 |:------|:--------|:-------------|
-| PyTorch | `pip install -e ".[torch]"` | `torch>=2.0.0` — tensor output in `BatchCollator` |
+| PyTorch | `pip install -e ".[torch]"` | `torch>=2.13.0` — tensor output in `BatchCollator` |
 | HuggingFace | `pip install -e ".[huggingface]"` | `tokenizers>=0.13.0`, `transformers>=4.30.0,<5.0.0` — interop & export |
 | Benchmarks | `pip install -e ".[bench]"` | `sentencepiece>=0.1.99`, `tokenizers>=0.13.0` — comparison baselines |
 | Testing | `pip install -e ".[test]"` | Full regression dependencies, including pinned PyTorch, PyArrow, Accelerate, Ruff, and Mypy versions |
@@ -580,7 +580,6 @@ The GitHub Actions [workflow](.github/workflows/ci.yml) runs on every push and P
 
 | | Ubuntu | Windows | macOS |
 |:---|:---:|:---:|:---:|
-| Python 3.9 | ✓ | ✓ | ✓ |
 | Python 3.10 | ✓ | ✓ | ✓ |
 | Python 3.11 | ✓ | ✓ | ✓ |
 | Python 3.12 | ✓ | ✓ | ✓ |

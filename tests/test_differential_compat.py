@@ -8,7 +8,7 @@ Compares UniqToken's compatibility adapters against reference implementations:
 
 The test corpus is deterministically generated from ``random.Random(20260904)``
 so the suite is reproducible across runs and across the CI matrix
-(Python 3.9-3.12 x ubuntu/macos/windows). Tests that require optional
+(Python 3.10-3.12 x ubuntu/macos/windows). Tests that require optional
 dependencies (``tiktoken``, ``tokenizers``, ``transformers``) skip gracefully
 when the package is missing or the reference model cannot be downloaded.
 
