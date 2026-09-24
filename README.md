@@ -154,7 +154,7 @@ maturin develop --manifest-path crates/uniqtoken_core/Cargo.toml --release
 | PyTorch | `pip install -e ".[torch]"` | `torch>=2.0.0` — tensor output in `BatchCollator` |
 | HuggingFace | `pip install -e ".[huggingface]"` | `tokenizers>=0.13.0`, `transformers>=4.30.0,<5.0.0` — interop & export |
 | Benchmarks | `pip install -e ".[bench]"` | `sentencepiece>=0.1.99`, `tokenizers>=0.13.0` — comparison baselines |
-| Testing | `pip install -e ".[test]"` | `pytest>=7.0.0`, `coverage>=7.0.0`, `ruff==0.16.8`, `mypy==2.3.1` |
+| Testing | `pip install -e ".[test]"` | Full regression dependencies, including pinned PyTorch, PyArrow, Accelerate, Ruff, and Mypy versions |
 | Everything | `pip install -e ".[all]"` | All of the above |
 
 ---
@@ -599,7 +599,7 @@ pip install -e ".[test]"
 
 pytest                                          # full test suite
 ruff check . && ruff format --check .           # lint + format
-mypy .                                          # type check
+mypy uniqtoken                                  # type check
 coverage run -m pytest && coverage report       # coverage
 python benchmarks/benchmark_suite.py            # benchmark suite
 python benchmarks/downstream_eval.py            # held-out tokenizer-only measurements
@@ -632,7 +632,7 @@ The `multimodal/` package extends UniqToken to handle text and image inputs thro
 4. Add or update tests in `test_tokenizer.py` / `test_fuzz_properties.py` for any behavioral change.
 5. Verify before opening a PR:
    ```bash
-   pytest && ruff check . && mypy .
+   pytest && ruff check . && mypy uniqtoken
    ```
 
 ---

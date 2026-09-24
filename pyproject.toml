@@ -55,7 +55,10 @@ test = [
     "pytest>=7.0.0",
     "coverage>=7.0.0",
     "ruff==0.16.8",
-    "mypy==2.3.1",
+    "mypy==1.19.1",
+    "torch==2.6.0",
+    "pyarrow==18.1.0",
+    "accelerate==1.10.1",
     "sentencepiece>=0.1.99",
     "tiktoken>=0.7.0",
     "jinja2>=3.1",
@@ -78,7 +81,9 @@ bench = [
     "tiktoken>=0.7.0"
 ]
 all = [
-    "torch>=2.0.0",
+    "torch==2.6.0",
+    "pyarrow==18.1.0",
+    "accelerate==1.10.1",
     "tokenizers>=0.13.0",
     "transformers>=4.30.0,<5.0.0",
     "huggingface_hub>=0.20.0",
@@ -86,7 +91,7 @@ all = [
     "tiktoken>=0.7.0",
     "pytest>=7.0.0",
     "ruff==0.16.8",
-    "mypy==2.3.1",
+    "mypy==1.19.1",
     "tqdm>=4.65.0",
     "jinja2>=3.1",
     "hypothesis>=6.0.0",
