@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import math
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, cast, Dict, List, Optional, Tuple
 
 try:
     import torch
@@ -331,8 +331,9 @@ if HAS_TORCH:
 
             # N_q codebook embedding layers
             self.quantizers = nn.ModuleList([nn.Embedding(codebook_size, latent_dim) for _ in range(num_quantizers)])
-            for q in self.quantizers:
-                q.weight.data.uniform_(-1.0 / math.sqrt(latent_dim), 1.0 / math.sqrt(latent_dim))
+            for module in self.quantizers:
+                quantizer = cast(nn.Embedding, module)
+                quantizer.weight.data.uniform_(-1.0 / math.sqrt(latent_dim), 1.0 / math.sqrt(latent_dim))
 
         @staticmethod
         def _pad_audio(audio: torch.Tensor) -> torch.Tensor:
@@ -353,7 +354,8 @@ if HAS_TORCH:
 
             residual = h.permute(0, 2, 1).contiguous().view(-1, d)  # [B*T', D]
             all_indices: List[torch.Tensor] = []
-            for q_idx, quantizer in enumerate(self.quantizers):
+            for q_idx, module in enumerate(self.quantizers):
+                quantizer = cast(nn.Embedding, module)
                 dist = (
                     torch.sum(residual**2, dim=1, keepdim=True)
                     + torch.sum(quantizer.weight**2, dim=1)
@@ -420,7 +422,8 @@ if HAS_TORCH:
             loss_commit = torch.tensor(0.0, device=audio.device)
 
             all_indices: List[torch.Tensor] = []
-            for q_idx, quantizer in enumerate(self.quantizers):
+            for q_idx, module in enumerate(self.quantizers):
+                quantizer = cast(nn.Embedding, module)
                 dist = (
                     torch.sum(residual**2, dim=1, keepdim=True)
                     + torch.sum(quantizer.weight**2, dim=1)
