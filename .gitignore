@@ -4,6 +4,11 @@ venv/
 env/
 .workbuddy-ai/
 
+# Local editor and tool state
+.vscode/
+.hypothesis/
+.cache/
+
 # Python bytecode & cache
 __pycache__/
 *.py[cod]
@@ -14,6 +19,19 @@ __pycache__/
 .coverage
 htmlcov/
 
+# Credentials and machine-local configuration
+.env
+.env.*
+!.env.example
+credentials*.json
+secrets*.json
+token.json
+access-token.json
+refresh-token.json
+*.pem
+*.p12
+*.key
+
 # Build & packaging artifacts
 build/
 dist/
@@ -22,6 +40,21 @@ dist/
 *.pyd
 *.so
 *.dylib
+
+# Local datasets, model weights, and training checkpoints
+/data/
+/datasets/
+/corpora/
+/checkpoints/
+/models/
+/lightning_logs/
+*.ckpt
+*.pt
+*.pth
+*.safetensors
+*.onnx
+*.npy
+*.npz
 
 # Rust target artifacts
 target/

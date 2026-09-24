@@ -8,13 +8,13 @@ import pytest
 from benchmarks import phase_a_migrate as migration
 from benchmarks import run_phase_a as stages
 from benchmarks import run_research_experiments as research
-from tests.test_phase_a_stages import synthetic_stage  # noqa: F401
+from tests.test_phase_a_stages import synthetic_stage
 
 REAL_LOAD_TOKENIZER = research.load_tokenizer
 
 
 @pytest.fixture
-def saved(synthetic_stage, monkeypatch):
+def saved(synthetic_stage, monkeypatch):  # noqa: F811
     root, dataset = synthetic_stage
     identity = research.runtime_identity()
     identity.update(source_hash="old-source", versions={"python": "test"})
