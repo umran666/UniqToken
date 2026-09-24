@@ -12,30 +12,43 @@ def fixture():
     cfg = h.model_config("B", "cpu")
     identity = {"commit_hash": "a" * 40, "extension_hash": "ext"}
     plan = {
-        "identity": identity, "model_config": cfg, "selection_sha256": "selection",
+        "identity": identity,
+        "model_config": cfg,
+        "selection_sha256": "selection",
         "training": {"documents": 1, "assignment_hash": "train"},
-        "validation": {"assignment_hash": "valid", "normalized_utf8_bytes": 10,
-                       "source_utf8_bytes": 11},
+        "validation": {"assignment_hash": "valid", "normalized_utf8_bytes": 10, "source_utf8_bytes": 11},
         "provenance": {"source_manifest_sha256": "source"},
     }
     source = {"artifact_hashes": {"model": "hash"}}
-    byte_rows = {"train": [{h.BYTE_BUDGET_FIELD: phase_c.EXPOSURE_BYTES,
-                             h.BYTE_AUDIT_FIELD: phase_c.EXPOSURE_BYTES + 1}]}
+    byte_rows = {
+        "train": [{h.BYTE_BUDGET_FIELD: phase_c.EXPOSURE_BYTES, h.BYTE_AUDIT_FIELD: phase_c.EXPOSURE_BYTES + 1}]
+    }
     targets, squares = 2, 4
     row = {
-        "tokenizer": "sp_unigram", "vocab_budget": phase_c.VOCAB,
-        "budget_regime": "bytes", "seed": 1, "model_kind": "causal_transformer",
-        "result_label": phase_c.LABEL, "actual_vocab_size": phase_c.VOCAB,
-        "git_commit": identity["commit_hash"], "extension_hash": identity["extension_hash"],
-        "selection_sha256": "selection", "model_config": cfg, "special_tokens": h.SPECIAL_IDS,
+        "tokenizer": "sp_unigram",
+        "vocab_budget": phase_c.VOCAB,
+        "budget_regime": "bytes",
+        "seed": 1,
+        "model_kind": "causal_transformer",
+        "result_label": phase_c.LABEL,
+        "actual_vocab_size": phase_c.VOCAB,
+        "git_commit": identity["commit_hash"],
+        "extension_hash": identity["extension_hash"],
+        "selection_sha256": "selection",
+        "model_config": cfg,
+        "special_tokens": h.SPECIAL_IDS,
         "requested_budget": phase_c.EXPOSURE_BYTES,
         "tokenizer_artifact_hash": h.digest(source["artifact_hashes"]),
-        "dataset_manifest_hash": "source", "training_assignment_hash": "train",
-        "validation_assignment_hash": "valid", "completed_training_documents": 1,
+        "dataset_manifest_hash": "source",
+        "training_assignment_hash": "train",
+        "validation_assignment_hash": "valid",
+        "completed_training_documents": 1,
         "completed_document_bytes": phase_c.EXPOSURE_BYTES,
         "training_bytes": h.byte_totals(byte_rows["train"]),
-        "training_target_tokens": targets, "training_sequence_length_squared_sum": squares,
-        "training_steps": 1, "training_byte_scope": "complete_document_prefix",
+        "training_target_tokens": targets,
+        "training_sequence_length_squared_sum": squares,
+        "training_steps": 1,
+        "training_byte_scope": "complete_document_prefix",
         **h.parameter_accounting(phase_c.VOCAB, h.SCREEN, 128),
         **h.flop_accounting(phase_c.VOCAB, h.SCREEN, targets, squares),
         "validation": h.nll_metrics(3.0, 2, 10, source_utf8_bytes=11),
@@ -55,11 +68,14 @@ def test_complete_result_validates_without_test_metrics():
     phase_c.validate_result(row, phase_c.CONDITIONS[0], plan, source, byte_rows)
 
 
-@pytest.mark.parametrize("field,value,match", [
-    ("completed_training_documents", 0, "incomplete"),
-    ("dataset_manifest_hash", "other", "provenance"),
-    ("validation_assignment_hash", "other", "provenance"),
-])
+@pytest.mark.parametrize(
+    "field,value,match",
+    [
+        ("completed_training_documents", 0, "incomplete"),
+        ("dataset_manifest_hash", "other", "provenance"),
+        ("validation_assignment_hash", "other", "provenance"),
+    ],
+)
 def test_result_rejects_shortened_or_mismatched_conditions(field, value, match):
     row, plan, source, byte_rows = fixture()
     row[field] = value

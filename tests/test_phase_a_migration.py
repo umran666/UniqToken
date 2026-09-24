@@ -1,4 +1,5 @@
 """Migration tests use tiny synthetic conditions; never run the research corpus."""
+
 import copy
 import json
 from types import SimpleNamespace
@@ -26,8 +27,14 @@ def saved(synthetic_stage, monkeypatch):  # noqa: F811
     (args.output / "ledger.json").unlink()
     active = {**identity, "commit_hash": "f" * 40, "source_hash": "new-source"}
     monkeypatch.setattr(research, "runtime_identity", lambda: active)
-    monkeypatch.setattr(migration, "approve_code_change", lambda a, b: {"policy": migration.POLICY, "trained_commit": a, "revalidated_commit": b})
-    monkeypatch.setattr(migration, "source_hash", lambda c: "new-source" if c == active["commit_hash"] else "old-source")
+    monkeypatch.setattr(
+        migration,
+        "approve_code_change",
+        lambda a, b: {"policy": migration.POLICY, "trained_commit": a, "revalidated_commit": b},
+    )
+    monkeypatch.setattr(
+        migration, "source_hash", lambda c: "new-source" if c == active["commit_hash"] else "old-source"
+    )
     monkeypatch.setattr(research, "load_tokenizer", lambda row, root: SimpleNamespace(name=row["tokenizer"]))
     monkeypatch.setattr(research, "train_tokenizer", lambda *a, **kw: pytest.fail("migration must not train"))
     return SimpleNamespace(source=args.output, output=root / "migrated", dataset=args.dataset, dry_run=False), active
@@ -68,16 +75,19 @@ def test_valid_migration_preserves_provenance_and_recomputes_metrics(saved, monk
     assert row["validation"] != original["validation"]
 
 
-@pytest.mark.parametrize("change", [
-    lambda r: r.update(artifact_hashes={"fixture.json": "bad"}),
-    lambda r: r.update(dataset_manifest_hash="wrong"),
-    lambda r: r["tokenizer_config"].update(byte_fallback=False),
-    lambda r: r.update(vocab_budget=261),
-    lambda r: r["tokenizer_config"]["special_tokens"].update({"<|unk|>": 9}),
-    lambda r: r.update(training_assignment_hash="wrong"),
-    lambda r: r.update(validation_assignment_hash="wrong"),
-    lambda r: r.update(artifact="../outside"),
-])
+@pytest.mark.parametrize(
+    "change",
+    [
+        lambda r: r.update(artifact_hashes={"fixture.json": "bad"}),
+        lambda r: r.update(dataset_manifest_hash="wrong"),
+        lambda r: r["tokenizer_config"].update(byte_fallback=False),
+        lambda r: r.update(vocab_budget=261),
+        lambda r: r["tokenizer_config"]["special_tokens"].update({"<|unk|>": 9}),
+        lambda r: r.update(training_assignment_hash="wrong"),
+        lambda r: r.update(validation_assignment_hash="wrong"),
+        lambda r: r.update(artifact="../outside"),
+    ],
+)
 def test_rejects_invalid_original_record(saved, change):
     args, _ = saved
     mutate_record(args, change)
@@ -179,8 +189,16 @@ def test_code_policy_accepts_exact_reviewed_blobs(monkeypatch):
     assert migration.approve_code_change(migration.TRAINED_COMMIT, "f" * 40)["policy"] == migration.POLICY
 
 
-@pytest.mark.parametrize("path", ["uniqtoken/tokenizer.py", "crates/uniqtoken_core/Cargo.lock", "pyproject.toml",
-                                   "benchmarks/run_research_experiments.py", "benchmarks/run_phase_a.py"])
+@pytest.mark.parametrize(
+    "path",
+    [
+        "uniqtoken/tokenizer.py",
+        "crates/uniqtoken_core/Cargo.lock",
+        "pyproject.toml",
+        "benchmarks/run_research_experiments.py",
+        "benchmarks/run_phase_a.py",
+    ],
+)
 def test_behavior_changes_rejected_even_in_approved_file(monkeypatch, path):
     before = {"uniqtoken/tokenizer.py": ("100644", "blob", "unchanged")}
     after = {**before, **{p: ("100644", "blob", h) for p, h in migration.APPROVED_BLOBS.items()}}
@@ -204,8 +222,11 @@ def real_saved(saved, monkeypatch):
     envelope["record"]["artifact_hashes"] = research.artifact_hashes(artifact)
     path.write_text(json.dumps(envelope))
     monkeypatch.setattr(research, "load_tokenizer", REAL_LOAD_TOKENIZER)
-    monkeypatch.setattr(stages, "validation_metric", lambda tok, texts, source_bytes:
-                        research.token_metrics(tok, texts, source_utf8_bytes=source_bytes))
+    monkeypatch.setattr(
+        stages,
+        "validation_metric",
+        lambda tok, texts, source_bytes: research.token_metrics(tok, texts, source_utf8_bytes=source_bytes),
+    )
     return args
 
 
@@ -260,4 +281,7 @@ def test_reviewed_blob_pins_match_working_files():
 
 
 def test_original_linux_source_hash_is_reproducible():
-    assert migration.source_hash(migration.TRAINED_COMMIT) == "a589dadf64355e6b359034b8a182a6a4fc64b11edbf9745da70760f87d357b11"
+    assert (
+        migration.source_hash(migration.TRAINED_COMMIT)
+        == "a589dadf64355e6b359034b8a182a6a4fc64b11edbf9745da70760f87d357b11"
+    )

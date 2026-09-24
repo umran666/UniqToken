@@ -188,7 +188,12 @@ def test_screen_command_labels_results_and_confirmation_uses_independent_validat
     tmp_path, _ = synthetic_stage
     screen_output = tmp_path / "screen"
     screen_args = SimpleNamespace(
-        stage="A-SCREEN", dataset=tmp_path / "manifest.json", output=screen_output, resume=False, screening=None, selection=None
+        stage="A-SCREEN",
+        dataset=tmp_path / "manifest.json",
+        output=screen_output,
+        resume=False,
+        screening=None,
+        selection=None,
     )
     screen = stages.run_stage(screen_args)
     assert len(screen["records"]) == 5
@@ -219,7 +224,12 @@ def test_confirmation_rejects_modified_selection(synthetic_stage):
     screen_output = tmp_path / "screen"
     stages.run_stage(
         SimpleNamespace(
-            stage="A-SCREEN", dataset=tmp_path / "manifest.json", output=screen_output, resume=False, screening=None, selection=None
+            stage="A-SCREEN",
+            dataset=tmp_path / "manifest.json",
+            output=screen_output,
+            resume=False,
+            screening=None,
+            selection=None,
         )
     )
     selection_path = tmp_path / "selection.json"
@@ -244,7 +254,12 @@ def test_screen_stage_resumes_only_validated_complete_conditions(synthetic_stage
     tmp_path, _ = synthetic_stage
     output = tmp_path / "screen"
     args = SimpleNamespace(
-        stage="A-SCREEN", dataset=tmp_path / "manifest.json", output=output, resume=False, screening=None, selection=None
+        stage="A-SCREEN",
+        dataset=tmp_path / "manifest.json",
+        output=output,
+        resume=False,
+        screening=None,
+        selection=None,
     )
     original = stages.run_stage(args)
     (output / "ledger.json").unlink()
@@ -262,7 +277,12 @@ def test_screen_resume_rejects_tokenizer_configuration_change(synthetic_stage):
     tmp_path, _ = synthetic_stage
     output = tmp_path / "screen"
     args = SimpleNamespace(
-        stage="A-SCREEN", dataset=tmp_path / "manifest.json", output=output, resume=False, screening=None, selection=None
+        stage="A-SCREEN",
+        dataset=tmp_path / "manifest.json",
+        output=output,
+        resume=False,
+        screening=None,
+        selection=None,
     )
     stages.run_stage(args)
     (output / "ledger.json").unlink()

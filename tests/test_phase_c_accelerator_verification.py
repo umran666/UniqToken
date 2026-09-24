@@ -1,4 +1,5 @@
 """Independent verification of the bounded Phase C accelerator probes."""
+
 from pathlib import Path
 
 import pytest
@@ -35,6 +36,6 @@ def test_independent_verifier_rejects_tampered_content(tmp_path):
 
 def test_independent_verifier_uses_exact_feasibility_file_hash(tmp_path):
     path = tmp_path / "feasibility.json"
-    path.write_text('{}', encoding="utf-8")
+    path.write_text("{}", encoding="utf-8")
     with pytest.raises(ValueError, match="feasibility artifact changed"):
         verify.verify(None, None, None, None, path, "commit")

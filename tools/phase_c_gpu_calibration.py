@@ -1,4 +1,5 @@
 """Non-experimental Phase C stack calibration on a fixed training-only prefix."""
+
 from __future__ import annotations
 
 import argparse
@@ -45,8 +46,7 @@ def calibration_plan(args):
     """Verify frozen pins, then read only the prefix, never Phase C validation/test."""
     phase_a, _, _ = phase_b.verify_phase_a(args.phase_a, args.dataset)
     identity = h.runtime_identity()
-    selection = phase_b.check_selection(args.selection, args.selection_sha256,
-                                        phase_a, args.phase_a, identity)
+    selection = phase_b.check_selection(args.selection, args.selection_sha256, phase_a, args.phase_a, identity)
     phase_b.check_runtime(identity, selection["phase_a_identity"], args.device)
     for path, expected, label in (
         (args.protocol, exposure_gate.PHASE_C_PROTOCOL_SHA256, "Phase C protocol"),
@@ -60,22 +60,37 @@ def calibration_plan(args):
     exposure = h.read_json(args.exposure_manifest)
     body = dict(exposure)
     content = body.pop("content_sha256")
-    h.require(h.digest(body) == content and exposure["status"] == "phase_c_exposure_frozen"
-              and exposure["normalized_utf8_bytes"] == phase_c.EXPOSURE_BYTES
-              and exposure["test_split_opened"] is False, "invalid frozen Phase C exposure")
+    h.require(
+        h.digest(body) == content
+        and exposure["status"] == "phase_c_exposure_frozen"
+        and exposure["normalized_utf8_bytes"] == phase_c.EXPOSURE_BYTES
+        and exposure["test_split_opened"] is False,
+        "invalid frozen Phase C exposure",
+    )
     receipt_path = args.exposure_manifest.parent.parent / "receipt.json"
     receipt = h.read_json(receipt_path)
-    h.require(receipt["status"] == "phase_c_exposure_frozen"
-              and receipt["exposure_sha256"] == h.file_hash(args.exposure_manifest)
-              and receipt["confirmation_validation_sha256"] == h.file_hash(args.validation_receipt)
-              and receipt["test_split_opened"] is False, "invalid exposure/validation receipt")
+    h.require(
+        receipt["status"] == "phase_c_exposure_frozen"
+        and receipt["exposure_sha256"] == h.file_hash(args.exposure_manifest)
+        and receipt["confirmation_validation_sha256"] == h.file_hash(args.validation_receipt)
+        and receipt["test_split_opened"] is False,
+        "invalid exposure/validation receipt",
+    )
     verification = h.read_json(args.exposure_manifest.with_name("verification.json"))
-    h.require(verification["status"] == "PASS" and verification["test_split_opened"] is False,
-              "independent exposure verification missing")
-    selected = [row for row in selection["conditions"]
-                if row["vocab_budget"] == phase_c.VOCAB and row["tokenizer"] in phase_c.NAMES]
-    h.require([(row["tokenizer"], row["vocab_budget"]) for row in selected]
-              == [(name, phase_c.VOCAB) for name in phase_c.NAMES], "frozen tokenizer cohort mismatch")
+    h.require(
+        verification["status"] == "PASS" and verification["test_split_opened"] is False,
+        "independent exposure verification missing",
+    )
+    selected = [
+        row
+        for row in selection["conditions"]
+        if row["vocab_budget"] == phase_c.VOCAB and row["tokenizer"] in phase_c.NAMES
+    ]
+    h.require(
+        [(row["tokenizer"], row["vocab_budget"]) for row in selected]
+        == [(name, phase_c.VOCAB) for name in phase_c.NAMES],
+        "frozen tokenizer cohort mismatch",
+    )
     source = h.read_json(args.source_manifest)
     source_root = args.source_manifest.resolve().parent
     train_path = (source_root / source["splits"]["train"]["path"]).resolve()
@@ -130,9 +145,11 @@ def extrapolate_cost(records, feasibility, hourly_rate):
             + row["training_seconds"] / row["training_steps"] * condition["training_steps"]
         )
         seconds += len(phase_c.SEEDS) * per_seed
-    return {"extrapolated_wall_seconds": seconds,
-            "extrapolated_wall_hours": seconds / 3600,
-            "extrapolated_cost_usd": seconds / 3600 * hourly_rate}
+    return {
+        "extrapolated_wall_seconds": seconds,
+        "extrapolated_wall_hours": seconds / 3600,
+        "extrapolated_cost_usd": seconds / 3600 * hourly_rate,
+    }
 
 
 def extension_binary():
@@ -163,30 +180,52 @@ def runtime_fingerprint(identity, device, expected_gpu=None):
         gpu_name = torch.cuda.get_device_name(0)
         driver = subprocess.run(
             ["nvidia-smi", "--query-gpu=name,driver_version,memory.total", "--format=csv,noheader"],
-            check=True, capture_output=True, text=True,
+            check=True,
+            capture_output=True,
+            text=True,
         ).stdout.strip()
         h.require(len(driver.splitlines()) == 1, "expected one calibration GPU")
         reported_name, driver_version, reported_memory = [part.strip() for part in driver.split(",")]
         memory_mib = int(reported_memory.split()[0])
         if expected_gpu == "T4":
-            h.require("T4" in gpu_name and "T4" in reported_name and 14_000 <= memory_mib <= 17_000,
-                      "calibration requires NVIDIA T4")
+            h.require(
+                "T4" in gpu_name and "T4" in reported_name and 14_000 <= memory_mib <= 17_000,
+                "calibration requires NVIDIA T4",
+            )
         else:
-            h.require("A100" in gpu_name and "A100" in reported_name and 38_000 <= memory_mib <= 42_000,
-                      "calibration requires NVIDIA A100 40GB")
+            h.require(
+                "A100" in gpu_name and "A100" in reported_name and 38_000 <= memory_mib <= 42_000,
+                "calibration requires NVIDIA A100 40GB",
+            )
     else:
         h.require(expected_gpu is None, "CPU calibration cannot declare a GPU")
         driver = gpu_name = None
         driver_version = memory_mib = None
     return {
-        "identity": identity, "os": platform.platform(), "python": platform.python_version(),
-        "packages": identity["versions"], "extension_binary_sha256": binary_hash,
-        "device": device, "torch_cuda_version": torch.version.cuda, "gpu_name": gpu_name,
-        "expected_gpu": expected_gpu, "nvidia_smi": driver, "driver_version": driver_version,
-        "gpu_memory_total_mib": memory_mib, "torch_num_threads": torch.get_num_threads(),
-        "environment": {key: os.environ.get(key) for key in (
-            "CUBLAS_WORKSPACE_CONFIG", "PYTHONHASHSEED", "OMP_NUM_THREADS", "MKL_NUM_THREADS",
-            "RAYON_NUM_THREADS", "TOKENIZERS_PARALLELISM")},
+        "identity": identity,
+        "os": platform.platform(),
+        "python": platform.python_version(),
+        "packages": identity["versions"],
+        "extension_binary_sha256": binary_hash,
+        "device": device,
+        "torch_cuda_version": torch.version.cuda,
+        "gpu_name": gpu_name,
+        "expected_gpu": expected_gpu,
+        "nvidia_smi": driver,
+        "driver_version": driver_version,
+        "gpu_memory_total_mib": memory_mib,
+        "torch_num_threads": torch.get_num_threads(),
+        "environment": {
+            key: os.environ.get(key)
+            for key in (
+                "CUBLAS_WORKSPACE_CONFIG",
+                "PYTHONHASHSEED",
+                "OMP_NUM_THREADS",
+                "MKL_NUM_THREADS",
+                "RAYON_NUM_THREADS",
+                "TOKENIZERS_PARALLELISM",
+            )
+        },
     }
 
 
@@ -202,13 +241,14 @@ def measure_condition(tok, texts, seed, device, check_budget=lambda: None):
     check_budget()
     started = time.perf_counter()
     model = h.CausalMiniTransformer(len(tok.vocab), h.SCREEN, 128).to(device=device, dtype=torch.float32)
-    optimizer = torch.optim.AdamW(model.parameters(), lr=h.SCREEN.lr, betas=(0.9, 0.999),
-                                  eps=1e-8, weight_decay=0.01)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=h.SCREEN.lr, betas=(0.9, 0.999), eps=1e-8, weight_decay=0.01)
     if device == "cuda":
         torch.cuda.synchronize()
     init_seconds = time.perf_counter() - started
-    h.require(sum(p.numel() for p in model.parameters()) == h.parameter_count(len(tok.vocab), h.SCREEN, 128)[0],
-              "calibration model differs from Phase C")
+    h.require(
+        sum(p.numel() for p in model.parameters()) == h.parameter_count(len(tok.vocab), h.SCREEN, 128)[0],
+        "calibration model differs from Phase C",
+    )
 
     started = time.perf_counter()
     encoded = []
@@ -236,12 +276,16 @@ def measure_condition(tok, texts, seed, device, check_budget=lambda: None):
     training_seconds = time.perf_counter() - started
     h.require(completed == STEPS_PER_TOKENIZER, "training-only slice has too few windows")
     return {
-        "sample_documents": len(texts), "sample_normalized_utf8_bytes": sum(len(t.encode("utf-8")) for t in texts),
-        "encoded_tokens_excluding_eos": encoded_tokens, "model_and_optimizer_init_seconds": init_seconds,
-        "tokenization_seconds": tokenization_seconds, "training_seconds": training_seconds,
+        "sample_documents": len(texts),
+        "sample_normalized_utf8_bytes": sum(len(t.encode("utf-8")) for t in texts),
+        "encoded_tokens_excluding_eos": encoded_tokens,
+        "model_and_optimizer_init_seconds": init_seconds,
+        "tokenization_seconds": tokenization_seconds,
+        "training_seconds": training_seconds,
         "total_condition_seconds": time.perf_counter() - condition_started,
         "peak_gpu_memory_bytes": torch.cuda.max_memory_allocated() if device == "cuda" else None,
-        "training_steps": completed, "training_target_tokens": targets,
+        "training_steps": completed,
+        "training_target_tokens": targets,
         "measured_training_steps_per_second": completed / training_seconds,
     }
 
@@ -250,16 +294,25 @@ def run(args):
     started_utc = datetime.now(timezone.utc).isoformat()
     started = time.perf_counter()
     h.require(math.isfinite(args.hourly_rate) and args.hourly_rate > 0, "invalid price")
-    h.require(math.isfinite(args.max_wall_seconds) and 0 < args.max_wall_seconds <= 480,
-              "calibration wall cap must be at most 480 seconds")
-    h.require(math.isfinite(args.max_compute_cost_usd) and 0 < args.max_compute_cost_usd <= 0.35,
-              "calibration compute-cost cap must be at most $0.35")
-    h.require(args.modal_hard_timeout_seconds <= 540 and args.max_wall_seconds < args.modal_hard_timeout_seconds,
-              "invalid outer timeout")
+    h.require(
+        math.isfinite(args.max_wall_seconds) and 0 < args.max_wall_seconds <= 480,
+        "calibration wall cap must be at most 480 seconds",
+    )
+    h.require(
+        math.isfinite(args.max_compute_cost_usd) and 0 < args.max_compute_cost_usd <= 0.35,
+        "calibration compute-cost cap must be at most $0.35",
+    )
+    h.require(
+        args.modal_hard_timeout_seconds <= 540 and args.max_wall_seconds < args.modal_hard_timeout_seconds,
+        "invalid outer timeout",
+    )
+
     def check_budget():
         elapsed = time.perf_counter() - started
-        h.require(elapsed < args.max_wall_seconds and elapsed * args.hourly_rate / 3600 < args.max_compute_cost_usd,
-                  "calibration safety cap reached")
+        h.require(
+            elapsed < args.max_wall_seconds and elapsed * args.hourly_rate / 3600 < args.max_compute_cost_usd,
+            "calibration safety cap reached",
+        )
 
     check_budget()
     plan, phase_a, calibration_texts = calibration_plan(args)
@@ -271,51 +324,74 @@ def run(args):
     expected = body.pop("content_sha256")
     h.require(h.digest(body) == expected, "feasibility receipt content changed")
     h.require(feasibility["provenance"] == plan["provenance"], "feasibility provenance changed")
-    h.require(feasibility["conditions"] == 9 and feasibility["experiments_started"] is False,
-              "invalid feasibility receipt")
+    h.require(
+        feasibility["conditions"] == 9 and feasibility["experiments_started"] is False, "invalid feasibility receipt"
+    )
     texts, sample_bytes = training_prefix(calibration_texts)
     sample_hash = h.digest([h.digest(t) for t in texts])
-    h.require(len(texts) == EXPECTED_SAMPLE_DOCUMENTS and sample_bytes == EXPECTED_SAMPLE_BYTES
-              and sample_hash == EXPECTED_SAMPLE_HASH,
-              "calibration prefix differs from prior probes")
+    h.require(
+        len(texts) == EXPECTED_SAMPLE_DOCUMENTS
+        and sample_bytes == EXPECTED_SAMPLE_BYTES
+        and sample_hash == EXPECTED_SAMPLE_HASH,
+        "calibration prefix differs from prior probes",
+    )
     records = []
     for name in phase_c.NAMES:
-        source = next(row for row in phase_a["records"]
-                      if (row["tokenizer"], row["vocab_budget"]) == (name, phase_c.VOCAB))
+        source = next(
+            row for row in phase_a["records"] if (row["tokenizer"], row["vocab_budget"]) == (name, phase_c.VOCAB)
+        )
         tok = h.load_tokenizer(source, Path(args.phase_a).parent)
-        row = {"tokenizer": name, "vocab_budget": phase_c.VOCAB,
-               "tokenizer_artifact_hash": h.digest(source["artifact_hashes"]),
-               **measure_condition(tok, texts, seed=0, device=args.device, check_budget=check_budget)}
+        row = {
+            "tokenizer": name,
+            "vocab_budget": phase_c.VOCAB,
+            "tokenizer_artifact_hash": h.digest(source["artifact_hashes"]),
+            **measure_condition(tok, texts, seed=0, device=args.device, check_budget=check_budget),
+        }
         records.append(row)
         check_budget()
         print(f"Calibrated {name}: {row['measured_training_steps_per_second']:.2f} steps/s", flush=True)
     projection = extrapolate_cost(records, feasibility, args.hourly_rate)
-    projection.update({
-        "overhead_margin_factor": 1.5,
-        "cost_with_margin_usd": 1.5 * projection["extrapolated_cost_usd"],
-        "wall_with_margin_hours": 1.5 * projection["extrapolated_wall_hours"],
-        "interpretation": "Point extrapolation from a small training slice; the margin is not a guaranteed upper bound.",
-    })
+    projection.update(
+        {
+            "overhead_margin_factor": 1.5,
+            "cost_with_margin_usd": 1.5 * projection["extrapolated_cost_usd"],
+            "wall_with_margin_hours": 1.5 * projection["extrapolated_wall_hours"],
+            "interpretation": "Point extrapolation from a small training slice; the margin is not a guaranteed upper bound.",
+        }
+    )
     receipt = {
-        "schema_version": VERSION, "status": "CALIBRATION_COMPLETE_COST_GATE_NOT_CLEARED",
-        "purpose": "non_experimental_training_stack_calibration", "experiments_started": False,
+        "schema_version": VERSION,
+        "status": "CALIBRATION_COMPLETE_COST_GATE_NOT_CLEARED",
+        "purpose": "non_experimental_training_stack_calibration",
+        "experiments_started": False,
         "device": args.device,
-        "validation_scored": False, "test_split_opened": False,
-        "started_utc": started_utc, "ended_utc": datetime.now(timezone.utc).isoformat(),
-        "wall_seconds": time.perf_counter() - started, "hard_step_cap_per_tokenizer": STEPS_PER_TOKENIZER,
+        "validation_scored": False,
+        "test_split_opened": False,
+        "started_utc": started_utc,
+        "ended_utc": datetime.now(timezone.utc).isoformat(),
+        "wall_seconds": time.perf_counter() - started,
+        "hard_step_cap_per_tokenizer": STEPS_PER_TOKENIZER,
         "sample_max_normalized_utf8_bytes": MAX_SLICE_BYTES,
-        "sample_normalized_utf8_bytes": sample_bytes, "sample_ordered_text_hash": sample_hash,
+        "sample_normalized_utf8_bytes": sample_bytes,
+        "sample_ordered_text_hash": sample_hash,
         "sample_scope": "first_complete_documents_of_frozen_phase_c_training_exposure",
-        "safety_limits": {"max_wall_seconds": args.max_wall_seconds,
-                          "max_compute_cost_usd": args.max_compute_cost_usd,
-                          "modal_hard_timeout_seconds": args.modal_hard_timeout_seconds},
-        "runtime": fingerprint, "provenance": plan["provenance"],
+        "safety_limits": {
+            "max_wall_seconds": args.max_wall_seconds,
+            "max_compute_cost_usd": args.max_compute_cost_usd,
+            "modal_hard_timeout_seconds": args.modal_hard_timeout_seconds,
+        },
+        "runtime": fingerprint,
+        "provenance": plan["provenance"],
         "feasibility_receipt_sha256": h.file_hash(args.feasibility_receipt),
-        "records": records, "hourly_rate_usd": args.hourly_rate,
+        "records": records,
+        "hourly_rate_usd": args.hourly_rate,
         "published_price_source": args.price_source,
         "published_price_observed_date": args.price_observed_date,
-        "projection": {**projection, "scope": "training_and_tokenization_point_extrapolation",
-                       "unmeasured": "validation, orchestration, checkpointing, billing variance"},
+        "projection": {
+            **projection,
+            "scope": "training_and_tokenization_point_extrapolation",
+            "unmeasured": "validation, orchestration, checkpointing, billing variance",
+        },
     }
     receipt["content_sha256"] = h.digest(receipt)
     args.output.parent.mkdir(parents=True, exist_ok=True)
@@ -325,8 +401,18 @@ def run(args):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    for flag in ("phase-a", "dataset", "selection", "source-manifest", "exposure-manifest",
-                 "validation-receipt", "phase-b-ledger", "phase-b-report", "protocol", "feasibility-receipt"):
+    for flag in (
+        "phase-a",
+        "dataset",
+        "selection",
+        "source-manifest",
+        "exposure-manifest",
+        "validation-receipt",
+        "phase-b-ledger",
+        "phase-b-report",
+        "protocol",
+        "feasibility-receipt",
+    ):
         parser.add_argument("--" + flag, type=Path, required=True)
     for flag in ("selection-sha256", "exposure-manifest-sha256", "validation-receipt-sha256"):
         parser.add_argument("--" + flag, required=True)

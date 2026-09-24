@@ -4,6 +4,7 @@ The runner consumes only the committed 300 MB exposure and confirmation half of
 FLORES dev.  It never resolves or opens the test split and publishes a final
 ledger only after all nine provenance-validated checkpoints exist.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -42,21 +43,31 @@ def load_exposure(source_path: Path, exposure_path: Path, validation_path: Path)
     validation_receipt = h.read_json(validation_path)
     receipt_path = exposure_path.parent.parent / "receipt.json"
     receipt = h.read_json(receipt_path)
-    h.require(receipt["status"] == "phase_c_exposure_frozen" and receipt["test_split_opened"] is False,
-              "Phase C exposure receipt is not usable")
+    h.require(
+        receipt["status"] == "phase_c_exposure_frozen" and receipt["test_split_opened"] is False,
+        "Phase C exposure receipt is not usable",
+    )
     h.require(receipt["exposure_sha256"] == h.file_hash(exposure_path), "exposure/receipt mismatch")
-    h.require(receipt["confirmation_validation_sha256"] == h.file_hash(validation_path),
-              "confirmation-validation/receipt mismatch")
-    h.require(exposure["status"] == "phase_c_exposure_frozen" and exposure["test_split_opened"] is False,
-              "invalid Phase C exposure")
-    h.require(exposure["normalized_utf8_bytes"] == EXPOSURE_BYTES and len(exposure["strata"]) == 30,
-              "Phase C exposure accounting mismatch")
+    h.require(
+        receipt["confirmation_validation_sha256"] == h.file_hash(validation_path),
+        "confirmation-validation/receipt mismatch",
+    )
+    h.require(
+        exposure["status"] == "phase_c_exposure_frozen" and exposure["test_split_opened"] is False,
+        "invalid Phase C exposure",
+    )
+    h.require(
+        exposure["normalized_utf8_bytes"] == EXPOSURE_BYTES and len(exposure["strata"]) == 30,
+        "Phase C exposure accounting mismatch",
+    )
     body = dict(exposure)
     content = body.pop("content_sha256")
     h.require(h.digest(body) == content, "Phase C exposure content hash mismatch")
     verified = h.read_json(exposure_path.with_name("verification.json"))
-    h.require(verified["status"] == "PASS" and verified["test_split_opened"] is False,
-              "independent exposure verification missing")
+    h.require(
+        verified["status"] == "PASS" and verified["test_split_opened"] is False,
+        "independent exposure verification missing",
+    )
     root = source_path.resolve().parent
     train_path = (root / source["splits"]["train"]["path"]).resolve()
     h.require(train_path.is_relative_to(root), "training path escapes frozen source")
@@ -82,10 +93,13 @@ def load_exposure(source_path: Path, exposure_path: Path, validation_path: Path)
             text = found[expected["train_row_index"]]
             texts.append(text)
             selected_hashes.add(h.digest(text))
-            byte_rows.append({h.BYTE_BUDGET_FIELD: expected["normalized_utf8_bytes"],
-                              h.BYTE_AUDIT_FIELD: expected["source_utf8_bytes"]})
-    h.require(sum(row[h.BYTE_BUDGET_FIELD] for row in byte_rows) == EXPOSURE_BYTES,
-              "reloaded exposure byte mismatch")
+            byte_rows.append(
+                {
+                    h.BYTE_BUDGET_FIELD: expected["normalized_utf8_bytes"],
+                    h.BYTE_AUDIT_FIELD: expected["source_utf8_bytes"],
+                }
+            )
+    h.require(sum(row[h.BYTE_BUDGET_FIELD] for row in byte_rows) == EXPOSURE_BYTES, "reloaded exposure byte mismatch")
     validation_rows, validation_texts = stages._load_rows(source_path, source, "validation")
     _, confirmation = stages.partition_validation(validation_rows, validation_texts)
     heldout = [text for _, text in confirmation]
@@ -93,43 +107,58 @@ def load_exposure(source_path: Path, exposure_path: Path, validation_path: Path)
     h.require(not selected_hashes.intersection(hashes), "training/validation overlap")
     expected_validation = {
         "partition_version": stages.VALIDATION_PARTITION_VERSION,
-        "partition": "confirmation", "documents": len(heldout),
-        "assignment_hash": h.digest(hashes), "ordered_normalized_text_hashes": hashes,
+        "partition": "confirmation",
+        "documents": len(heldout),
+        "assignment_hash": h.digest(hashes),
+        "ordered_normalized_text_hashes": hashes,
         "normalized_utf8_bytes": sum(len(text.encode("utf-8")) for text in heldout),
         "source_utf8_bytes": sum(row["raw_utf8_bytes"] for row, _ in confirmation),
-        "screening_assignment_hash": h.digest([h.digest(text) for _, text in stages.partition_validation(validation_rows, validation_texts)[0]]),
+        "screening_assignment_hash": h.digest(
+            [h.digest(text) for _, text in stages.partition_validation(validation_rows, validation_texts)[0]]
+        ),
         "test_split_opened": False,
     }
     expected_validation["content_sha256"] = h.digest(expected_validation)
     h.require(validation_receipt == expected_validation, "confirmation validation assignment changed")
-    validation_bytes = [{h.BYTE_BUDGET_FIELD: len(text.encode("utf-8")),
-                         h.BYTE_AUDIT_FIELD: row["raw_utf8_bytes"]} for row, text in confirmation]
+    validation_bytes = [
+        {h.BYTE_BUDGET_FIELD: len(text.encode("utf-8")), h.BYTE_AUDIT_FIELD: row["raw_utf8_bytes"]}
+        for row, text in confirmation
+    ]
     training = {
-        "scope": "frozen_exact_phase_c_exposure", "documents": len(texts),
+        "scope": "frozen_exact_phase_c_exposure",
+        "documents": len(texts),
         "normalized_utf8_bytes": EXPOSURE_BYTES,
         "source_utf8_bytes": sum(row[h.BYTE_AUDIT_FIELD] for row in byte_rows),
         "assignment_hash": exposure["ordered_exposure_hash"],
     }
-    return {"train": texts, "validation": heldout}, {"train": byte_rows, "validation": validation_bytes}, training, validation_receipt, receipt_path
+    return (
+        {"train": texts, "validation": heldout},
+        {"train": byte_rows, "validation": validation_bytes},
+        training,
+        validation_receipt,
+        receipt_path,
+    )
 
 
 def prepare(args, *, execution=False):
     phase_a_ledger, _, _ = phase_b.verify_phase_a(args.phase_a, args.dataset)
     identity = h.runtime_identity()
-    selection = phase_b.check_selection(args.selection, args.selection_sha256,
-                                        phase_a_ledger, args.phase_a, identity)
+    selection = phase_b.check_selection(args.selection, args.selection_sha256, phase_a_ledger, args.phase_a, identity)
     require_hash(args.protocol, exposure_gate.PHASE_C_PROTOCOL_SHA256, "Phase C protocol")
     require_hash(args.phase_b_report, exposure_gate.PHASE_B_REPORT_SHA256, "Phase B report")
     require_hash(args.phase_b_ledger, exposure_gate.PHASE_B_LEDGER_SHA256, "Phase B ledger")
     require_hash(args.exposure_manifest, args.exposure_manifest_sha256, "Phase C exposure")
     require_hash(args.validation_receipt, args.validation_receipt_sha256, "confirmation validation")
     docs, byte_rows, training, validation, exposure_receipt = load_exposure(
-        args.source_manifest, args.exposure_manifest, args.validation_receipt)
+        args.source_manifest, args.exposure_manifest, args.validation_receipt
+    )
     h.require(args.exposure_manifest_sha256 == h.file_hash(args.exposure_manifest), "exposure hash mismatch")
     h.require(args.device == "cpu" or re.fullmatch(r"cuda(?::\d+)?", args.device), "invalid device")
     selected = [row for row in selection["conditions"] if row["vocab_budget"] == VOCAB and row["tokenizer"] in NAMES]
-    h.require([(row["tokenizer"], row["vocab_budget"]) for row in selected] == [(name, VOCAB) for name in NAMES],
-              "frozen Phase C tokenizer cohort mismatch")
+    h.require(
+        [(row["tokenizer"], row["vocab_budget"]) for row in selected] == [(name, VOCAB) for name in NAMES],
+        "frozen Phase C tokenizer cohort mismatch",
+    )
     if execution:
         phase_b.check_runtime(identity, selection["phase_a_identity"], args.device)
     pins = {
@@ -142,32 +171,46 @@ def prepare(args, *, execution=False):
         "validation_receipt_sha256": args.validation_receipt_sha256,
     }
     plan = {
-        **identity, "identity": identity, "phase_c_schema_version": VERSION,
-        "stage": STAGE, "result_label": LABEL, "status": "planned",
-        "selection_sha256": args.selection_sha256, "selection": selection,
-        "conditions": [list(item) for item in CONDITIONS], "seeds": list(SEEDS),
+        **identity,
+        "identity": identity,
+        "phase_c_schema_version": VERSION,
+        "stage": STAGE,
+        "result_label": LABEL,
+        "status": "planned",
+        "selection_sha256": args.selection_sha256,
+        "selection": selection,
+        "conditions": [list(item) for item in CONDITIONS],
+        "seeds": list(SEEDS),
         "data_split": "document_disjoint_train_confirmation_validation_test_not_opened",
-        "test_access": "forbidden_not_opened", "training": training, "validation": validation,
-        "model_config": h.model_config("B", args.device), "budget_regime": "bytes",
-        "byte_budget": EXPOSURE_BYTES, "provenance": pins,
+        "test_access": "forbidden_not_opened",
+        "training": training,
+        "validation": validation,
+        "model_config": h.model_config("B", args.device),
+        "budget_regime": "bytes",
+        "byte_budget": EXPOSURE_BYTES,
+        "provenance": pins,
         "cuda_workspace_config": os.environ.get("CUBLAS_WORKSPACE_CONFIG") if args.device.startswith("cuda") else None,
     }
     return plan, phase_a_ledger, docs, byte_rows
 
 
 def source_record(ledger, condition):
-    return next(row for row in ledger["records"]
-                if (row["tokenizer"], row["vocab_budget"]) == tuple(condition[:2]))
+    return next(row for row in ledger["records"] if (row["tokenizer"], row["vocab_budget"]) == tuple(condition[:2]))
 
 
 def validate_result(row, condition, plan, source, byte_rows):
     h.require(h.condition_key(row) == tuple(condition), "condition mismatch")
     cfg = h.LMArchConfig(**plan["model_config"]["architecture"])
     required = {
-        "model_kind": "causal_transformer", "result_label": LABEL, "actual_vocab_size": VOCAB,
-        "git_commit": plan["identity"]["commit_hash"], "extension_hash": plan["identity"]["extension_hash"],
-        "selection_sha256": plan["selection_sha256"], "model_config": plan["model_config"],
-        "special_tokens": h.SPECIAL_IDS, "requested_budget": EXPOSURE_BYTES,
+        "model_kind": "causal_transformer",
+        "result_label": LABEL,
+        "actual_vocab_size": VOCAB,
+        "git_commit": plan["identity"]["commit_hash"],
+        "extension_hash": plan["identity"]["extension_hash"],
+        "selection_sha256": plan["selection_sha256"],
+        "model_config": plan["model_config"],
+        "special_tokens": h.SPECIAL_IDS,
+        "requested_budget": EXPOSURE_BYTES,
         "tokenizer_artifact_hash": h.digest(source["artifact_hashes"]),
         "dataset_manifest_hash": plan["provenance"]["source_manifest_sha256"],
         "training_assignment_hash": plan["training"]["assignment_hash"],
@@ -179,21 +222,34 @@ def validate_result(row, condition, plan, source, byte_rows):
     h.require(row["completed_training_documents"] == plan["training"]["documents"], "incomplete one-pass exposure")
     h.require(row["training_bytes"] == h.byte_totals(byte_rows["train"]), "training byte accounting mismatch")
     h.require(row["completed_document_bytes"] == EXPOSURE_BYTES, "training exposure shortened")
-    h.require(all(row.get(key) == value for key, value in h.flop_accounting(
-        VOCAB, cfg, row["training_target_tokens"], row["training_sequence_length_squared_sum"]).items()),
-        "analytical FLOP accounting mismatch")
+    h.require(
+        all(
+            row.get(key) == value
+            for key, value in h.flop_accounting(
+                VOCAB, cfg, row["training_target_tokens"], row["training_sequence_length_squared_sum"]
+            ).items()
+        ),
+        "analytical FLOP accounting mismatch",
+    )
     metric = row["validation"]
-    h.require(metric == h.nll_metrics(metric["total_nll_nats"], metric["target_tokens_including_eos"],
-                                      plan["validation"]["normalized_utf8_bytes"],
-                                      source_utf8_bytes=plan["validation"]["source_utf8_bytes"]),
-              "validation NLL/BPB mismatch")
+    h.require(
+        metric
+        == h.nll_metrics(
+            metric["total_nll_nats"],
+            metric["target_tokens_including_eos"],
+            plan["validation"]["normalized_utf8_bytes"],
+            source_utf8_bytes=plan["validation"]["source_utf8_bytes"],
+        ),
+        "validation NLL/BPB mismatch",
+    )
     h.digest(row)
 
 
 def check_lock(args, output, plan):
     h.require(h.read_json(output / "plan.json") == plan, "execution plan changed")
     for path, expected in (
-        (args.selection, plan["selection_sha256"]), (args.protocol, plan["provenance"]["phase_c_protocol_sha256"]),
+        (args.selection, plan["selection_sha256"]),
+        (args.protocol, plan["provenance"]["phase_c_protocol_sha256"]),
         (args.phase_b_report, plan["provenance"]["phase_b_report_sha256"]),
         (args.phase_b_ledger, plan["provenance"]["phase_b_ledger_sha256"]),
         (args.source_manifest, plan["provenance"]["source_manifest_sha256"]),
@@ -214,8 +270,10 @@ def resume_records(args, output, plan, ledger, byte_rows):
         envelope = h.read_json(path)
         h.require(envelope.get("status") == "condition_complete", "incomplete checkpoint")
         source = source_record(ledger, CONDITIONS[index])
-        h.require(h.artifact_hashes(Path(args.phase_a).parent / source["artifact"]) == source["artifact_hashes"],
-                  "tokenizer artifact changed")
+        h.require(
+            h.artifact_hashes(Path(args.phase_a).parent / source["artifact"]) == source["artifact_hashes"],
+            "tokenizer artifact changed",
+        )
         validate_result(envelope["record"], CONDITIONS[index], plan, source, byte_rows)
         records[index] = envelope["record"]
     return records
@@ -240,14 +298,24 @@ def run(args):
         source = source_record(ledger, condition)
         tok = h.load_tokenizer(source, Path(args.phase_a).parent)
         started = time.perf_counter()
-        measured = h.train_lm(tok, docs, h.SCREEN, 128, regime, EXPOSURE_BYTES, seed,
-                              args.device, False, document_bytes=byte_rows)
+        measured = h.train_lm(
+            tok, docs, h.SCREEN, 128, regime, EXPOSURE_BYTES, seed, args.device, False, document_bytes=byte_rows
+        )
         row = {
-            **measured, "tokenizer": name, "vocab_budget": vocab, "actual_vocab_size": len(tok.vocab),
-            "budget_regime": regime, "seed": seed, "model_kind": "causal_transformer",
-            "result_label": LABEL, "model_config": plan["model_config"], "requested_budget": EXPOSURE_BYTES,
-            "git_commit": plan["identity"]["commit_hash"], "extension_hash": plan["identity"]["extension_hash"],
-            "selection_sha256": plan["selection_sha256"], "special_tokens": h.SPECIAL_IDS,
+            **measured,
+            "tokenizer": name,
+            "vocab_budget": vocab,
+            "actual_vocab_size": len(tok.vocab),
+            "budget_regime": regime,
+            "seed": seed,
+            "model_kind": "causal_transformer",
+            "result_label": LABEL,
+            "model_config": plan["model_config"],
+            "requested_budget": EXPOSURE_BYTES,
+            "git_commit": plan["identity"]["commit_hash"],
+            "extension_hash": plan["identity"]["extension_hash"],
+            "selection_sha256": plan["selection_sha256"],
+            "special_tokens": h.SPECIAL_IDS,
             "tokenizer_artifact_hash": h.digest(source["artifact_hashes"]),
             "dataset_manifest_hash": plan["provenance"]["source_manifest_sha256"],
             "training_assignment_hash": plan["training"]["assignment_hash"],
@@ -256,12 +324,10 @@ def run(args):
         }
         validate_result(row, condition, plan, source, byte_rows)
         check_lock(args, output, plan)
-        h.write_new_json_atomic(output / f"condition-{index:03d}.json",
-                                {"status": "condition_complete", "record": row})
+        h.write_new_json_atomic(output / f"condition-{index:03d}.json", {"status": "condition_complete", "record": row})
         records[index] = row
     h.require(set(records) == set(range(9)), "incomplete Phase C checkpoints")
-    result = {"metadata": {**plan, "status": "complete"},
-              "records": [records[index] for index in range(9)]}
+    result = {"metadata": {**plan, "status": "complete"}, "records": [records[index] for index in range(9)]}
     h.validate_ledger(result, expected_commit=plan["identity"]["commit_hash"])
     for row, condition in zip(result["records"], CONDITIONS):
         validate_result(row, condition, plan, source_record(ledger, condition), byte_rows)

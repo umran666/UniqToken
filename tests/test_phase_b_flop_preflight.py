@@ -1,4 +1,5 @@
 """Synthetic checks for the read-only Phase B tokenizer/FLOP preflight."""
+
 from __future__ import annotations
 
 import json
@@ -32,15 +33,34 @@ def test_training_reloader_opens_only_the_train_artifact(tmp_path):
     train = tmp_path / "train.jsonl"
     rows = []
     for index, text in enumerate(("first", "second")):
-        rows.append({"id": f"train-{index}", "text": text, "domain": "fixture", "language": "fixture",
-                     "normalized_utf8_bytes": len(text.encode()), "raw_utf8_bytes": len(text.encode()),
-                     "source": {}, "dedup": {"status": "accepted_after_exact_and_near_eval_check", "truncated_to_quota": False}})
+        rows.append(
+            {
+                "id": f"train-{index}",
+                "text": text,
+                "domain": "fixture",
+                "language": "fixture",
+                "normalized_utf8_bytes": len(text.encode()),
+                "raw_utf8_bytes": len(text.encode()),
+                "source": {},
+                "dedup": {"status": "accepted_after_exact_and_near_eval_check", "truncated_to_quota": False},
+            }
+        )
     train.write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
-    ordered = [{"position": index, "train_row_index": index, "id": row["id"], "domain": row["domain"],
-                "language": row["language"], "normalized_text_hash": h.digest(row["text"]),
-                "normalized_utf8_bytes": row["normalized_utf8_bytes"], "source_utf8_bytes": row["raw_utf8_bytes"],
-                "source": row["source"], "dedup": row["dedup"]}
-               for index, row in enumerate(rows)]
+    ordered = [
+        {
+            "position": index,
+            "train_row_index": index,
+            "id": row["id"],
+            "domain": row["domain"],
+            "language": row["language"],
+            "normalized_text_hash": h.digest(row["text"]),
+            "normalized_utf8_bytes": row["normalized_utf8_bytes"],
+            "source_utf8_bytes": row["raw_utf8_bytes"],
+            "source": row["source"],
+            "dedup": row["dedup"],
+        }
+        for index, row in enumerate(rows)
+    ]
     sample = {"ordered_documents": ordered, "normalized_utf8_bytes": 11}
     assert p.load_frozen_documents(sample, train) == ["first", "second"]
 
@@ -48,14 +68,27 @@ def test_training_reloader_opens_only_the_train_artifact(tmp_path):
 def test_source_check_never_resolves_or_hashes_validation_or_test(tmp_path):
     train = tmp_path / "train.jsonl"
     train.write_text("{}\n", encoding="utf-8")
-    source = {"schema_version": h.DATASET_MANIFEST_SCHEMA, "dataset_id": "fixture", "normalization": h.NORMALIZATION,
-              "freeze": {"immutable": True, "source_revisions": {"r": "1"}},
-              "splits": {"train": {"path": train.name, "sha256": h.file_hash(train)},
-                         "validation": {"path": "must-not-open.jsonl", "sha256": "v"},
-                         "test": {"path": "must-not-open-test.jsonl", "sha256": "t"}}}
-    selection = {"dataset": {"dataset_id": "fixture", "normalization": h.NORMALIZATION,
-                               "source_revisions": {"r": "1"}, "train_file_sha256": h.file_hash(train),
-                               "validation_file_sha256": "v", "untouched_test_file_sha256": "t"}}
+    source = {
+        "schema_version": h.DATASET_MANIFEST_SCHEMA,
+        "dataset_id": "fixture",
+        "normalization": h.NORMALIZATION,
+        "freeze": {"immutable": True, "source_revisions": {"r": "1"}},
+        "splits": {
+            "train": {"path": train.name, "sha256": h.file_hash(train)},
+            "validation": {"path": "must-not-open.jsonl", "sha256": "v"},
+            "test": {"path": "must-not-open-test.jsonl", "sha256": "t"},
+        },
+    }
+    selection = {
+        "dataset": {
+            "dataset_id": "fixture",
+            "normalization": h.NORMALIZATION,
+            "source_revisions": {"r": "1"},
+            "train_file_sha256": h.file_hash(train),
+            "validation_file_sha256": "v",
+            "untouched_test_file_sha256": "t",
+        }
+    }
     assert p.check_source(selection, source, tmp_path / "manifest.json") == train.resolve()
 
 
@@ -72,8 +105,12 @@ def test_rejected_or_interrupted_preflight_never_exposes_a_success_bundle(tmp_pa
 
 def test_complete_preflight_is_atomic_and_not_lm_authorization(tmp_path, monkeypatch):
     args = SimpleNamespace(output=tmp_path / "attempt")
-    result = {"conditions": [{"tokenizer": "fixture"}], "all_conditions_feasible": True,
-              "gate_passed": True, "content_sha256": "unused"}
+    result = {
+        "conditions": [{"tokenizer": "fixture"}],
+        "all_conditions_feasible": True,
+        "gate_passed": True,
+        "content_sha256": "unused",
+    }
     monkeypatch.setattr(p, "preflight", lambda _: result)
     receipt = p.run(args)
     assert receipt["status"] == p.STATUS
@@ -85,10 +122,21 @@ def test_complete_preflight_is_atomic_and_not_lm_authorization(tmp_path, monkeyp
 
 def test_blocked_condition_publishes_rejection_not_a_success_bundle(tmp_path, monkeypatch):
     args = SimpleNamespace(output=tmp_path / "attempt")
-    result = {"conditions": [{"tokenizer": "fixture", "vocab_budget": 16,
-                              "status": "blocked", "regimes": {"flops": {"coverage_documents_completed": 2}}}],
-              "all_conditions_feasible": False, "gate_passed": False, "runtime_blockers": [],
-              "upstream_source_truncations_for_review": [], "content_sha256": "unused"}
+    result = {
+        "conditions": [
+            {
+                "tokenizer": "fixture",
+                "vocab_budget": 16,
+                "status": "blocked",
+                "regimes": {"flops": {"coverage_documents_completed": 2}},
+            }
+        ],
+        "all_conditions_feasible": False,
+        "gate_passed": False,
+        "runtime_blockers": [],
+        "upstream_source_truncations_for_review": [],
+        "content_sha256": "unused",
+    }
     monkeypatch.setattr(p, "preflight", lambda _: result)
     receipt = p.run(args)
     assert receipt["reason"] == "FLOP_COVERAGE_BLOCKED"
@@ -101,13 +149,24 @@ def test_blocked_condition_publishes_rejection_not_a_success_bundle(tmp_path, mo
 def condition(tmp_path, monkeypatch):
     texts = [f"document-{i}" for i in range(32)]
     ids = [[4] for _ in range(30)] + [[5] * 200, [6] * 400]
-    entries = [{"position": i, "id": f"id-{i}", "normalized_text_hash": h.digest(text),
-                "normalized_utf8_bytes": len(text), "source_utf8_bytes": len(text) + 1,
-                "domain": "fixture", "language": str(i % 30)} for i, text in enumerate(texts)]
+    entries = [
+        {
+            "position": i,
+            "id": f"id-{i}",
+            "normalized_text_hash": h.digest(text),
+            "normalized_utf8_bytes": len(text),
+            "source_utf8_bytes": len(text) + 1,
+            "domain": "fixture",
+            "language": str(i % 30),
+        }
+        for i, text in enumerate(texts)
+    ]
     calls = []
+
     def encode(text):
         calls.append(text)
         return ids[texts.index(text)]
+
     tok = SimpleNamespace(vocab=range(16384), encode=encode)
     monkeypatch.setattr(h, "load_tokenizer", lambda *args: tok)
     for name in ("train_lm", "evaluate", "train_tokenizer", "CausalMiniTransformer"):
@@ -115,11 +174,21 @@ def condition(tmp_path, monkeypatch):
     directory = tmp_path / "artifact"
     directory.mkdir()
     (directory / "fixture.json").write_text("{}")
-    source = {"tokenizer": "fixture", "vocab_budget": 16384, "artifact": "artifact",
-              "artifact_hashes": h.artifact_hashes(directory), "tokenizer_config": {},
-              "git_commit": "a" * 40, "extension_hash": "e" * 64}
-    sample = {"ordered_documents": entries, "strata": [{"domain": "fixture", "language": str(i)} for i in range(30)],
-              "normalized_utf8_bytes": sum(map(len, texts)), "source_utf8_bytes": sum(map(len, texts)) + len(texts)}
+    source = {
+        "tokenizer": "fixture",
+        "vocab_budget": 16384,
+        "artifact": "artifact",
+        "artifact_hashes": h.artifact_hashes(directory),
+        "tokenizer_config": {},
+        "git_commit": "a" * 40,
+        "extension_hash": "e" * 64,
+    }
+    sample = {
+        "ordered_documents": entries,
+        "strata": [{"domain": "fixture", "language": str(i)} for i in range(30)],
+        "normalized_utf8_bytes": sum(map(len, texts)),
+        "source_utf8_bytes": sum(map(len, texts)) + len(texts),
+    }
     context = {"artifact_root": tmp_path, "context": 128, "model_config": h.model_config("B", "cpu")}
     return source, sample, texts, ids, calls, context
 
@@ -128,8 +197,9 @@ def test_full_schedule_advances_after_coverage_prefix(condition):
     source, sample, texts, ids, calls, context = condition
     # First 30 short documents, then 100 targets in the long 31st document.
     budget = 30 * h.training_flops(16384, h.SCREEN, 2) + h.training_flops(16384, h.SCREEN, 100)
-    row = p.condition_report(source, sample, texts, flops_budget=budget,
-                             byte_budget=sample["normalized_utf8_bytes"], context=context)
+    row = p.condition_report(
+        source, sample, texts, flops_budget=budget, byte_budget=sample["normalized_utf8_bytes"], context=context
+    )
     assert calls == texts
     flop = row["regimes"]["flops"]
     assert flop["completed_training_documents"] == 30
@@ -142,8 +212,14 @@ def test_full_schedule_advances_after_coverage_prefix(condition):
 
 def test_blocked_flops_still_get_complete_byte_accounting(condition):
     source, sample, texts, ids, calls, context = condition
-    row = p.condition_report(source, sample, texts, flops_budget=h.training_flops(16384, h.SCREEN, 1),
-                             byte_budget=sample["normalized_utf8_bytes"], context=context)
+    row = p.condition_report(
+        source,
+        sample,
+        texts,
+        flops_budget=h.training_flops(16384, h.SCREEN, 1),
+        byte_budget=sample["normalized_utf8_bytes"],
+        context=context,
+    )
     assert calls == texts and row["status"] == "blocked"
     byte = row["regimes"]["bytes"]
     assert byte["status"] == "feasible" and byte["completed_training_documents"] == len(texts)
@@ -155,8 +231,9 @@ def test_blocked_flops_still_get_complete_byte_accounting(condition):
 def test_one_complete_terminal_document_passes_approved_policy(condition):
     source, sample, texts, ids, calls, context = condition
     budget = h.training_flops(16384, h.SCREEN, 2)
-    row = p.condition_report(source, sample, texts, flops_budget=budget,
-                             byte_budget=sample["normalized_utf8_bytes"], context=context)
+    row = p.condition_report(
+        source, sample, texts, flops_budget=budget, byte_budget=sample["normalized_utf8_bytes"], context=context
+    )
     run = row["regimes"]["flops"]
     assert row["status"] == "feasible"
     assert run["completed_training_documents"] == 0
@@ -169,11 +246,18 @@ def test_one_complete_terminal_document_passes_approved_policy(condition):
 def test_changed_order_and_byte_budget_rejected(condition):
     source, sample, texts, _, _, context = condition
     with pytest.raises(ValueError, match="order"):
-        p.condition_report(source, sample, list(reversed(texts)), flops_budget=1e11,
-                           byte_budget=sample["normalized_utf8_bytes"], context=context)
+        p.condition_report(
+            source,
+            sample,
+            list(reversed(texts)),
+            flops_budget=1e11,
+            byte_budget=sample["normalized_utf8_bytes"],
+            context=context,
+        )
     with pytest.raises(ValueError, match="byte budget"):
-        p.condition_report(source, sample, texts, flops_budget=1e11,
-                           byte_budget=sample["normalized_utf8_bytes"] - 1, context=context)
+        p.condition_report(
+            source, sample, texts, flops_budget=1e11, byte_budget=sample["normalized_utf8_bytes"] - 1, context=context
+        )
 
 
 def test_unreachable_flop_budget_rejects_noop():
@@ -193,36 +277,73 @@ def test_input_mutation_is_rejected_at_final_pin_check(tmp_path):
 @pytest.mark.parametrize("error", [RuntimeError("native computation failed"), KeyboardInterrupt()])
 def test_encoder_failure_propagates_without_substitution(condition, monkeypatch, error):
     source, sample, texts, _, _, context = condition
+
     def encode(text):
         raise error
+
     monkeypatch.setattr(h, "load_tokenizer", lambda *args: SimpleNamespace(vocab=range(16384), encode=encode))
     with pytest.raises(type(error)):
-        p.condition_report(source, sample, texts, flops_budget=1e11,
-                           byte_budget=sample["normalized_utf8_bytes"], context=context)
+        p.condition_report(
+            source, sample, texts, flops_budget=1e11, byte_budget=sample["normalized_utf8_bytes"], context=context
+        )
 
 
 def test_altered_artifact_rejected_before_encode(condition):
     source, sample, texts, _, calls, context = condition
     (context["artifact_root"] / source["artifact"] / "fixture.json").write_text("modified")
     with pytest.raises(ValueError, match="artifact changed"):
-        p.condition_report(source, sample, texts, flops_budget=1e11,
-                           byte_budget=sample["normalized_utf8_bytes"], context=context)
+        p.condition_report(
+            source, sample, texts, flops_budget=1e11, byte_budget=sample["normalized_utf8_bytes"], context=context
+        )
     assert calls == []
 
 
-@pytest.mark.parametrize("field", ["actual_vocab_size", "artifact_hashes", "tokenizer_config", "extension_hash",
-                                   "training_assignment_hash", "validation_assignment_hash"])
+@pytest.mark.parametrize(
+    "field",
+    [
+        "actual_vocab_size",
+        "artifact_hashes",
+        "tokenizer_config",
+        "extension_hash",
+        "training_assignment_hash",
+        "validation_assignment_hash",
+    ],
+)
 def test_selected_condition_changes_rejected(tmp_path, field):
-    records = [{"tokenizer": name, "vocab_budget": vocab, "actual_vocab_size": vocab,
-                "artifact": f"{name}-{vocab}", "artifact_hashes": {"model": "f" * 64},
-                "tokenizer_config": h.tokenizer_configuration(name, vocab), "extension_hash": "e" * 64,
-                "training_assignment_hash": "train", "validation_assignment_hash": "validation"}
-               for name, vocab in p.screen.CONDITIONS]
-    selection = {"conditions": json.loads(json.dumps(records)), "phase_a_identity": {}, "dataset": {},
-                 "training": {}, "validation": {}, "special_tokens": h.SPECIAL_IDS}
+    records = [
+        {
+            "tokenizer": name,
+            "vocab_budget": vocab,
+            "actual_vocab_size": vocab,
+            "artifact": f"{name}-{vocab}",
+            "artifact_hashes": {"model": "f" * 64},
+            "tokenizer_config": h.tokenizer_configuration(name, vocab),
+            "extension_hash": "e" * 64,
+            "training_assignment_hash": "train",
+            "validation_assignment_hash": "validation",
+        }
+        for name, vocab in p.screen.CONDITIONS
+    ]
+    selection = {
+        "conditions": json.loads(json.dumps(records)),
+        "phase_a_identity": {},
+        "dataset": {},
+        "training": {},
+        "validation": {},
+        "special_tokens": h.SPECIAL_IDS,
+    }
     records[0][field] = "changed"
-    ledger = {"metadata": {"identity": {}, "dataset": {}, "training": {}, "validation": {},
-                           "stage": "A-SCREEN", "status": "complete"}, "records": records}
+    ledger = {
+        "metadata": {
+            "identity": {},
+            "dataset": {},
+            "training": {},
+            "validation": {},
+            "stage": "A-SCREEN",
+            "status": "complete",
+        },
+        "records": records,
+    }
     path = tmp_path / "ledger.json"
     h.write_new_json(path, ledger)
     selection["phase_a_ledger_sha256"] = h.file_hash(path)
@@ -232,9 +353,13 @@ def test_selected_condition_changes_rejected(tmp_path, field):
 
 @pytest.mark.parametrize("blocker", ["runtime", "source_truncation"])
 def test_budget_feasibility_does_not_override_provenance_blocker(tmp_path, monkeypatch, blocker):
-    result = {"conditions": [], "all_conditions_feasible": True, "gate_passed": False,
-              "runtime_blockers": ["pinned extension mismatch"] if blocker == "runtime" else [],
-              "upstream_source_truncations_for_review": [{"id": "truncated"}] if blocker != "runtime" else []}
+    result = {
+        "conditions": [],
+        "all_conditions_feasible": True,
+        "gate_passed": False,
+        "runtime_blockers": ["pinned extension mismatch"] if blocker == "runtime" else [],
+        "upstream_source_truncations_for_review": [{"id": "truncated"}] if blocker != "runtime" else [],
+    }
     monkeypatch.setattr(p, "preflight", lambda _: result)
     output = tmp_path / "attempt"
     receipt = p.run(SimpleNamespace(output=output))
@@ -243,9 +368,13 @@ def test_budget_feasibility_does_not_override_provenance_blocker(tmp_path, monke
 
 
 def test_success_publication_failure_retains_rejection(tmp_path, monkeypatch):
-    monkeypatch.setattr(p, "preflight", lambda _: {"conditions": [], "all_conditions_feasible": True, "gate_passed": True})
+    monkeypatch.setattr(
+        p, "preflight", lambda _: {"conditions": [], "all_conditions_feasible": True, "gate_passed": True}
+    )
+
     def fail(*args):
         raise OSError("disk failure")
+
     monkeypatch.setattr(p.os, "rename", fail)
     args = SimpleNamespace(output=tmp_path / "attempt")
     with pytest.raises(OSError):
@@ -260,16 +389,37 @@ def frozen_exposure():
     for (domain, language), quota in p.quotas().items():
         for suffix, size in (("short", 2), ("rest", quota - 2)):
             identifier = f"{domain}-{language}-{suffix}"
-            documents.append({"id": identifier, "domain": domain, "language": language,
-                              "normalized_text_hash": h.digest(identifier), "normalized_utf8_bytes": size,
-                              "source_utf8_bytes": size + 1, "train_row_index": len(documents)})
+            documents.append(
+                {
+                    "id": identifier,
+                    "domain": domain,
+                    "language": language,
+                    "normalized_text_hash": h.digest(identifier),
+                    "normalized_utf8_bytes": size,
+                    "source_utf8_bytes": size + 1,
+                    "train_row_index": len(documents),
+                }
+            )
     sample = exposure_policy.construct(documents, p.quotas())
-    body = {"exposure_schema_version": 2, "status": "exposure_frozen", "gate": "exact_packing_only",
-            "provenance": {"selection_sha256": "s", "source_manifest_sha256": "m"},
-            "sample": sample, "verification": {"status": "PASS"}}
-    for field in ("tokenizer_outputs_used_for_sampling", "token_counts_used_for_sampling", "flops_used_for_sampling",
-                  "validation_or_test_text_used_for_sampling", "selection_metrics_used", "lm_results_used",
-                  "tokenizer_flop_preflight_run", "lm_training_run", "authorized_for_lm_execution"):
+    body = {
+        "exposure_schema_version": 2,
+        "status": "exposure_frozen",
+        "gate": "exact_packing_only",
+        "provenance": {"selection_sha256": "s", "source_manifest_sha256": "m"},
+        "sample": sample,
+        "verification": {"status": "PASS"},
+    }
+    for field in (
+        "tokenizer_outputs_used_for_sampling",
+        "token_counts_used_for_sampling",
+        "flops_used_for_sampling",
+        "validation_or_test_text_used_for_sampling",
+        "selection_metrics_used",
+        "lm_results_used",
+        "tokenizer_flop_preflight_run",
+        "lm_training_run",
+        "authorized_for_lm_execution",
+    ):
         body[field] = False
     return body, {"status": "exact_packing_feasible", "independent_verification": "PASS"}
 
@@ -281,7 +431,9 @@ def test_all_strata_recomputed_without_resampling(frozen_exposure, monkeypatch):
     assert p.check_exposure(body, receipt, "s", "m")["normalized_utf8_bytes"] == 1_000_000
 
 
-@pytest.mark.parametrize("mutation", ["quota", "total", "order", "coverage", "duplicate", "source", "verification", "test_used"])
+@pytest.mark.parametrize(
+    "mutation", ["quota", "total", "order", "coverage", "duplicate", "source", "verification", "test_used"]
+)
 def test_exposure_invariants_rejected_even_with_refreshed_content_hash(frozen_exposure, mutation):
     body, receipt = frozen_exposure
     if mutation == "quota":

@@ -3,6 +3,7 @@
 Only standard-library dependencies. No tokenizer, LM, evaluation or FLOP code.
 An unsuccessful packing attempt is evidence, not an executable exposure manifest.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -92,45 +93,67 @@ def input_context(selection_path, source_path):
         validate_regenerated_source(source, source_path, selection)
     require(selection["dataset"]["manifest_sha256"] == SOURCE_SHA, "selection dataset mismatch")
     require(source["schema_version"] == 2 and source["freeze"]["immutable"] is True, "unfrozen source")
-    require(source["normalization"] == selection["dataset"]["normalization"] == "NFKC_unicode_spaces_v1",
-            "normalization mismatch")
+    require(
+        source["normalization"] == selection["dataset"]["normalization"] == "NFKC_unicode_spaces_v1",
+        "normalization mismatch",
+    )
     require(source["dataset_id"] == selection["dataset"]["dataset_id"], "dataset identity mismatch")
     require(source["freeze"]["source_revisions"] == selection["dataset"]["source_revisions"], "revision mismatch")
-    for split, key in (("train", "train_file_sha256"), ("validation", "validation_file_sha256"),
-                       ("test", "untouched_test_file_sha256")):
+    for split, key in (
+        ("train", "train_file_sha256"),
+        ("validation", "validation_file_sha256"),
+        ("test", "untouched_test_file_sha256"),
+    ):
         if split != "train" or not regenerated:
             require(source["splits"][split]["sha256"] == selection["dataset"][key], "split provenance mismatch")
     training = copy.deepcopy(selection["training"])
-    require(training["assignment_hash"] == training["screen_selection"]["assignment_hash"], "parent assignment mismatch")
+    require(
+        training["assignment_hash"] == training["screen_selection"]["assignment_hash"], "parent assignment mismatch"
+    )
     if regenerated:
         training["_recompute_regenerated_parent"] = True
         load_parent(source_path, source, training)
     dataset = copy.deepcopy(selection["dataset"])
     dataset["manifest_sha256"] = source_sha
     dataset["train_file_sha256"] = source["splits"]["train"]["sha256"]
-    return source, training, {
-        "selection_sha256": SELECTION_SHA, "source_manifest_sha256": source_sha,
-        "historical_selection_source_sha256": SOURCE_SHA,
-        "dataset": dataset, "parent_training_assignment_hash": training["assignment_hash"],
-        "validation_assignment_hash": selection["validation"]["assignment_hash"],
-    }
+    return (
+        source,
+        training,
+        {
+            "selection_sha256": SELECTION_SHA,
+            "source_manifest_sha256": source_sha,
+            "historical_selection_source_sha256": SOURCE_SHA,
+            "dataset": dataset,
+            "parent_training_assignment_hash": training["assignment_hash"],
+            "validation_assignment_hash": selection["validation"]["assignment_hash"],
+        },
+    )
 
 
 def validate_regenerated_source(source, source_path, selection):
     receipt = read_json(Path(source_path).parent / "receipt.json")
-    require(receipt["status"] == "whole_upstream_source_frozen"
-            and receipt["manifest_sha256"] == file_hash(source_path), "unverified regenerated source")
+    require(
+        receipt["status"] == "whole_upstream_source_frozen" and receipt["manifest_sha256"] == file_hash(source_path),
+        "unverified regenerated source",
+    )
     repair = source["whole_record_regeneration"]
-    require(repair["policy"] == "whole_upstream_prefix_exact_tail_v2"
-            and repair["historical_source_manifest_sha256"] == SOURCE_SHA
-            and repair["unchanged_selection_sha256"] == SELECTION_SHA, "invalid source regeneration lineage")
-    require(repair["all_selected_text_verified_against_upstream"] is True
-            and repair["deduplication"] == "passed_existing_exact_and_minhash_lsh_train_evaluation_checks",
-            "missing whole-record verification")
-    require(source["dataset_id"] == selection["dataset"]["dataset_id"]
-            and source["normalization"] == selection["dataset"]["normalization"]
-            and source["freeze"]["source_revisions"] == selection["dataset"]["source_revisions"],
-            "regenerated source identity changed")
+    require(
+        repair["policy"] == "whole_upstream_prefix_exact_tail_v2"
+        and repair["historical_source_manifest_sha256"] == SOURCE_SHA
+        and repair["unchanged_selection_sha256"] == SELECTION_SHA,
+        "invalid source regeneration lineage",
+    )
+    require(
+        repair["all_selected_text_verified_against_upstream"] is True
+        and repair["deduplication"] == "passed_existing_exact_and_minhash_lsh_train_evaluation_checks",
+        "missing whole-record verification",
+    )
+    require(
+        source["dataset_id"] == selection["dataset"]["dataset_id"]
+        and source["normalization"] == selection["dataset"]["normalization"]
+        and source["freeze"]["source_revisions"] == selection["dataset"]["source_revisions"],
+        "regenerated source identity changed",
+    )
     for split, field in (("validation", "validation_file_sha256"), ("test", "untouched_test_file_sha256")):
         require(source["splits"][split]["sha256"] == selection["dataset"][field], "evaluation split changed")
 
@@ -154,35 +177,53 @@ def load_parent(source_path, source, training):
             text = normalize(row["text"])
             length = len(text.encode("utf-8"))
             text_hash = digest(text)
-            require(text and length == row["normalized_utf8_bytes"]
-                    and len(row["text"].encode("utf-8")) == row["raw_utf8_bytes"], "source byte mismatch")
+            require(
+                text
+                and length == row["normalized_utf8_bytes"]
+                and len(row["text"].encode("utf-8")) == row["raw_utf8_bytes"],
+                "source byte mismatch",
+            )
             require(row["id"] not in seen_ids and text_hash not in seen_texts, "duplicate training document")
             seen_ids.add(row["id"])
             seen_texts.add(text_hash)
             require(row["dedup"]["status"] == "accepted_after_exact_and_near_eval_check", "unverified dedup status")
             if "whole_record_regeneration" in source:
                 require(row["dedup"].get("truncated_to_quota") is False, "truncated regenerated document")
-                require(hashlib.sha256(row["text"].encode("utf-8")).hexdigest() ==
-                        row["whole_record_provenance"]["upstream_text_sha256"], "whole upstream text hash mismatch")
+                require(
+                    hashlib.sha256(row["text"].encode("utf-8")).hexdigest()
+                    == row["whole_record_provenance"]["upstream_text_sha256"],
+                    "whole upstream text hash mismatch",
+                )
             provenance = row["source"]
             original = inventory[provenance["local_path"]]
             # Stack shards describe per-record licensing; the already-hashed train
             # artifact retains each document's concrete license, not that summary.
-            require(provenance["source_file_sha256"] == original["sha256"] and
-                    all(provenance[k] == original[k] for k in ("dataset", "revision", "release_variant", "url"))
-                    and isinstance(provenance.get("license"), str) and bool(provenance["license"].strip()),
-                    "source provenance mismatch")
+            require(
+                provenance["source_file_sha256"] == original["sha256"]
+                and all(provenance[k] == original[k] for k in ("dataset", "revision", "release_variant", "url"))
+                and isinstance(provenance.get("license"), str)
+                and bool(provenance["license"].strip()),
+                "source provenance mismatch",
+            )
             key = row["domain"], row["language"]
             require(key in limits, "unapproved training stratum")
             if used[key] + length > limits[key]:
                 continue
             used[key] += length
             counts[key] += 1
-            documents.append({
-                "id": row["id"], "domain": key[0], "language": key[1], "train_row_index": index,
-                "normalized_text_hash": text_hash, "normalized_utf8_bytes": length,
-                "source_utf8_bytes": row["raw_utf8_bytes"], "source": provenance, "dedup": row["dedup"],
-            })
+            documents.append(
+                {
+                    "id": row["id"],
+                    "domain": key[0],
+                    "language": key[1],
+                    "train_row_index": index,
+                    "normalized_text_hash": text_hash,
+                    "normalized_utf8_bytes": length,
+                    "source_utf8_bytes": row["raw_utf8_bytes"],
+                    "source": provenance,
+                    "dedup": row["dedup"],
+                }
+            )
     if training.pop("_recompute_regenerated_parent", False):
         for group in group_info:
             key = group["domain"], group["language"]
@@ -195,9 +236,16 @@ def load_parent(source_path, source, training):
     for group in group_info:
         key = group["domain"], group["language"]
         require(used[key] == group["actual_bytes"] and counts[key] == group["documents"], "parent group mismatch")
-    require(digest([d["normalized_text_hash"] for d in documents]) == training["assignment_hash"], "parent assignment hash mismatch")
-    require(len(documents) == training["documents"] and sum(used.values()) == training["normalized_utf8_bytes"]
-            and sum(d["source_utf8_bytes"] for d in documents) == training["source_utf8_bytes"], "parent accounting mismatch")
+    require(
+        digest([d["normalized_text_hash"] for d in documents]) == training["assignment_hash"],
+        "parent assignment hash mismatch",
+    )
+    require(
+        len(documents) == training["documents"]
+        and sum(used.values()) == training["normalized_utf8_bytes"]
+        and sum(d["source_utf8_bytes"] for d in documents) == training["source_utf8_bytes"],
+        "parent accounting mismatch",
+    )
     return documents, path
 
 
@@ -212,8 +260,10 @@ def construct(documents, allocation):
     require(len({d["id"] for d in documents}) == len(documents), "duplicate candidate ID")
     require(len({d["normalized_text_hash"] for d in documents}) == len(documents), "duplicate candidate text")
     for document in documents:
-        require(type(document["normalized_utf8_bytes"]) is int and document["normalized_utf8_bytes"] > 0,
-                "invalid candidate length")
+        require(
+            type(document["normalized_utf8_bytes"]) is int and document["normalized_utf8_bytes"] > 0,
+            "invalid candidate length",
+        )
         groups[document["domain"], document["language"]].append(ranked(document))
     require(set(groups) == set(allocation), "candidate strata mismatch")
     chosen, coverage, accounting = {}, {}, []
@@ -221,7 +271,9 @@ def construct(documents, allocation):
         quota = allocation[key]
         candidates = sorted(groups[key], key=lambda d: (d["candidate_rank"], d["id"]))
         fitting = [d for d in candidates if d["normalized_utf8_bytes"] <= quota]
-        first = min(fitting, key=lambda d: (d["normalized_utf8_bytes"], d["candidate_rank"], d["id"])) if fitting else None
+        first = (
+            min(fitting, key=lambda d: (d["normalized_utf8_bytes"], d["candidate_rank"], d["id"])) if fitting else None
+        )
         kept = [] if first is None else [first]
         used = 0 if first is None else first["normalized_utf8_bytes"]
         for document in candidates:
@@ -234,25 +286,49 @@ def construct(documents, allocation):
         if first is not None:
             coverage[key] = first
         minimum = (quota * 9 + 9) // 10
-        accounting.append({
-            "domain": key[0], "language": key[1], "allocated_normalized_bytes": quota,
-            "allocated_percent_of_cap": 100 * quota / sum(allocation.values()),
-            "minimum_documents": 1, "minimum_normalized_bytes": minimum,
-            "eligible_documents": len(candidates), "eligible_normalized_bytes": sum(d["normalized_utf8_bytes"] for d in candidates),
-            "selected_documents": len(kept), "actual_normalized_bytes": used,
-            "source_utf8_bytes": sum(d["source_utf8_bytes"] for d in kept), "unused_quota_bytes": quota - used,
-            "skipped_documents": len(candidates) - len(kept), "early_exhaustion_allowed": True,
-            "exhaustion_reason": ("quota_filled" if used == quota else
-                                  "no_whole_document_fits" if len(kept) < len(candidates) else "eligible_pool_exhausted"),
-            "coverage_document_id": None if first is None else first["id"],
-            "coverage_order_rank": digest({"policy": POLICY, "purpose": "coverage_order", "domain": key[0], "language": key[1]}),
-            "order_rule": "R", "packing_status": "PASS" if kept and used >= minimum else "FAIL",
-            "exact_quota_status": "PASS" if used == quota else "FAIL",
-        })
+        accounting.append(
+            {
+                "domain": key[0],
+                "language": key[1],
+                "allocated_normalized_bytes": quota,
+                "allocated_percent_of_cap": 100 * quota / sum(allocation.values()),
+                "minimum_documents": 1,
+                "minimum_normalized_bytes": minimum,
+                "eligible_documents": len(candidates),
+                "eligible_normalized_bytes": sum(d["normalized_utf8_bytes"] for d in candidates),
+                "selected_documents": len(kept),
+                "actual_normalized_bytes": used,
+                "source_utf8_bytes": sum(d["source_utf8_bytes"] for d in kept),
+                "unused_quota_bytes": quota - used,
+                "skipped_documents": len(candidates) - len(kept),
+                "early_exhaustion_allowed": True,
+                "exhaustion_reason": (
+                    "quota_filled"
+                    if used == quota
+                    else "no_whole_document_fits"
+                    if len(kept) < len(candidates)
+                    else "eligible_pool_exhausted"
+                ),
+                "coverage_document_id": None if first is None else first["id"],
+                "coverage_order_rank": digest(
+                    {"policy": POLICY, "purpose": "coverage_order", "domain": key[0], "language": key[1]}
+                ),
+                "order_rule": "R",
+                "packing_status": "PASS" if kept and used >= minimum else "FAIL",
+                "exact_quota_status": "PASS" if used == quota else "FAIL",
+            }
+        )
     macro_queues = {}
     for domain in sorted({key[0] for key in coverage}):
-        macro_queues[domain] = deque(sorted((k for k in coverage if k[0] == domain), key=lambda k: (
-            digest({"policy": POLICY, "purpose": "coverage_order", "domain": k[0], "language": k[1]}), k[1])))
+        macro_queues[domain] = deque(
+            sorted(
+                (k for k in coverage if k[0] == domain),
+                key=lambda k: (
+                    digest({"policy": POLICY, "purpose": "coverage_order", "domain": k[0], "language": k[1]}),
+                    k[1],
+                ),
+            )
+        )
     ordered = []
     while any(macro_queues.values()):
         for queue in macro_queues.values():
@@ -275,11 +351,20 @@ def construct(documents, allocation):
         group["ordered_document_ids"] = [d["id"] for d in entries]
         group["global_positions"] = [d["position"] for d in entries]
         group["last_global_position"] = entries[-1]["position"] if entries else None
-        group["ordered_list_sha256"] = digest([{k: d[k] for k in (
-            "id", "normalized_text_hash", "normalized_utf8_bytes", "source_utf8_bytes")} for d in entries])
-    return {"normalized_utf8_bytes": total, "source_utf8_bytes": sum(d["source_utf8_bytes"] for d in ordered),
-            "selected_documents": len(ordered), "ordered_documents": ordered, "strata": accounting,
-            "ordered_exposure_hash": digest(ordered)}
+        group["ordered_list_sha256"] = digest(
+            [
+                {k: d[k] for k in ("id", "normalized_text_hash", "normalized_utf8_bytes", "source_utf8_bytes")}
+                for d in entries
+            ]
+        )
+    return {
+        "normalized_utf8_bytes": total,
+        "source_utf8_bytes": sum(d["source_utf8_bytes"] for d in ordered),
+        "selected_documents": len(ordered),
+        "ordered_documents": ordered,
+        "strata": accounting,
+        "ordered_exposure_hash": digest(ordered),
+    }
 
 
 def persist_attempt(output, policy, context, sample, generator):
@@ -296,32 +381,53 @@ def persist_attempt(output, policy, context, sample, generator):
     publish(output / "policy.json", policy)
     policy_hash = file_hash(output / "policy.json")
     body = {
-        "exposure_schema_version": 1, "status": "exposure_frozen" if passed else "exposure_rejected",
-        "usable_for_preflight": passed, "policy_sha256": policy_hash, "policy": policy,
-        "provenance": context, "generator": generator, "sample": sample, "failures": failures,
-        "tokenizer_outputs_used_for_sampling": False, "token_counts_used_for_sampling": False,
-        "flops_used_for_sampling": False, "validation_or_test_text_used_for_sampling": False,
-        "selection_metrics_used": False, "lm_results_used": False,
+        "exposure_schema_version": 1,
+        "status": "exposure_frozen" if passed else "exposure_rejected",
+        "usable_for_preflight": passed,
+        "policy_sha256": policy_hash,
+        "policy": policy,
+        "provenance": context,
+        "generator": generator,
+        "sample": sample,
+        "failures": failures,
+        "tokenizer_outputs_used_for_sampling": False,
+        "token_counts_used_for_sampling": False,
+        "flops_used_for_sampling": False,
+        "validation_or_test_text_used_for_sampling": False,
+        "selection_metrics_used": False,
+        "lm_results_used": False,
     }
     manifest = {**body, "content_sha256": digest(body)}
     filename = "exposure.json" if passed else "rejected-exposure.json"
     publish(output / filename, manifest)
     manifest_hash = file_hash(output / filename)
     receipt = {
-        "status": manifest["status"], "policy_sha256": policy_hash,
-        "selection_sha256": context["selection_sha256"], "source_manifest_sha256": context["source_manifest_sha256"],
-        "artifact": filename, "artifact_sha256": manifest_hash,
+        "status": manifest["status"],
+        "policy_sha256": policy_hash,
+        "selection_sha256": context["selection_sha256"],
+        "source_manifest_sha256": context["source_manifest_sha256"],
+        "artifact": filename,
+        "artifact_sha256": manifest_hash,
         "final_exposure_sha256": manifest_hash if passed else None,
-        "ordered_exposure_hash": sample["ordered_exposure_hash"], "selected_documents": sample["selected_documents"],
-        "normalized_utf8_bytes": sample["normalized_utf8_bytes"], "source_utf8_bytes": sample["source_utf8_bytes"],
-        "required_normalized_bytes": policy["required_normalized_bytes"], "failures": failures,
-        "tokenizer_preflight_run": False, "lm_experiments_run": False,
+        "ordered_exposure_hash": sample["ordered_exposure_hash"],
+        "selected_documents": sample["selected_documents"],
+        "normalized_utf8_bytes": sample["normalized_utf8_bytes"],
+        "source_utf8_bytes": sample["source_utf8_bytes"],
+        "required_normalized_bytes": policy["required_normalized_bytes"],
+        "failures": failures,
+        "tokenizer_preflight_run": False,
+        "lm_experiments_run": False,
     }
     publish(output / "receipt.json", receipt)
     # Bind every stratum to the full candidate/final manifest hash, without self-reference.
-    publish(output / "strata-report.json", {"manifest_sha256": manifest_hash, "manifest_status": manifest["status"],
-                                           "strata": sample["strata"]})
-    require(read_json(output / filename) == manifest and file_hash(output / filename) == manifest_hash, "publication verification failed")
+    publish(
+        output / "strata-report.json",
+        {"manifest_sha256": manifest_hash, "manifest_status": manifest["status"], "strata": sample["strata"]},
+    )
+    require(
+        read_json(output / filename) == manifest and file_hash(output / filename) == manifest_hash,
+        "publication verification failed",
+    )
     return receipt
 
 
@@ -332,23 +438,34 @@ def generate(args):
     documents, train_path = load_parent(args.source, source, training)
     sample = construct(documents, quotas())
     require(sample == construct(list(reversed(documents)), quotas()), "nondeterministic exposure construction")
-    require(file_hash(args.selection) == SELECTION_SHA and file_hash(args.source) == SOURCE_SHA
-            and file_hash(train_path) == source["splits"]["train"]["sha256"]
-            and file_hash(args.policy) == policy_review_hash, "input changed during generation")
+    require(
+        file_hash(args.selection) == SELECTION_SHA
+        and file_hash(args.source) == SOURCE_SHA
+        and file_hash(train_path) == source["splits"]["train"]["sha256"]
+        and file_hash(args.policy) == policy_review_hash,
+        "input changed during generation",
+    )
     policy = {
-        "schema_version": 1, "policy_id": POLICY, "review_document_sha256": policy_review_hash,
+        "schema_version": 1,
+        "policy_id": POLICY,
+        "review_document_sha256": policy_review_hash,
         "review_document": Path(args.policy).name,
         "required_normalized_bytes": EXACT_BYTES,
         "acceptance_override": "Latest user instruction requires exactly 1000000, superseding draft 950000..1000000 acceptance only; selection/order unchanged.",
         "sampling_rule": "R: shortest coverage, hash-ranked one-pass whole-document packing, coverage macro round robin, rational weighted-byte service",
-        "rank_digest": "sha256_sorted_ascii_json_v1", "normalization": "NFKC_unicode_spaces_v1",
-        "stratum_minimum": "at_least_one_document_and_ceil_0.9_quota", "resampling_allowed": False,
+        "rank_digest": "sha256_sorted_ascii_json_v1",
+        "normalization": "NFKC_unicode_spaces_v1",
+        "stratum_minimum": "at_least_one_document_and_ceil_0.9_quota",
+        "resampling_allowed": False,
         "quotas": [{"domain": k[0], "language": k[1], "normalized_bytes": v} for k, v in sorted(quotas().items())],
     }
     generator = {
         "base_git_commit": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
-        "working_tree_dirty": bool(subprocess.check_output(["git", "status", "--porcelain"], cwd=ROOT, text=True).strip()),
-        "sampler_file": "tools/phase_b_exposure.py", "sampler_sha256": file_hash(__file__),
+        "working_tree_dirty": bool(
+            subprocess.check_output(["git", "status", "--porcelain"], cwd=ROOT, text=True).strip()
+        ),
+        "sampler_file": "tools/phase_b_exposure.py",
+        "sampler_sha256": file_hash(__file__),
         "unicode_database_version": unicodedata.unidata_version,
         "scope": "standalone exposure construction only; no authorization to change frozen LM implementation pin",
     }

@@ -1,4 +1,5 @@
 """Whole-record regeneration must preserve upstream text and exact quotas."""
+
 import copy
 
 import pytest
@@ -7,9 +8,13 @@ from tools import phase_b_whole_source as w
 
 
 def record(text, truncated=False):
-    return {"id": text, "text": text, "raw_utf8_bytes": len(text.encode()),
-            "normalized_utf8_bytes": len(w.base.normalize(text).encode()),
-            "dedup": {"truncated_to_quota": truncated, "status": "old"}}
+    return {
+        "id": text,
+        "text": text,
+        "raw_utf8_bytes": len(text.encode()),
+        "normalized_utf8_bytes": len(w.base.normalize(text).encode()),
+        "dedup": {"truncated_to_quota": truncated, "status": "old"},
+    }
 
 
 def test_restore_prefix_preserves_complete_upstream_and_evidence():
@@ -56,6 +61,7 @@ def test_normalized_and_source_bytes_reported_separately():
 def test_gzip_reader_uses_exact_record_index(tmp_path):
     import gzip
     import json
+
     source = tmp_path / "source.gz"
     with gzip.open(source, "wt", encoding="utf-8") as stream:
         for text in ["first", "second", "third"]:
@@ -85,23 +91,32 @@ def test_tail_excludes_exact_duplicate_candidates():
 @pytest.fixture
 def regeneration_lineage(tmp_path):
     source = {
-        "dataset_id": "fixture", "normalization": "NFKC_unicode_spaces_v1",
+        "dataset_id": "fixture",
+        "normalization": "NFKC_unicode_spaces_v1",
         "freeze": {"source_revisions": {"dataset": "frozen"}},
         "splits": {"validation": {"sha256": "v"}, "test": {"sha256": "t"}},
         "whole_record_regeneration": {
-            "policy": w.POLICY, "historical_source_manifest_sha256": w.base.SOURCE_SHA,
+            "policy": w.POLICY,
+            "historical_source_manifest_sha256": w.base.SOURCE_SHA,
             "unchanged_selection_sha256": w.base.SELECTION_SHA,
             "all_selected_text_verified_against_upstream": True,
             "deduplication": "passed_existing_exact_and_minhash_lsh_train_evaluation_checks",
         },
     }
-    selection = {"dataset": {"dataset_id": "fixture", "normalization": source["normalization"],
-                  "source_revisions": source["freeze"]["source_revisions"],
-                  "validation_file_sha256": "v", "untouched_test_file_sha256": "t"}}
+    selection = {
+        "dataset": {
+            "dataset_id": "fixture",
+            "normalization": source["normalization"],
+            "source_revisions": source["freeze"]["source_revisions"],
+            "validation_file_sha256": "v",
+            "untouched_test_file_sha256": "t",
+        }
+    }
     path = tmp_path / "manifest.json"
     w.base.publish(path, source)
-    w.base.publish(tmp_path / "receipt.json", {"status": "whole_upstream_source_frozen",
-                   "manifest_sha256": w.base.file_hash(path)})
+    w.base.publish(
+        tmp_path / "receipt.json", {"status": "whole_upstream_source_frozen", "manifest_sha256": w.base.file_hash(path)}
+    )
     return source, path, selection
 
 
@@ -112,9 +127,16 @@ def test_explicit_regeneration_lineage_preserves_selection(regeneration_lineage)
     assert selection == before
 
 
-@pytest.mark.parametrize("field", ["policy", "historical_source_manifest_sha256",
-                                  "unchanged_selection_sha256", "deduplication",
-                                  "all_selected_text_verified_against_upstream"])
+@pytest.mark.parametrize(
+    "field",
+    [
+        "policy",
+        "historical_source_manifest_sha256",
+        "unchanged_selection_sha256",
+        "deduplication",
+        "all_selected_text_verified_against_upstream",
+    ],
+)
 def test_invalid_regeneration_lineage_rejected(regeneration_lineage, field):
     source, path, selection = regeneration_lineage
     source["whole_record_regeneration"][field] = "changed"

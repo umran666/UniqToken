@@ -1,4 +1,5 @@
 """Exact packing tests use synthetic byte metadata, never research training."""
+
 import ast
 import copy
 from itertools import product
@@ -13,16 +14,25 @@ from tools import phase_b_exposure as b
 
 
 def doc(identifier, size, domain="d", language="l"):
-    return {"id": identifier, "domain": domain, "language": language,
-            "normalized_text_hash": b.digest(identifier), "normalized_utf8_bytes": size,
-            "source_utf8_bytes": size + 1, "source": {"fixture": identifier},
-            "dedup": {"status": "fixture"}, "train_row_index": 0}
+    return {
+        "id": identifier,
+        "domain": domain,
+        "language": language,
+        "normalized_text_hash": b.digest(identifier),
+        "normalized_utf8_bytes": size,
+        "source_utf8_bytes": size + 1,
+        "source": {"fixture": identifier},
+        "dedup": {"status": "fixture"},
+        "train_row_index": 0,
+    }
 
 
 def all_strata():
-    return [doc(f"{domain}:{language}:{suffix}", size, domain, language)
-            for (domain, language), quota in b.quotas().items()
-            for suffix, size in (("coverage", 2), ("rest", quota - 2))]
+    return [
+        doc(f"{domain}:{language}:{suffix}", size, domain, language)
+        for (domain, language), quota in b.quotas().items()
+        for suffix, size in (("coverage", 2), ("rest", quota - 2))
+    ]
 
 
 def test_include_first_matches_exhaustive_enumeration():
@@ -57,9 +67,10 @@ def test_large_declared_dimensions_are_bounded():
         x.subset_indices([1] * x.MAX_DOCUMENTS, x.MAX_TARGET, snapshot_limit=1)
 
 
-@pytest.mark.parametrize("weights,target", [([0], 1), ([-1], 5), ([True], 5), ([10], 5),
-                                           ([], -1), ([], x.MAX_TARGET + 1),
-                                           ([1] * (x.MAX_DOCUMENTS + 1), 10)])
+@pytest.mark.parametrize(
+    "weights,target",
+    [([0], 1), ([-1], 5), ([True], 5), ([10], 5), ([], -1), ([], x.MAX_TARGET + 1), ([1] * (x.MAX_DOCUMENTS + 1), 10)],
+)
 def test_invalid_solver_dimensions_fail(weights, target):
     with pytest.raises(ValueError):
         x.subset_indices(weights, target)
@@ -109,8 +120,23 @@ def test_bad_parent_rejected(mutation):
         x.solve_all(docs, b.quotas())
 
 
-@pytest.mark.parametrize("mutation", ["membership", "bytes", "source_bytes", "order", "rank", "coverage",
-                                     "quota", "counts", "list_hash", "total", "source_total", "duplicate"])
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "membership",
+        "bytes",
+        "source_bytes",
+        "order",
+        "rank",
+        "coverage",
+        "quota",
+        "counts",
+        "list_hash",
+        "total",
+        "source_total",
+        "duplicate",
+    ],
+)
 def test_independent_verifier_rejects_tampering(mutation):
     parent = all_strata()
     sample, _ = x.solve_all(parent, b.quotas())
@@ -148,24 +174,33 @@ def attempt_fixture(tmp_path):
     attempt.mkdir()
     policy = {"policy_id": x.POLICY}
     b.publish(attempt / "policy.json", policy)
-    plan = {"timeout_seconds": 10, "input_hashes": {}, "generator": {"fixture": True},
-            "policy_sha256": b.file_hash(attempt / "policy.json")}
+    plan = {
+        "timeout_seconds": 10,
+        "input_hashes": {},
+        "generator": {"fixture": True},
+        "policy_sha256": b.file_hash(attempt / "policy.json"),
+    }
     b.publish(attempt / "plan.json", plan)
     return attempt, plan
 
 
-@pytest.mark.parametrize("error,reason", [
-    (subprocess.TimeoutExpired("worker", 1), "SEARCH_INCOMPLETE_RESOURCE_LIMIT"),
-    (x.ResourceLimit("limit"), "SEARCH_INCOMPLETE_RESOURCE_LIMIT"),
-    (MemoryError(), "SEARCH_INCOMPLETE_RESOURCE_LIMIT"),
-    (KeyboardInterrupt(), "SEARCH_INTERRUPTED"),
-    (SystemExit(), "SEARCH_INTERRUPTED"),
-    (RuntimeError("native/worker error"), "SEARCH_ERROR"),
-])
+@pytest.mark.parametrize(
+    "error,reason",
+    [
+        (subprocess.TimeoutExpired("worker", 1), "SEARCH_INCOMPLETE_RESOURCE_LIMIT"),
+        (x.ResourceLimit("limit"), "SEARCH_INCOMPLETE_RESOURCE_LIMIT"),
+        (MemoryError(), "SEARCH_INCOMPLETE_RESOURCE_LIMIT"),
+        (KeyboardInterrupt(), "SEARCH_INTERRUPTED"),
+        (SystemExit(), "SEARCH_INTERRUPTED"),
+        (RuntimeError("native/worker error"), "SEARCH_ERROR"),
+    ],
+)
 def test_interrupted_or_failed_search_seals_rejection(tmp_path, error, reason):
     attempt, plan = attempt_fixture(tmp_path)
+
     def child(*args):
         raise error
+
     receipt = x.supervise(attempt, plan, child)
     assert receipt["status"] == "exposure_rejected" and receipt["reason"] == reason
     assert receipt["final_exposure_sha256"] is None
@@ -177,10 +212,14 @@ def test_interrupted_or_failed_search_seals_rejection(tmp_path, error, reason):
 def test_no_solution_cannot_invoke_verifier_or_publish(tmp_path):
     attempt, plan = attempt_fixture(tmp_path)
     calls = []
+
     def child(attempt, mode, deadline):
         calls.append(mode)
-        b.publish(attempt / "search.json", {"all_exact": False, "strata": [
-            {"domain": "d", "language": "l", "status": x.FAIL_NO_SOLUTION}]})
+        b.publish(
+            attempt / "search.json",
+            {"all_exact": False, "strata": [{"domain": "d", "language": "l", "status": x.FAIL_NO_SOLUTION}]},
+        )
+
     receipt = x.supervise(attempt, plan, child)
     assert receipt["reason"] == "NO_EXACT_SOLUTION"
     assert calls == ["solve"] and not (attempt / "frozen").exists()
@@ -190,13 +229,21 @@ def successful_child(attempt, mode, deadline):
     if mode == "solve":
         sample, reports = x.solve_all(all_strata(), b.quotas())
         b.publish(attempt / "search.json", {"all_exact": True, "strata": reports})
-        b.publish(attempt / "candidate.json", {"sample": sample, "search": reports,
-                                             "provenance": {"fixture": True, "source_manifest_sha256": b.SOURCE_SHA}})
+        b.publish(
+            attempt / "candidate.json",
+            {
+                "sample": sample,
+                "search": reports,
+                "provenance": {"fixture": True, "source_manifest_sha256": b.SOURCE_SHA},
+            },
+        )
     else:
         candidate = b.read_json(attempt / "candidate.json")
         x.verify_witness(all_strata(), b.quotas(), candidate["sample"])
-        b.publish(attempt / "verification.json", {"status": "PASS",
-                    "candidate_sha256": b.file_hash(attempt / "candidate.json")})
+        b.publish(
+            attempt / "verification.json",
+            {"status": "PASS", "candidate_sha256": b.file_hash(attempt / "candidate.json")},
+        )
 
 
 def test_complete_only_atomic_bundle_publication(tmp_path):
@@ -221,11 +268,13 @@ def test_failure_during_publication_never_exposes_bundle(tmp_path, monkeypatch):
 
 def test_stale_candidate_after_verification_rejected(tmp_path):
     attempt, plan = attempt_fixture(tmp_path)
+
     def child(attempt, mode, deadline):
         successful_child(attempt, mode, deadline)
         if mode == "verify":
             with (attempt / "candidate.json").open("a") as stream:
                 stream.write(" ")
+
     result = x.supervise(attempt, plan, child)
     assert result["status"] == "exposure_rejected" and not (attempt / "frozen").exists()
 
@@ -233,10 +282,12 @@ def test_stale_candidate_after_verification_rejected(tmp_path):
 @pytest.mark.parametrize("filename", ["plan.json", "policy.json"])
 def test_changed_execution_plan_or_policy_rejected(tmp_path, filename):
     attempt, plan = attempt_fixture(tmp_path)
+
     def child(attempt, mode, deadline):
         successful_child(attempt, mode, deadline)
         if mode == "verify":
             (attempt / filename).write_text("{}")
+
     receipt = x.supervise(attempt, plan, child)
     assert receipt["status"] == "exposure_rejected" and not (attempt / "frozen").exists()
 
@@ -260,13 +311,16 @@ def test_worker_terminated_by_timeout_is_killed_and_waited(tmp_path, monkeypatch
     class Child:
         killed = False
         calls = 0
+
         def wait(self, timeout=None):
             self.calls += 1
             if timeout is not None:
                 raise subprocess.TimeoutExpired("worker", timeout)
             return 1
+
         def kill(self):
             self.killed = True
+
     child = Child()
     monkeypatch.setattr(x.subprocess, "Popen", lambda *a, **k: child)
     with pytest.raises(subprocess.TimeoutExpired):
@@ -282,5 +336,16 @@ def test_no_tokenizer_flop_or_lm_dependencies():
             modules.update(alias.name for alias in node.names)
         elif isinstance(node, ast.ImportFrom):
             modules.add(node.module)
-    assert modules <= {"__future__", "argparse", "collections", "json", "os", "pathlib", "signal",
-                       "subprocess", "sys", "time", "tools"}
+    assert modules <= {
+        "__future__",
+        "argparse",
+        "collections",
+        "json",
+        "os",
+        "pathlib",
+        "signal",
+        "subprocess",
+        "sys",
+        "time",
+        "tools",
+    }

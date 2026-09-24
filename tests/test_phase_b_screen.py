@@ -1,4 +1,5 @@
 """Synthetic gate regressions; no research training or benchmark results."""
+
 import copy
 import json
 import math
@@ -15,8 +16,12 @@ from benchmarks import run_phase_a as a
 @pytest.fixture
 def gate(tmp_path, monkeypatch):
     identity = {
-        "ledger_schema_version": 3, "commit_hash": "c" * 40, "source_hash": "s" * 64,
-        "working_tree_dirty": False, "extension_status": "installed", "extension_hash": "e" * 64,
+        "ledger_schema_version": 3,
+        "commit_hash": "c" * 40,
+        "source_hash": "s" * 64,
+        "working_tree_dirty": False,
+        "extension_status": "installed",
+        "extension_hash": "e" * 64,
         "versions": {k: "fixture" for k in ("python", "torch", "numpy", "regex", "sentencepiece")},
     }
     monkeypatch.setattr(h, "runtime_identity", lambda: copy.deepcopy(identity))
@@ -26,21 +31,40 @@ def gate(tmp_path, monkeypatch):
     monkeypatch.setattr(a, "stratified_screen_training", lambda rows, texts: original_stratify(rows, texts, 5))
     splits = {}
     for split, texts in {"train": ["aa", "bbb"], "validation": [f"heldout-{i}" for i in range(20)]}.items():
-        rows = [{"id": f"{split}-{i}", "text": t, "raw_utf8_bytes": len(t), "normalized_utf8_bytes": len(t),
-                 "language": "fixture", "domain": "fixture"} for i, t in enumerate(texts)]
+        rows = [
+            {
+                "id": f"{split}-{i}",
+                "text": t,
+                "raw_utf8_bytes": len(t),
+                "normalized_utf8_bytes": len(t),
+                "language": "fixture",
+                "domain": "fixture",
+            }
+            for i, t in enumerate(texts)
+        ]
         path = tmp_path / f"{split}.jsonl"
         path.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
         splits[split] = {"path": path.name, "sha256": h.file_hash(path)}
     # Deliberately absent. Any attempt to read test fails, including a hash read.
     splits["test"] = {"path": "missing-test.jsonl", "sha256": "t" * 64}
     manifest = tmp_path / "manifest.json"
-    h.write_new_json(manifest, {"schema_version": h.DATASET_MANIFEST_SCHEMA, "dataset_id": "fixture",
-                              "normalization": h.NORMALIZATION, "freeze": {"immutable": True, "source_revisions": {"test": "a" * 40}},
-                              "splits": splits})
+    h.write_new_json(
+        manifest,
+        {
+            "schema_version": h.DATASET_MANIFEST_SCHEMA,
+            "dataset_id": "fixture",
+            "normalization": h.NORMALIZATION,
+            "freeze": {"immutable": True, "source_revisions": {"test": "a" * 40}},
+            "splits": splits,
+        },
+    )
     docs, byte_rows, source, training, validation = b.dataset_context(manifest)
     exposure_training = {
-        "scope": "frozen_exact_phase_b_exposure", "normalized_utf8_bytes": 5,
-        "source_utf8_bytes": 5, "documents": 2, "assignment_hash": h.digest(["fixture-exposure"]),
+        "scope": "frozen_exact_phase_b_exposure",
+        "normalized_utf8_bytes": 5,
+        "source_utf8_bytes": 5,
+        "documents": 2,
+        "assignment_hash": h.digest(["fixture-exposure"]),
     }
     source_manifest = tmp_path / "source.json"
     exposure_manifest = tmp_path / "exposure.json"
@@ -48,16 +72,25 @@ def gate(tmp_path, monkeypatch):
     exposure_manifest.write_text("{}", encoding="utf-8")
     source_sha = h.file_hash(source_manifest)
     exposure_sha = h.file_hash(exposure_manifest)
+
     def exposure_context(args, selection):
         h.require(args.source_manifest_sha256 == source_sha, "source manifest changed or stale")
         h.require(args.exposure_manifest_sha256 == exposure_sha, "exposure manifest changed or stale")
         provenance = {
-            "source_manifest_sha256": source_sha, "exposure_manifest_sha256": exposure_sha,
-            "exposure_content_sha256": "3" * 64, "exposure_order_sha256": exposure_training["assignment_hash"],
+            "source_manifest_sha256": source_sha,
+            "exposure_manifest_sha256": exposure_sha,
+            "exposure_content_sha256": "3" * 64,
+            "exposure_order_sha256": exposure_training["assignment_hash"],
             "exposure_receipt_sha256": "4" * 64,
         }
-        return (copy.deepcopy(docs), copy.deepcopy(byte_rows), copy.deepcopy(exposure_training),
-                copy.deepcopy(validation), provenance)
+        return (
+            copy.deepcopy(docs),
+            copy.deepcopy(byte_rows),
+            copy.deepcopy(exposure_training),
+            copy.deepcopy(validation),
+            provenance,
+        )
+
     monkeypatch.setattr(b, "frozen_exposure_context", exposure_context)
     phase_dir = tmp_path / "phase-a"
     phase_dir.mkdir()
@@ -69,20 +102,37 @@ def gate(tmp_path, monkeypatch):
             directory.mkdir()
             h.write_new_json(directory / "fixture.json", {"vocab_size": vocab})
             count = validation["unicode_characters"]
-            records.append({
-                "tokenizer": name, "vocab_budget": vocab, "actual_vocab_size": vocab,
-                "git_commit": identity["commit_hash"], "extension_hash": identity["extension_hash"],
-                "dataset_manifest_hash": source["manifest_sha256"], "tokenizer_config": h.tokenizer_configuration(name, vocab),
-                "training_assignment_hash": training["assignment_hash"], "validation_assignment_hash": validation["assignment_hash"],
-                "training_wall_clock_seconds": 1.0, "learned_merges": 1, "artifact": artifact,
-                "artifact_hashes": h.artifact_hashes(directory), "result_label": "SCREENING",
-                "validation": {"tokens": count, "unicode_characters": count, "utf8_bytes": validation["normalized_utf8_bytes"],
-                               **h.byte_totals(byte_rows["validation"]), "tokens_per_unicode_character": 1.0,
-                               "bytes_per_token": validation["normalized_utf8_bytes"] / count,
-                               "byte_fallback_tokens": 0, "byte_fallback_percent": 0.0},
-            })
-    meta = a._stage_plan("A-SCREEN", identity, source, training, validation,
-                         [(n, v) for n in h.COHORT for v in h.VOCABS])
+            records.append(
+                {
+                    "tokenizer": name,
+                    "vocab_budget": vocab,
+                    "actual_vocab_size": vocab,
+                    "git_commit": identity["commit_hash"],
+                    "extension_hash": identity["extension_hash"],
+                    "dataset_manifest_hash": source["manifest_sha256"],
+                    "tokenizer_config": h.tokenizer_configuration(name, vocab),
+                    "training_assignment_hash": training["assignment_hash"],
+                    "validation_assignment_hash": validation["assignment_hash"],
+                    "training_wall_clock_seconds": 1.0,
+                    "learned_merges": 1,
+                    "artifact": artifact,
+                    "artifact_hashes": h.artifact_hashes(directory),
+                    "result_label": "SCREENING",
+                    "validation": {
+                        "tokens": count,
+                        "unicode_characters": count,
+                        "utf8_bytes": validation["normalized_utf8_bytes"],
+                        **h.byte_totals(byte_rows["validation"]),
+                        "tokens_per_unicode_character": 1.0,
+                        "bytes_per_token": validation["normalized_utf8_bytes"] / count,
+                        "byte_fallback_tokens": 0,
+                        "byte_fallback_percent": 0.0,
+                    },
+                }
+            )
+    meta = a._stage_plan(
+        "A-SCREEN", identity, source, training, validation, [(n, v) for n in h.COHORT for v in h.VOCABS]
+    )
     ledger = {"metadata": {**meta, "status": "complete"}, "records": records}
     path = phase_dir / "ledger.json"
     h.write_new_json(path, ledger)
@@ -139,7 +189,9 @@ def test_modified_selection_rejected_even_with_new_external_hash(gate, mutation)
         b.prepare(args)
 
 
-@pytest.mark.parametrize("mutation", ["artifact", "dataset", "config", "vocab", "specials", "assignment", "test", "incomplete"])
+@pytest.mark.parametrize(
+    "mutation", ["artifact", "dataset", "config", "vocab", "specials", "assignment", "test", "incomplete"]
+)
 def test_stale_phase_a_inputs_rejected_before_execution(gate, mutation):
     args, ledger, _ = gate
     row = ledger["records"][0]
@@ -165,9 +217,19 @@ def test_stale_phase_a_inputs_rejected_before_execution(gate, mutation):
     assert not args.output.exists()
 
 
-@pytest.mark.parametrize("flops,byte_budget,device", [(0, 5, "cpu"), (1, 5, "cpu"), (math.nan, 5, "cpu"),
-                                                    (1e12, 5, "cpu"), (1e11, 4, "cpu"), (1e11, 0, "cpu"),
-                                                    (1e11, 1_000_001, "cpu"), (1e11, 5, "unknown")])
+@pytest.mark.parametrize(
+    "flops,byte_budget,device",
+    [
+        (0, 5, "cpu"),
+        (1, 5, "cpu"),
+        (math.nan, 5, "cpu"),
+        (1e12, 5, "cpu"),
+        (1e11, 4, "cpu"),
+        (1e11, 0, "cpu"),
+        (1e11, 1_000_001, "cpu"),
+        (1e11, 5, "unknown"),
+    ],
+)
 def test_invalid_screening_configuration_fails(gate, flops, byte_budget, device):
     args, _, _ = gate
     args.flops, args.bytes, args.device = flops, byte_budget, device
@@ -195,10 +257,12 @@ def test_gpu_build_is_recorded_but_tokenizer_runtime_must_match(gate):
     b.check_runtime(current, identity)
 
 
-@pytest.mark.parametrize("available,device,workspace", [(False, "cuda", ":4096:8"),
-                                                       (True, "cuda:5", ":4096:8"), (True, "cuda", "")])
+@pytest.mark.parametrize(
+    "available,device,workspace", [(False, "cuda", ":4096:8"), (True, "cuda:5", ":4096:8"), (True, "cuda", "")]
+)
 def test_cuda_preflight_fails_loudly(gate, monkeypatch, available, device, workspace):
     import torch
+
     _, _, identity = gate
     monkeypatch.setattr(torch.cuda, "is_available", lambda: available)
     monkeypatch.setattr(torch.cuda, "device_count", lambda: 1)
@@ -209,6 +273,7 @@ def test_cuda_preflight_fails_loudly(gate, monkeypatch, available, device, works
 
 def fake_lm(gate, calls):
     _, ledger, _ = gate
+
     def train(tok, docs, regime, budget, device, document_bytes):
         cfg, context, seed = h.SCREEN, 128, 0
         assert set(docs) == set(document_bytes) == {"train", "validation"}
@@ -219,18 +284,30 @@ def fake_lm(gate, calls):
         completed = 0 if regime == "flops" else 2
         heldout = ledger["metadata"]["validation"]
         evaluation_targets = sum(map(len, docs["validation"])) + len(docs["validation"])
-        return {**h.parameter_accounting(len(tok.vocab), cfg, context),
-                **h.flop_accounting(len(tok.vocab), cfg, targets, targets),
-                "training_steps": targets, "training_target_tokens": targets, "training_sequence_length_squared_sum": targets,
-                "training_byte_scope": "complete_document_prefix", "completed_training_documents": completed,
-                "fully_predicted_documents": max(1, completed), "partial_final_window": False,
-                "terminal_document_target_tokens": 1 if regime == "flops" else 0,
-                "coverage_policy_version": "flop_fixed_budget_one_complete_document_v1",
-                "minimum_fully_predicted_documents": 1, "coverage_gate": "PASS",
-                "completed_document_bytes": 0 if completed == 0 else 5,
-                "training_bytes": h.byte_totals(document_bytes["train"], completed),
-                "validation": h.nll_metrics(15.0, evaluation_targets, heldout["normalized_utf8_bytes"],
-                                            source_utf8_bytes=heldout["source_utf8_bytes"])}
+        return {
+            **h.parameter_accounting(len(tok.vocab), cfg, context),
+            **h.flop_accounting(len(tok.vocab), cfg, targets, targets),
+            "training_steps": targets,
+            "training_target_tokens": targets,
+            "training_sequence_length_squared_sum": targets,
+            "training_byte_scope": "complete_document_prefix",
+            "completed_training_documents": completed,
+            "fully_predicted_documents": max(1, completed),
+            "partial_final_window": False,
+            "terminal_document_target_tokens": 1 if regime == "flops" else 0,
+            "coverage_policy_version": "flop_fixed_budget_one_complete_document_v1",
+            "minimum_fully_predicted_documents": 1,
+            "coverage_gate": "PASS",
+            "completed_document_bytes": 0 if completed == 0 else 5,
+            "training_bytes": h.byte_totals(document_bytes["train"], completed),
+            "validation": h.nll_metrics(
+                15.0,
+                evaluation_targets,
+                heldout["normalized_utf8_bytes"],
+                source_utf8_bytes=heldout["source_utf8_bytes"],
+            ),
+        }
+
     return train
 
 
@@ -244,7 +321,9 @@ def test_only_eighteen_frozen_runs_and_complete_ledger(gate, monkeypatch):
     assert {r["tokenizer"] for r in result["records"]} == set(b.NAMES)
     assert all("test" not in r for r in result["records"])
     assert result["metadata"]["test_access"] == "forbidden_not_opened"
-    assert {r["training_bytes"]["normalized_utf8_bytes"] for r in result["records"] if r["budget_regime"] == "bytes"} == {5}
+    assert {
+        r["training_bytes"]["normalized_utf8_bytes"] for r in result["records"] if r["budget_regime"] == "bytes"
+    } == {5}
     with pytest.raises(ValueError, match="output exists"):
         b.run(args)
 
@@ -297,6 +376,7 @@ def test_mutation_or_failure_stops_run_without_final_ledger(gate, monkeypatch, t
     args, _, identity = gate
     wrapped = fake_lm(gate, [])
     calls = []
+
     def fail(*pos, **kw):
         measured = wrapped(*pos, **kw)
         calls.append(1)
@@ -315,6 +395,7 @@ def test_mutation_or_failure_stops_run_without_final_ledger(gate, monkeypatch, t
         else:
             raise RuntimeError("native failure")
         return measured
+
     monkeypatch.setattr(b, "train_phase_b_condition", fail)
     with pytest.raises((ValueError, RuntimeError)):
         b.run(args)
@@ -322,9 +403,23 @@ def test_mutation_or_failure_stops_run_without_final_ledger(gate, monkeypatch, t
     assert not (args.output / "ledger.json").exists()
 
 
-@pytest.mark.parametrize("field", ["core_params", "input_embedding_params", "output_head_params", "total_params",
-                                   "core_analytical_flops", "output_projection_flops", "actual_analytical_flops",
-                                   "flop_estimator_version", "training_bytes", "validation", "seed", "test"])
+@pytest.mark.parametrize(
+    "field",
+    [
+        "core_params",
+        "input_embedding_params",
+        "output_head_params",
+        "total_params",
+        "core_analytical_flops",
+        "output_projection_flops",
+        "actual_analytical_flops",
+        "flop_estimator_version",
+        "training_bytes",
+        "validation",
+        "seed",
+        "test",
+    ],
+)
 def test_lm_ledger_rejects_bad_accounting_or_selection(gate, monkeypatch, field):
     args, _, _ = gate
     monkeypatch.setattr(b, "train_phase_b_condition", fake_lm(gate, []))
@@ -346,8 +441,13 @@ def test_no_test_metrics_accepted_by_selection_builder(gate):
 
 
 def test_historical_code_behavior_change_is_rejected(tmp_path, monkeypatch):
-    identity = {"commit_hash": "a" * 40, "working_tree_dirty": False,
-                "extension_status": "installed", "extension_hash": "e" * 64, "source_hash": "s"}
+    identity = {
+        "commit_hash": "a" * 40,
+        "working_tree_dirty": False,
+        "extension_status": "installed",
+        "extension_hash": "e" * 64,
+        "source_hash": "s",
+    }
     monkeypatch.setattr(b.lineage, "source_hash", lambda commit: "s")
     monkeypatch.setattr(b, "executable_paths", lambda commit: ["uniqtoken/tokenizer.py"])
     monkeypatch.setattr(b.lineage, "tree", lambda commit: {"uniqtoken/tokenizer.py": ("100644", "blob", "original")})

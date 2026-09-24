@@ -70,9 +70,7 @@ def test_the_stack_reader_uses_v13_license_columns_and_filters_non_allowlisted_r
             frozenset({"mit", "apache-2.0"}),
         )
     )
-    assert [(text, row_source["license"], index) for text, row_source, index in rows] == [
-        ("mit code", "mit", 0)
-    ]
+    assert [(text, row_source["license"], index) for text, row_source, index in rows] == [("mit code", "mit", 0)]
 
 
 def valid_selection_groups():
@@ -137,9 +135,9 @@ def test_repo_files_filters_clean_madlad_variant():
                 SimpleNamespace(path="data-v1p5/en/noisy_docs_v2-00001.jsonl.gz", size=15),
             ]
 
-    assert freeze.repo_files(
-        FakeApi(), "example/data", "a" * 40, "data-v1p5/en", filename_prefix="clean_docs_v2-"
-    ) == ["data-v1p5/en/clean_docs_v2-00001.jsonl.gz"]
+    assert freeze.repo_files(FakeApi(), "example/data", "a" * 40, "data-v1p5/en", filename_prefix="clean_docs_v2-") == [
+        "data-v1p5/en/clean_docs_v2-00001.jsonl.gz"
+    ]
 
 
 def test_source_preflight_checks_metadata_without_downloading(monkeypatch):
@@ -197,9 +195,7 @@ def test_normalized_prefix_is_bounded_for_large_final_document(monkeypatch):
 
 def test_append_exact_records_provenance_and_byte_fields(tmp_path):
     output = tmp_path / "selected.jsonl"
-    stats = freeze.append_exact(
-        [("abc def", source(tmp_path), 7)], 4, output, language="en", domain="latin_english"
-    )
+    stats = freeze.append_exact([("abc def", source(tmp_path), 7)], 4, output, language="en", domain="latin_english")
     row = json.loads(output.read_text(encoding="utf-8"))
     assert stats == {"documents": 1, "raw_utf8_bytes": 4, "normalized_utf8_bytes": 4}
     assert row["text"] == "abc "
@@ -291,17 +287,13 @@ def test_copy_source_reuses_existing_pinned_file(tmp_path, monkeypatch):
         "hf_hub_download",
         lambda *args, **kwargs: pytest.fail("existing source must not be downloaded again"),
     )
-    result = freeze.copy_source(
-        "example/data", "a" * 40, "data/source.txt", work, "MIT", "v1", token=None
-    )
+    result = freeze.copy_source("example/data", "a" * 40, "data/source.txt", work, "MIT", "v1", token=None)
     assert result["sha256"] == file_hash(local)
     assert result["file_bytes"] == local.stat().st_size
 
 
 def write_rows(path: Path, texts: list[str]) -> None:
-    path.write_text(
-        "".join(json.dumps({"text": text}, ensure_ascii=False) + "\n" for text in texts), encoding="utf-8"
-    )
+    path.write_text("".join(json.dumps({"text": text}, ensure_ascii=False) + "\n" for text in texts), encoding="utf-8")
 
 
 def test_dedup_rejects_exact_and_near_training_duplicates(tmp_path):

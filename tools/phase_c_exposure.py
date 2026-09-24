@@ -4,6 +4,7 @@ This module is deliberately tokenizer-blind.  It reads only the frozen training
 and validation artifacts, never the test artifact, tokenizer outputs, or LM
 results.  A usable manifest is published only after a fresh independent reread.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -33,11 +34,12 @@ PHASE_C_PROTOCOL_SHA256 = "2aac9a7d6d80f1c26a8716316d2458b4261c9b6219c18a5b78b49
 def source_quotas(manifest: dict) -> dict[tuple[str, str], int]:
     groups = manifest["freeze"]["selection"]["groups"]
     result = {
-        (row["domain"], row["language"]): row["normalized_utf8_bytes"]
-        for row in groups if row["split"] == "train"
+        (row["domain"], row["language"]): row["normalized_utf8_bytes"] for row in groups if row["split"] == "train"
     }
-    base.require(len(result) == 30 and sum(result.values()) == 500_000_000,
-                 "source train quotas are not the frozen 30-stratum 500 MB partition")
+    base.require(
+        len(result) == 30 and sum(result.values()) == 500_000_000,
+        "source train quotas are not the frozen 30-stratum 500 MB partition",
+    )
     return result
 
 
@@ -65,10 +67,15 @@ def document(row: dict, index: int) -> dict:
         "whole-record upstream hash mismatch",
     )
     return {
-        "id": row["id"], "domain": row["domain"], "language": row["language"],
-        "train_row_index": index, "normalized_text_hash": base.digest(text),
-        "normalized_utf8_bytes": normalized_bytes, "source_utf8_bytes": row["raw_utf8_bytes"],
-        "source": row["source"], "dedup": row["dedup"],
+        "id": row["id"],
+        "domain": row["domain"],
+        "language": row["language"],
+        "train_row_index": index,
+        "normalized_text_hash": base.digest(text),
+        "normalized_utf8_bytes": normalized_bytes,
+        "source_utf8_bytes": row["raw_utf8_bytes"],
+        "source": row["source"],
+        "dedup": row["dedup"],
         "upstream_text_sha256": provenance["upstream_text_sha256"],
     }
 
@@ -82,13 +89,13 @@ def load_training(source_path: Path, manifest: dict) -> tuple[list[dict], Path]:
     with path.open(encoding="utf-8") as stream:
         for index, line in enumerate(stream):
             item = document(json.loads(line), index)
-            base.require(item["id"] not in ids and item["normalized_text_hash"] not in hashes,
-                         "duplicate source training record")
+            base.require(
+                item["id"] not in ids and item["normalized_text_hash"] not in hashes, "duplicate source training record"
+            )
             ids.add(item["id"])
             hashes.add(item["normalized_text_hash"])
             rows.append(item)
-    base.require(sum(row["normalized_utf8_bytes"] for row in rows) == 500_000_000,
-                 "source training total changed")
+    base.require(sum(row["normalized_utf8_bytes"] for row in rows) == 500_000_000, "source training total changed")
     return rows, path
 
 
@@ -126,12 +133,18 @@ def select_stratum(rows: list[dict], quota: int) -> tuple[list[dict], dict]:
         dimensions, selected = {"candidate_count": 0, "residual_target": 0}, prefix
     selected.sort(key=lambda row: row["train_row_index"])
     base.require(sum(row["normalized_utf8_bytes"] for row in selected) == quota, "exact quota mismatch")
-    return selected, {"prefix_documents": len(prefix), "tail_target": target,
-                      "eligible_tail_documents": len(all_eligible),
-                      "searched_tail_documents": len(eligible), **dimensions}
+    return selected, {
+        "prefix_documents": len(prefix),
+        "tail_target": target,
+        "eligible_tail_documents": len(all_eligible),
+        "searched_tail_documents": len(eligible),
+        **dimensions,
+    }
 
 
-def select_all(rows: list[dict], quotas: dict[tuple[str, str], int], excluded: set[str]) -> tuple[list[dict], list[dict]]:
+def select_all(
+    rows: list[dict], quotas: dict[tuple[str, str], int], excluded: set[str]
+) -> tuple[list[dict], list[dict]]:
     groups: dict[tuple[str, str], list[dict]] = defaultdict(list)
     for row in rows:
         if row["id"] not in excluded:
@@ -141,13 +154,19 @@ def select_all(rows: list[dict], quotas: dict[tuple[str, str], int], excluded: s
     for key in sorted(quotas):
         chosen, search = select_stratum(groups[key], quotas[key])
         selected.extend(chosen)
-        reports.append({
-            "domain": key[0], "language": key[1], "allocated_normalized_bytes": quotas[key],
-            "eligible_documents": len(groups[key]), "selected_documents": len(chosen),
-            "selected_normalized_bytes": sum(row["normalized_utf8_bytes"] for row in chosen),
-            "selected_source_bytes": sum(row["source_utf8_bytes"] for row in chosen),
-            "packing_status": "PASS", "search": search,
-        })
+        reports.append(
+            {
+                "domain": key[0],
+                "language": key[1],
+                "allocated_normalized_bytes": quotas[key],
+                "eligible_documents": len(groups[key]),
+                "selected_documents": len(chosen),
+                "selected_normalized_bytes": sum(row["normalized_utf8_bytes"] for row in chosen),
+                "selected_source_bytes": sum(row["source_utf8_bytes"] for row in chosen),
+                "packing_status": "PASS",
+                "search": search,
+            }
+        )
     selected.sort(key=lambda row: row["train_row_index"])
     base.require(len({row["id"] for row in selected}) == len(selected), "duplicate selected ID")
     base.require(not excluded.intersection(row["id"] for row in selected), "Phase B document reused")
@@ -167,7 +186,8 @@ def validation_assignment(source_path: Path, manifest: dict, selected_hashes: se
     base.require(len(hashes) + len(screening) == len(texts), "validation partition accounting mismatch")
     body = {
         "partition_version": stages.VALIDATION_PARTITION_VERSION,
-        "partition": "confirmation", "documents": len(confirmation),
+        "partition": "confirmation",
+        "documents": len(confirmation),
         "assignment_hash": research.digest(hashes),
         "ordered_normalized_text_hashes": hashes,
         "normalized_utf8_bytes": sum(len(text.encode("utf-8")) for _, text in confirmation),
@@ -180,21 +200,33 @@ def validation_assignment(source_path: Path, manifest: dict, selected_hashes: se
 
 def exposure_body(selected: list[dict], reports: list[dict], quotas: dict, pins: dict) -> dict:
     fields = (
-        "id", "domain", "language", "train_row_index", "normalized_text_hash",
-        "normalized_utf8_bytes", "source_utf8_bytes", "upstream_text_sha256",
+        "id",
+        "domain",
+        "language",
+        "train_row_index",
+        "normalized_text_hash",
+        "normalized_utf8_bytes",
+        "source_utf8_bytes",
+        "upstream_text_sha256",
     )
-    ordered = [{**{field: row[field] for field in fields}, "position": index}
-               for index, row in enumerate(selected)]
+    ordered = [{**{field: row[field] for field in fields}, "position": index} for index, row in enumerate(selected)]
     body = {
-        "exposure_schema_version": SCHEMA_VERSION, "status": "phase_c_exposure_frozen",
-        "policy": POLICY, "tokenizer_blind": True, "lm_result_blind": True,
+        "exposure_schema_version": SCHEMA_VERSION,
+        "status": "phase_c_exposure_frozen",
+        "policy": POLICY,
+        "tokenizer_blind": True,
+        "lm_result_blind": True,
         "normalized_utf8_bytes": EXACT_BYTES,
         "source_utf8_bytes": sum(row["source_utf8_bytes"] for row in ordered),
-        "selected_documents": len(ordered), "ordered_documents": ordered,
-        "ordered_exposure_hash": research.digest(ordered), "strata": reports,
-        "quotas": [{"domain": key[0], "language": key[1], "normalized_utf8_bytes": quotas[key]}
-                   for key in sorted(quotas)],
-        "provenance": pins, "test_split_opened": False,
+        "selected_documents": len(ordered),
+        "ordered_documents": ordered,
+        "ordered_exposure_hash": research.digest(ordered),
+        "strata": reports,
+        "quotas": [
+            {"domain": key[0], "language": key[1], "normalized_utf8_bytes": quotas[key]} for key in sorted(quotas)
+        ],
+        "provenance": pins,
+        "test_split_opened": False,
     }
     return {**body, "content_sha256": research.digest(body)}
 
@@ -205,8 +237,10 @@ def verify_exposure(source_path: Path, manifest: dict, exposure: dict, excluded:
     originals = {row["id"]: row for row in rows}
     selected = exposure["ordered_documents"]
     base.require(len(selected) == exposure["selected_documents"], "selected count mismatch")
-    base.require([row["train_row_index"] for row in selected] == sorted(row["train_row_index"] for row in selected),
-                 "global source order changed")
+    base.require(
+        [row["train_row_index"] for row in selected] == sorted(row["train_row_index"] for row in selected),
+        "global source order changed",
+    )
     base.require(not excluded.intersection(row["id"] for row in selected), "Phase B membership overlap")
     totals = defaultdict(int)
     for position, row in enumerate(selected):
@@ -216,18 +250,28 @@ def verify_exposure(source_path: Path, manifest: dict, exposure: dict, excluded:
         base.require(row == {**expected, "position": position}, "selected record altered")
         totals[row["domain"], row["language"]] += row["normalized_utf8_bytes"]
     quotas = {(row["domain"], row["language"]): row["normalized_utf8_bytes"] for row in exposure["quotas"]}
-    base.require(dict(totals) == quotas and sum(totals.values()) == EXACT_BYTES, "independent quota verification failed")
-    base.require(sum(row["source_utf8_bytes"] for row in selected) == exposure["source_utf8_bytes"],
-                 "independent source-byte verification failed")
+    base.require(
+        dict(totals) == quotas and sum(totals.values()) == EXACT_BYTES, "independent quota verification failed"
+    )
+    base.require(
+        sum(row["source_utf8_bytes"] for row in selected) == exposure["source_utf8_bytes"],
+        "independent source-byte verification failed",
+    )
     base.require(research.digest(selected) == exposure["ordered_exposure_hash"], "ordered exposure hash mismatch")
     body = dict(exposure)
     content = body.pop("content_sha256")
     base.require(research.digest(body) == content, "exposure content hash mismatch")
     return {
-        "status": "PASS", "fresh_source_reread": True, "membership": "PASS",
-        "whole_documents": "PASS", "phase_b_exclusion": "PASS", "all_30_exact_quotas": "PASS",
-        "global_source_order": "PASS", "normalized_utf8_bytes": EXACT_BYTES,
-        "selected_documents": len(selected), "test_split_opened": False,
+        "status": "PASS",
+        "fresh_source_reread": True,
+        "membership": "PASS",
+        "whole_documents": "PASS",
+        "phase_b_exclusion": "PASS",
+        "all_30_exact_quotas": "PASS",
+        "global_source_order": "PASS",
+        "normalized_utf8_bytes": EXACT_BYTES,
+        "selected_documents": len(selected),
+        "test_split_opened": False,
     }
 
 
@@ -247,8 +291,9 @@ def freeze(args) -> dict:
         check_pin(report, PHASE_B_REPORT_SHA256, "Phase B report")
         check_pin(ledger, PHASE_B_LEDGER_SHA256, "Phase B ledger")
         manifest, phase_b = base.read_json(source_path), base.read_json(phase_b_path)
-        base.require(manifest["schema_version"] == 2 and manifest["freeze"]["immutable"] is True,
-                     "source manifest is not frozen")
+        base.require(
+            manifest["schema_version"] == 2 and manifest["freeze"]["immutable"] is True, "source manifest is not frozen"
+        )
         source = source_quotas(manifest)
         quotas = proportional_quotas(source)
         excluded = phase_b_ids(phase_b)
@@ -277,20 +322,27 @@ def freeze(args) -> dict:
         base.publish(frozen / "verification.json", verification)
         base.publish(frozen / "confirmation-validation.json", validation)
         receipt = {
-            "status": "phase_c_exposure_frozen", "authorized_for_phase_c_training": False,
+            "status": "phase_c_exposure_frozen",
+            "authorized_for_phase_c_training": False,
             "exposure_sha256": base.file_hash(frozen / "exposure.json"),
             "verification_sha256": base.file_hash(frozen / "verification.json"),
             "confirmation_validation_sha256": base.file_hash(frozen / "confirmation-validation.json"),
-            "normalized_utf8_bytes": EXACT_BYTES, "selected_documents": len(selected),
+            "normalized_utf8_bytes": EXACT_BYTES,
+            "selected_documents": len(selected),
             "test_split_opened": False,
         }
         base.publish(output / "receipt.json", receipt)
         return receipt
     except BaseException as error:
-        base.publish(output / "rejection-receipt.json", {
-            "status": "phase_c_exposure_rejected", "error": f"{type(error).__name__}: {error}",
-            "authorized_for_phase_c_training": False, "test_split_opened": False,
-        })
+        base.publish(
+            output / "rejection-receipt.json",
+            {
+                "status": "phase_c_exposure_rejected",
+                "error": f"{type(error).__name__}: {error}",
+                "authorized_for_phase_c_training": False,
+                "test_split_opened": False,
+            },
+        )
         raise
 
 

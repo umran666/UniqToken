@@ -5,6 +5,7 @@ set.  It loads the nine frozen tokenizer artifacts solely to encode the already
 selected training documents and simulates the existing deterministic scheduler.
 It does not create an executable Phase B plan.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -32,7 +33,9 @@ def publish(path, value):
 
 
 def require_sha(path, expected, label):
-    h.require(isinstance(expected, str) and re.fullmatch(r"[0-9a-f]{64}", expected), f"explicit {label} SHA-256 required")
+    h.require(
+        isinstance(expected, str) and re.fullmatch(r"[0-9a-f]{64}", expected), f"explicit {label} SHA-256 required"
+    )
     h.require(h.file_hash(path) == expected, f"{label} changed or stale")
 
 
@@ -71,48 +74,82 @@ def check_source(selection, source, source_path):
 
 def check_exposure(exposure, receipt, selection_sha, source_sha):
     content_hash(exposure)
-    h.require(exposure["exposure_schema_version"] == 2 and exposure["status"] == "exposure_frozen",
-              "exposure is not frozen")
+    h.require(
+        exposure["exposure_schema_version"] == 2 and exposure["status"] == "exposure_frozen", "exposure is not frozen"
+    )
     h.require(exposure["gate"] == "exact_packing_only", "unexpected exposure gate")
     h.require(exposure["provenance"]["selection_sha256"] == selection_sha, "exposure selection mismatch")
     h.require(exposure["provenance"]["source_manifest_sha256"] == source_sha, "exposure source mismatch")
     h.require(receipt["status"] == "exact_packing_feasible", "exact-packing receipt is not feasible")
     # Receipt hashes the serialized manifest, while content_sha256 hashes its JSON body.
-    for key in ("tokenizer_outputs_used_for_sampling", "token_counts_used_for_sampling", "flops_used_for_sampling",
-                "validation_or_test_text_used_for_sampling", "selection_metrics_used", "lm_results_used",
-                "tokenizer_flop_preflight_run", "lm_training_run", "authorized_for_lm_execution"):
+    for key in (
+        "tokenizer_outputs_used_for_sampling",
+        "token_counts_used_for_sampling",
+        "flops_used_for_sampling",
+        "validation_or_test_text_used_for_sampling",
+        "selection_metrics_used",
+        "lm_results_used",
+        "tokenizer_flop_preflight_run",
+        "lm_training_run",
+        "authorized_for_lm_execution",
+    ):
         h.require(exposure[key] is False, f"exposure unexpectedly used {key}")
     sample = exposure["sample"]
     h.require(sample["normalized_utf8_bytes"] == 1_000_000, "exact normalized-byte cap missing")
     h.require(sample["selected_documents"] == len(sample["ordered_documents"]), "selected-document count mismatch")
-    h.require(sample["source_utf8_bytes"] == sum(d["source_utf8_bytes"] for d in sample["ordered_documents"]),
-              "source-byte accounting mismatch")
-    h.require(sample["normalized_utf8_bytes"] == sum(d["normalized_utf8_bytes"] for d in sample["ordered_documents"]),
-              "normalized-byte accounting mismatch")
-    h.require(len(sample["strata"]) == 30 and all(s["packing_status"] == s["exact_quota_status"] == "PASS"
-                                                     for s in sample["strata"]), "incomplete exact strata")
-    h.require(all(d["position"] == index for index, d in enumerate(sample["ordered_documents"])),
-              "frozen exposure order mismatch")
-    h.require(all(d["coverage_document"] for d in sample["ordered_documents"][:30]) and
-              not any(d["coverage_document"] for d in sample["ordered_documents"][30:]),
-              "mandatory coverage prefix mismatch")
-    h.require(len({d["id"] for d in sample["ordered_documents"]}) == sample["selected_documents"],
-              "duplicate frozen document ID")
-    h.require(len({d["normalized_text_hash"] for d in sample["ordered_documents"]}) == sample["selected_documents"],
-              "duplicate frozen document text")
-    h.require(sample["ordered_exposure_hash"] == h.digest(sample["ordered_documents"]), "ordered exposure hash mismatch")
-    h.require(exposure["verification"]["status"] == receipt["independent_verification"] == "PASS",
-              "independent exposure verification missing")
+    h.require(
+        sample["source_utf8_bytes"] == sum(d["source_utf8_bytes"] for d in sample["ordered_documents"]),
+        "source-byte accounting mismatch",
+    )
+    h.require(
+        sample["normalized_utf8_bytes"] == sum(d["normalized_utf8_bytes"] for d in sample["ordered_documents"]),
+        "normalized-byte accounting mismatch",
+    )
+    h.require(
+        len(sample["strata"]) == 30
+        and all(s["packing_status"] == s["exact_quota_status"] == "PASS" for s in sample["strata"]),
+        "incomplete exact strata",
+    )
+    h.require(
+        all(d["position"] == index for index, d in enumerate(sample["ordered_documents"])),
+        "frozen exposure order mismatch",
+    )
+    h.require(
+        all(d["coverage_document"] for d in sample["ordered_documents"][:30])
+        and not any(d["coverage_document"] for d in sample["ordered_documents"][30:]),
+        "mandatory coverage prefix mismatch",
+    )
+    h.require(
+        len({d["id"] for d in sample["ordered_documents"]}) == sample["selected_documents"],
+        "duplicate frozen document ID",
+    )
+    h.require(
+        len({d["normalized_text_hash"] for d in sample["ordered_documents"]}) == sample["selected_documents"],
+        "duplicate frozen document text",
+    )
+    h.require(
+        sample["ordered_exposure_hash"] == h.digest(sample["ordered_documents"]), "ordered exposure hash mismatch"
+    )
+    h.require(
+        exposure["verification"]["status"] == receipt["independent_verification"] == "PASS",
+        "independent exposure verification missing",
+    )
     allocation = quotas()
     h.require({(s["domain"], s["language"]) for s in sample["strata"]} == set(allocation), "strata mismatch")
     for stratum in sample["strata"]:
         key = stratum["domain"], stratum["language"]
         entries = [d for d in sample["ordered_documents"] if (d["domain"], d["language"]) == key]
-        h.require(sum(d["normalized_utf8_bytes"] for d in entries) ==
-                  stratum["actual_normalized_bytes"] == stratum["allocated_normalized_bytes"] == allocation[key],
-                  "per-stratum exact quota mismatch")
-        h.require(len(entries) == stratum["selected_documents"] and
-                  sum(d["coverage_document"] for d in entries) == 1, "stratum coverage/count mismatch")
+        h.require(
+            sum(d["normalized_utf8_bytes"] for d in entries)
+            == stratum["actual_normalized_bytes"]
+            == stratum["allocated_normalized_bytes"]
+            == allocation[key],
+            "per-stratum exact quota mismatch",
+        )
+        h.require(
+            len(entries) == stratum["selected_documents"] and sum(d["coverage_document"] for d in entries) == 1,
+            "stratum coverage/count mismatch",
+        )
     return sample
 
 
@@ -130,20 +167,31 @@ def load_frozen_documents(sample, train_path):
             text = h.normalize(row["text"])
             h.require(text and h.digest(text) == expected["normalized_text_hash"], "frozen text hash mismatch")
             h.require(row["id"] == expected["id"], "frozen document ID mismatch")
-            h.require(row["domain"] == expected["domain"] and row["language"] == expected["language"],
-                      "frozen stratum mismatch")
-            h.require(row["source"] == expected["source"] and row["dedup"] == expected["dedup"] and
-                      row["dedup"]["status"] == "accepted_after_exact_and_near_eval_check",
-                      "frozen-record source/dedup mismatch")
-            h.require(len(text.encode("utf-8")) == expected["normalized_utf8_bytes"] == row["normalized_utf8_bytes"],
-                      "frozen normalized byte mismatch")
-            h.require(len(row["text"].encode("utf-8")) == expected["source_utf8_bytes"] == row["raw_utf8_bytes"],
-                      "frozen source byte mismatch")
+            h.require(
+                row["domain"] == expected["domain"] and row["language"] == expected["language"],
+                "frozen stratum mismatch",
+            )
+            h.require(
+                row["source"] == expected["source"]
+                and row["dedup"] == expected["dedup"]
+                and row["dedup"]["status"] == "accepted_after_exact_and_near_eval_check",
+                "frozen-record source/dedup mismatch",
+            )
+            h.require(
+                len(text.encode("utf-8")) == expected["normalized_utf8_bytes"] == row["normalized_utf8_bytes"],
+                "frozen normalized byte mismatch",
+            )
+            h.require(
+                len(row["text"].encode("utf-8")) == expected["source_utf8_bytes"] == row["raw_utf8_bytes"],
+                "frozen source byte mismatch",
+            )
             found[index] = text
     h.require(set(found) == set(wanted), "frozen document is absent from train split")
     documents = [found[entry["train_row_index"]] for entry in sample["ordered_documents"]]
-    h.require(sum(len(text.encode("utf-8")) for text in documents) == sample["normalized_utf8_bytes"],
-              "reloaded normalized byte total mismatch")
+    h.require(
+        sum(len(text.encode("utf-8")) for text in documents) == sample["normalized_utf8_bytes"],
+        "reloaded normalized byte total mismatch",
+    )
     return documents
 
 
@@ -162,17 +210,31 @@ def selected_phase_a_records(selection, ledger, ledger_path):
         key = expected["tokenizer"], expected["vocab_budget"]
         row = by_key.get(key)
         h.require(row is not None, "selected Phase A artifact is absent")
-        h.require(row["actual_vocab_size"] == expected["actual_vocab_size"] == expected["vocab_budget"],
-                  "vocabulary budget mismatch")
-        for field in ("artifact", "artifact_hashes", "tokenizer_config", "extension_hash",
-                      "training_assignment_hash", "validation_assignment_hash"):
+        h.require(
+            row["actual_vocab_size"] == expected["actual_vocab_size"] == expected["vocab_budget"],
+            "vocabulary budget mismatch",
+        )
+        for field in (
+            "artifact",
+            "artifact_hashes",
+            "tokenizer_config",
+            "extension_hash",
+            "training_assignment_hash",
+            "validation_assignment_hash",
+        ):
             h.require(row[field] == expected[field], f"selected tokenizer {field} mismatch")
-        h.require(row["tokenizer_config"] == h.tokenizer_configuration(*key), "current tokenizer configuration mismatch")
-        h.require(row["tokenizer_config"]["special_tokens"] == selection["special_tokens"],
-                  "special-token accounting mismatch")
+        h.require(
+            row["tokenizer_config"] == h.tokenizer_configuration(*key), "current tokenizer configuration mismatch"
+        )
+        h.require(
+            row["tokenizer_config"]["special_tokens"] == selection["special_tokens"],
+            "special-token accounting mismatch",
+        )
         selected.append(row)
-    h.require([(row["tokenizer"], row["vocab_budget"]) for row in selected] == list(screen.CONDITIONS),
-              "frozen tokenizer condition assignment mismatch")
+    h.require(
+        [(row["tokenizer"], row["vocab_budget"]) for row in selected] == list(screen.CONDITIONS),
+        "frozen tokenizer condition assignment mismatch",
+    )
     return selected
 
 
@@ -196,8 +258,9 @@ def schedule(encoded, vocab, regime, budget, context):
                 while length and flops + h.training_flops(vocab, h.SCREEN, length) > budget:
                     length -= 1
                 if not length:
-                    h.require(steps > 0 and flops >= budget * 0.99,
-                              "FLOP budget cannot be matched within 1%; increase budget")
+                    h.require(
+                        steps > 0 and flops >= budget * 0.99, "FLOP budget cannot be matched within 1%; increase budget"
+                    )
                     break
                 x, y = x[:length], y[:length]
                 cost = h.training_flops(vocab, h.SCREEN, length)
@@ -234,17 +297,27 @@ def schedule(encoded, vocab, regime, budget, context):
 
 
 def condition_report(source, sample, documents, *, flops_budget, byte_budget, context):
-    h.require(h.artifact_hashes(context["artifact_root"] / source["artifact"]) == source["artifact_hashes"],
-              "tokenizer artifact changed before preflight")
+    h.require(
+        h.artifact_hashes(context["artifact_root"] / source["artifact"]) == source["artifact_hashes"],
+        "tokenizer artifact changed before preflight",
+    )
     tok = h.load_tokenizer(source, context["artifact_root"])
     h.require(len(tok.vocab) == source["vocab_budget"], "loaded tokenizer vocabulary mismatch")
-    input_order = [{key: row[key] for key in ("position", "id", "normalized_text_hash",
-                                                "normalized_utf8_bytes", "source_utf8_bytes")}
-                   for row in sample["ordered_documents"]]
+    input_order = [
+        {
+            key: row[key]
+            for key in ("position", "id", "normalized_text_hash", "normalized_utf8_bytes", "source_utf8_bytes")
+        }
+        for row in sample["ordered_documents"]
+    ]
     coverage_count = len(sample["strata"])
-    document_bytes = [{h.BYTE_BUDGET_FIELD: row["normalized_utf8_bytes"],
-                       h.BYTE_AUDIT_FIELD: row["source_utf8_bytes"]} for row in sample["ordered_documents"]]
-    h.require(h.byte_schedule(documents, byte_budget) == len(documents), "byte budget must consume exact frozen sample once")
+    document_bytes = [
+        {h.BYTE_BUDGET_FIELD: row["normalized_utf8_bytes"], h.BYTE_AUDIT_FIELD: row["source_utf8_bytes"]}
+        for row in sample["ordered_documents"]
+    ]
+    h.require(
+        h.byte_schedule(documents, byte_budget) == len(documents), "byte budget must consume exact frozen sample once"
+    )
     encoded, token_rows = [], []
     for position, (text, entry) in enumerate(zip(documents, input_order)):
         h.require(h.digest(text) == entry["normalized_text_hash"], "tokenization input order changed")
@@ -253,73 +326,116 @@ def condition_report(source, sample, documents, *, flops_budget, byte_budget, co
         encoded.append(ids)
         token_rows.append({**entry, "text_tokens": len(ids), "token_ids_sha256": h.digest(ids)})
         if (position + 1) % 25 == 0 or position + 1 == len(documents):
-            print(f"{source['tokenizer']} {source['vocab_budget']}: {position + 1}/{len(documents)} documents encoded", flush=True)
+            print(
+                f"{source['tokenizer']} {source['vocab_budget']}: {position + 1}/{len(documents)} documents encoded",
+                flush=True,
+            )
     h.require(len(encoded) == len(documents) == len(input_order), "document membership changed")
     runs = {}
     for regime, budget in (("flops", flops_budget), ("bytes", byte_budget)):
         run = schedule(encoded, len(tok.vocab), regime, budget, context["context"])
         count = run["completed_training_documents"]
-        run.update({"budget_regime": regime, "requested_budget": budget,
-                    "complete_document_bytes": h.byte_totals(document_bytes, count),
-                    "training_byte_scope": "complete_document_prefix",
-                    "coverage_documents_completed": min(count, coverage_count),
-                    "coverage_policy_version": COVERAGE_POLICY,
-                    "minimum_fully_predicted_documents": 1,
-                    "coverage_gate": "PASS" if run["fully_predicted_documents"] >= 1 else "BLOCKED",
-                    "flop_target": flops_budget if regime == "flops" else None,
-                    "flop_tolerance": 0.01 if regime == "flops" else None,
-                    "flop_interval": [0.99 * flops_budget, flops_budget] if regime == "flops" else None,
-                    "status": "blocked_zero_complete_documents" if run["fully_predicted_documents"] < 1 else "feasible"})
+        run.update(
+            {
+                "budget_regime": regime,
+                "requested_budget": budget,
+                "complete_document_bytes": h.byte_totals(document_bytes, count),
+                "training_byte_scope": "complete_document_prefix",
+                "coverage_documents_completed": min(count, coverage_count),
+                "coverage_policy_version": COVERAGE_POLICY,
+                "minimum_fully_predicted_documents": 1,
+                "coverage_gate": "PASS" if run["fully_predicted_documents"] >= 1 else "BLOCKED",
+                "flop_target": flops_budget if regime == "flops" else None,
+                "flop_tolerance": 0.01 if regime == "flops" else None,
+                "flop_interval": [0.99 * flops_budget, flops_budget] if regime == "flops" else None,
+                "status": "blocked_zero_complete_documents" if run["fully_predicted_documents"] < 1 else "feasible",
+            }
+        )
         run["completed_document_bytes"] = run["complete_document_bytes"][h.BYTE_BUDGET_FIELD]
         run["completed_document_order_sha256"] = h.digest([input_order[i % len(documents)] for i in range(count)])
         run["strata"] = []
         for stratum in sample["strata"]:
-            indices = [i for i in range(count) if
-                       (sample["ordered_documents"][i % len(documents)]["domain"],
-                        sample["ordered_documents"][i % len(documents)]["language"]) ==
-                       (stratum["domain"], stratum["language"])]
-            totals = {key: sum(document_bytes[i % len(documents)][key] for i in indices)
-                      for key in (h.BYTE_BUDGET_FIELD, h.BYTE_AUDIT_FIELD)}
-            run["strata"].append({"domain": stratum["domain"], "language": stratum["language"],
-                                  "completed_documents": len(indices), **totals,
-                                  "normalized_byte_share": totals[h.BYTE_BUDGET_FIELD] / run["completed_document_bytes"]
-                                  if run["completed_document_bytes"] else 0})
+            indices = [
+                i
+                for i in range(count)
+                if (
+                    sample["ordered_documents"][i % len(documents)]["domain"],
+                    sample["ordered_documents"][i % len(documents)]["language"],
+                )
+                == (stratum["domain"], stratum["language"])
+            ]
+            totals = {
+                key: sum(document_bytes[i % len(documents)][key] for i in indices)
+                for key in (h.BYTE_BUDGET_FIELD, h.BYTE_AUDIT_FIELD)
+            }
+            run["strata"].append(
+                {
+                    "domain": stratum["domain"],
+                    "language": stratum["language"],
+                    "completed_documents": len(indices),
+                    **totals,
+                    "normalized_byte_share": totals[h.BYTE_BUDGET_FIELD] / run["completed_document_bytes"]
+                    if run["completed_document_bytes"]
+                    else 0,
+                }
+            )
         run["terminal_document"] = None
         if regime == "flops":
             index = count % len(documents)
             used = run["terminal_document_target_tokens"]
-            run["terminal_document"] = {**input_order[index], "cycle": count // len(documents),
-                                         "target_tokens_consumed_including_eos": used,
-                                         "total_target_tokens_including_eos": len(encoded[index]) + 1,
-                                         "text_tokens_consumed": min(used, len(encoded[index])),
-                                         "fully_predicted": used == len(encoded[index]) + 1,
-                                         "included_in_complete_document_bytes": False}
+            run["terminal_document"] = {
+                **input_order[index],
+                "cycle": count // len(documents),
+                "target_tokens_consumed_including_eos": used,
+                "total_target_tokens_including_eos": len(encoded[index]) + 1,
+                "text_tokens_consumed": min(used, len(encoded[index])),
+                "fully_predicted": used == len(encoded[index]) + 1,
+                "included_in_complete_document_bytes": False,
+            }
         runs[regime] = run
-    h.require(runs["bytes"]["complete_document_bytes"] == {h.BYTE_BUDGET_FIELD: byte_budget,
-                                                             h.BYTE_AUDIT_FIELD: sample["source_utf8_bytes"]},
-              "byte-matched source/normalized exposure mismatch")
-    h.require(h.artifact_hashes(context["artifact_root"] / source["artifact"]) == source["artifact_hashes"],
-              "tokenizer artifact changed during preflight")
+    h.require(
+        runs["bytes"]["complete_document_bytes"]
+        == {h.BYTE_BUDGET_FIELD: byte_budget, h.BYTE_AUDIT_FIELD: sample["source_utf8_bytes"]},
+        "byte-matched source/normalized exposure mismatch",
+    )
+    h.require(
+        h.artifact_hashes(context["artifact_root"] / source["artifact"]) == source["artifact_hashes"],
+        "tokenizer artifact changed during preflight",
+    )
     base = {
-        "tokenizer": source["tokenizer"], "vocab_budget": source["vocab_budget"],
-        "actual_vocab_size": len(tok.vocab), "tokenizer_artifact_hash": h.digest(source["artifact_hashes"]),
-        "tokenizer_config": source["tokenizer_config"], "special_tokens": h.SPECIAL_IDS,
-        "input_exposure_order_sha256": h.digest(input_order), "input_documents": len(documents),
+        "tokenizer": source["tokenizer"],
+        "vocab_budget": source["vocab_budget"],
+        "actual_vocab_size": len(tok.vocab),
+        "tokenizer_artifact_hash": h.digest(source["artifact_hashes"]),
+        "tokenizer_config": source["tokenizer_config"],
+        "special_tokens": h.SPECIAL_IDS,
+        "input_exposure_order_sha256": h.digest(input_order),
+        "input_documents": len(documents),
         "input_normalized_utf8_bytes": sample["normalized_utf8_bytes"],
         "input_source_utf8_bytes": sample["source_utf8_bytes"],
         "model_config": context["model_config"],
         "encoded_document_accounting": token_rows,
-        "trained_commit": source["git_commit"], "original_extension_hash": source["extension_hash"],
+        "trained_commit": source["git_commit"],
+        "original_extension_hash": source["extension_hash"],
         **h.parameter_accounting(len(tok.vocab), h.SCREEN, context["context"]),
     }
-    return {**base, "status": "blocked" if runs["flops"]["status"] != "feasible" else "feasible",
-            "encoded_documents": len(documents), "encoded_tokens": sum(map(len, encoded)), "regimes": runs}
+    return {
+        **base,
+        "status": "blocked" if runs["flops"]["status"] != "feasible" else "feasible",
+        "encoded_documents": len(documents),
+        "encoded_tokens": sum(map(len, encoded)),
+        "regimes": runs,
+    }
 
 
 def preflight(args):
-    h.require(args.exposure_sha256 != "8569e8045997b20d7cafa64ea4f02394bcc8e240d7586a9365c35ea38fdc6893",
-              "historical exposure rejected for upstream truncation; regenerate")
-    selection_path, source_path, exposure_path, phase_a_path = map(Path, (args.selection, args.source, args.exposure, args.phase_a))
+    h.require(
+        args.exposure_sha256 != "8569e8045997b20d7cafa64ea4f02394bcc8e240d7586a9365c35ea38fdc6893",
+        "historical exposure rejected for upstream truncation; regenerate",
+    )
+    selection_path, source_path, exposure_path, phase_a_path = map(
+        Path, (args.selection, args.source, args.exposure, args.phase_a)
+    )
     require_sha(selection_path, args.selection_sha256, "selection")
     require_sha(source_path, args.source_sha256, "source manifest")
     require_sha(exposure_path, args.exposure_sha256, "frozen exposure")
@@ -330,12 +446,20 @@ def preflight(args):
     receipt = h.read_json(exposure_path.parent / "receipt.json")
     ledger = h.read_json(phase_a_path)
     content_hash(selection)
-    h.require(screen.implementation_hash() == selection["implementation_git_blob_hash"], "frozen implementation pin changed")
-    h.require(selection == screen.selection_payload(ledger, args.phase_a_sha256, selection["implementation_git_blob_hash"]),
-              "frozen selection/ledger/configuration mismatch")
-    h.require(selection["selection_schema_version"] == screen.VERSION and selection["phase"] == "B-SCREEN", "invalid selection")
-    h.require(selection["test_metrics_used"] is False and selection["lm_results_used"] is False,
-              "selection contamination")
+    h.require(
+        screen.implementation_hash() == selection["implementation_git_blob_hash"], "frozen implementation pin changed"
+    )
+    h.require(
+        selection == screen.selection_payload(ledger, args.phase_a_sha256, selection["implementation_git_blob_hash"]),
+        "frozen selection/ledger/configuration mismatch",
+    )
+    h.require(
+        selection["selection_schema_version"] == screen.VERSION and selection["phase"] == "B-SCREEN",
+        "invalid selection",
+    )
+    h.require(
+        selection["test_metrics_used"] is False and selection["lm_results_used"] is False, "selection contamination"
+    )
     if "whole_record_regeneration" in source:
         validate_regenerated_source(source, source_path, selection)
     else:
@@ -343,11 +467,20 @@ def preflight(args):
     h.require(selection["safety_caps"] == {"flops": args.flops, "bytes": args.bytes}, "prescribed budget mismatch")
     h.require(selection["model_config_cpu_template"] == h.model_config("B", "cpu"), "model configuration changed")
     train_path = check_source(selection, source, source_path)
-    pinned_paths = (selection_path, source_path, exposure_path, phase_a_path, train_path,
-                    exposure_path.parent / "receipt.json", Path(__file__))
+    pinned_paths = (
+        selection_path,
+        source_path,
+        exposure_path,
+        phase_a_path,
+        train_path,
+        exposure_path.parent / "receipt.json",
+        Path(__file__),
+    )
     input_hashes = {str(path.resolve()): h.file_hash(path) for path in pinned_paths}
-    for dependency in (Path(__file__).with_name("phase_b_exposure.py"),
-                       h.ROOT / "benchmarks" / "phase_b_rejected_exposure.json"):
+    for dependency in (
+        Path(__file__).with_name("phase_b_exposure.py"),
+        h.ROOT / "benchmarks" / "phase_b_rejected_exposure.json",
+    ):
         input_hashes[str(dependency.resolve())] = h.file_hash(dependency)
     if "whole_record_regeneration" in source:
         source_receipt = source_path.parent / "receipt.json"
@@ -366,47 +499,74 @@ def preflight(args):
     h.require(receipt["final_exposure_sha256"] == args.exposure_sha256, "exact-packing receipt/exposure hash mismatch")
     documents = load_frozen_documents(sample, train_path)
     selected = selected_phase_a_records(selection, ledger, phase_a_path)
-    context = {"artifact_root": phase_a_path.resolve().parent, "context": selection["model_config_cpu_template"]["context"],
-               "model_config": selection["model_config_cpu_template"]}
+    context = {
+        "artifact_root": phase_a_path.resolve().parent,
+        "context": selection["model_config_cpu_template"]["context"],
+        "model_config": selection["model_config_cpu_template"],
+    }
     records = []
     for index, row in enumerate(selected):
         started = time.monotonic()
-        record = condition_report(row, sample, documents, flops_budget=args.flops, byte_budget=args.bytes, context=context)
+        record = condition_report(
+            row, sample, documents, flops_budget=args.flops, byte_budget=args.bytes, context=context
+        )
         record["tokenizer_preflight_seconds"] = time.monotonic() - started
         record["preflight_identity"] = identity
         record["input_hashes"] = input_hashes
         publish(Path(args.output) / f"condition-{index:03d}.json", record)
         records.append(record)
         print(f"Completed {index + 1}/9: {row['tokenizer']} {row['vocab_budget']} {record['status']}", flush=True)
-    h.require(len(records) == 9 and {(r["tokenizer"], r["vocab_budget"]) for r in records} == set(screen.CONDITIONS),
-              "incomplete tokenizer preflight")
+    h.require(
+        len(records) == 9 and {(r["tokenizer"], r["vocab_budget"]) for r in records} == set(screen.CONDITIONS),
+        "incomplete tokenizer preflight",
+    )
     h.require(all(set(r["regimes"]) == set(h.REGIMES) for r in records), "incomplete regime preflight")
     check_pins(input_hashes)
     h.require(h.runtime_identity() == identity, "runtime/code changed during preflight")
     for row in selected:
-        h.require(h.artifact_hashes(context["artifact_root"] / row["artifact"]) == row["artifact_hashes"],
-                  "artifact changed before publication")
+        h.require(
+            h.artifact_hashes(context["artifact_root"] / row["artifact"]) == row["artifact_hashes"],
+            "artifact changed before publication",
+        )
     all_conditions_feasible = all(row["status"] == "feasible" for row in records)
-    source_truncations = [{"id": d["id"], "position": d["position"], "dedup": d["dedup"]}
-                          for d in sample["ordered_documents"] if d["dedup"].get("truncated_to_quota") is not False]
+    source_truncations = [
+        {"id": d["id"], "position": d["position"], "dedup": d["dedup"]}
+        for d in sample["ordered_documents"]
+        if d["dedup"].get("truncated_to_quota") is not False
+    ]
     gate_passed = all_conditions_feasible and not source_truncations and not runtime_blockers
     report = {
-        "preflight_schema_version": VERSION, "status": STATUS if gate_passed else REJECTED,
+        "preflight_schema_version": VERSION,
+        "status": STATUS if gate_passed else REJECTED,
         "mode": "tokenizer_only_schedule_simulation",
-        "preflight_identity": identity, "runtime_blockers": runtime_blockers,
+        "preflight_identity": identity,
+        "runtime_blockers": runtime_blockers,
         "pinned_linux_runtime_verified": not any("pinned" in b for b in runtime_blockers),
         "flop_tolerance": 0.01,
         "flop_definition": "dense_matmul_forward_backward_v1; core + vocabulary output projection; excludes lookup/optimizer/norms",
-        "experiments_started": False, "lm_model_constructed": False, "optimizer_constructed": False,
-        "validation_data_opened": False, "test_data_opened": False, "authorized_for_lm_execution": False,
-        "selection_sha256": args.selection_sha256, "source_manifest_sha256": args.source_sha256,
-        "exposure_sha256": args.exposure_sha256, "phase_a_ledger_sha256": args.phase_a_sha256,
-        "input_hashes": input_hashes, "exposure": {"documents": sample["selected_documents"],
-            "normalized_utf8_bytes": sample["normalized_utf8_bytes"], "source_utf8_bytes": sample["source_utf8_bytes"],
-            "ordered_exposure_hash": sample["ordered_exposure_hash"], "strata": len(sample["strata"])},
-        "budgets": {"flops": args.flops, "bytes": args.bytes}, "conditions": records,
+        "experiments_started": False,
+        "lm_model_constructed": False,
+        "optimizer_constructed": False,
+        "validation_data_opened": False,
+        "test_data_opened": False,
+        "authorized_for_lm_execution": False,
+        "selection_sha256": args.selection_sha256,
+        "source_manifest_sha256": args.source_sha256,
+        "exposure_sha256": args.exposure_sha256,
+        "phase_a_ledger_sha256": args.phase_a_sha256,
+        "input_hashes": input_hashes,
+        "exposure": {
+            "documents": sample["selected_documents"],
+            "normalized_utf8_bytes": sample["normalized_utf8_bytes"],
+            "source_utf8_bytes": sample["source_utf8_bytes"],
+            "ordered_exposure_hash": sample["ordered_exposure_hash"],
+            "strata": len(sample["strata"]),
+        },
+        "budgets": {"flops": args.flops, "bytes": args.bytes},
+        "conditions": records,
         "all_conditions_feasible": all_conditions_feasible,
-        "gate_passed": gate_passed, "whole_frozen_records_preserved": True,
+        "gate_passed": gate_passed,
+        "whole_frozen_records_preserved": True,
         "upstream_source_truncations_for_review": source_truncations,
     }
     return {**report, "content_sha256": h.digest(report)}
@@ -421,43 +581,75 @@ def run(args):
     output = Path(args.output)
     h.require(not output.exists(), "preflight output exists; refusing to overwrite evidence")
     output.mkdir(parents=True)
-    publish(output / "initial-rejection-receipt.json", {
-        "status": REJECTED, "reason": "PREFLIGHT_NOT_COMPLETED", "final_preflight_sha256": None,
-        "rule": "Only a complete frozen/ bundle is a passing preflight; interruption cannot imply launch approval.",
-    })
+    publish(
+        output / "initial-rejection-receipt.json",
+        {
+            "status": REJECTED,
+            "reason": "PREFLIGHT_NOT_COMPLETED",
+            "final_preflight_sha256": None,
+            "rule": "Only a complete frozen/ bundle is a passing preflight; interruption cannot imply launch approval.",
+        },
+    )
     try:
         result = preflight(args)
         if not result["gate_passed"]:
             publish(output / "preflight-rejection.json", result)
-            publish(output / "rejection-receipt.json", {
-                "status": REJECTED, "reason": "FLOP_COVERAGE_BLOCKED" if not result["all_conditions_feasible"] else "PROVENANCE_REVIEW_REQUIRED",
-                "final_preflight_sha256": None,
-                "runtime_blockers": result["runtime_blockers"],
-                "upstream_source_truncations_for_review": result["upstream_source_truncations_for_review"],
-                "rejection_report_sha256": h.file_hash(output / "preflight-rejection.json"),
-                "blocked_conditions": [{"tokenizer": row["tokenizer"], "vocab_budget": row["vocab_budget"],
-                                        "completed_coverage_documents": row["regimes"]["flops"]["coverage_documents_completed"]}
-                                       for row in result["conditions"] if row["status"] == "blocked"],
-                "experiments_started": False, "authorized_for_lm_execution": False,
-            })
+            publish(
+                output / "rejection-receipt.json",
+                {
+                    "status": REJECTED,
+                    "reason": "FLOP_COVERAGE_BLOCKED"
+                    if not result["all_conditions_feasible"]
+                    else "PROVENANCE_REVIEW_REQUIRED",
+                    "final_preflight_sha256": None,
+                    "runtime_blockers": result["runtime_blockers"],
+                    "upstream_source_truncations_for_review": result["upstream_source_truncations_for_review"],
+                    "rejection_report_sha256": h.file_hash(output / "preflight-rejection.json"),
+                    "blocked_conditions": [
+                        {
+                            "tokenizer": row["tokenizer"],
+                            "vocab_budget": row["vocab_budget"],
+                            "completed_coverage_documents": row["regimes"]["flops"]["coverage_documents_completed"],
+                        }
+                        for row in result["conditions"]
+                        if row["status"] == "blocked"
+                    ],
+                    "experiments_started": False,
+                    "authorized_for_lm_execution": False,
+                },
+            )
             return h.read_json(output / "rejection-receipt.json")
         staging = output / ".publication-incomplete"
         staging.mkdir()
         publish(staging / "preflight.json", result)
         final_hash = h.file_hash(staging / "preflight.json")
-        publish(staging / "receipt.json", {
-            "status": STATUS, "final_preflight_sha256": final_hash, "conditions": len(result["conditions"]),
-            "regimes": list(h.REGIMES), "experiments_started": False, "authorized_for_lm_execution": False,
-        })
+        publish(
+            staging / "receipt.json",
+            {
+                "status": STATUS,
+                "final_preflight_sha256": final_hash,
+                "conditions": len(result["conditions"]),
+                "regimes": list(h.REGIMES),
+                "experiments_started": False,
+                "authorized_for_lm_execution": False,
+            },
+        )
         h.require(not (output / "frozen").exists(), "duplicate preflight publication")
         os.rename(staging, output / "frozen")
         return h.read_json(output / "frozen" / "receipt.json")
     except BaseException as error:
         if not (output / "rejection-receipt.json").exists():
-            publish(output / "rejection-receipt.json", {
-                "status": REJECTED, "reason": "PREFLIGHT_ERROR", "detail": f"{type(error).__name__}: {error}",
-                "final_preflight_sha256": None, "experiments_started": False, "authorized_for_lm_execution": False,
-            })
+            publish(
+                output / "rejection-receipt.json",
+                {
+                    "status": REJECTED,
+                    "reason": "PREFLIGHT_ERROR",
+                    "detail": f"{type(error).__name__}: {error}",
+                    "final_preflight_sha256": None,
+                    "experiments_started": False,
+                    "authorized_for_lm_execution": False,
+                },
+            )
         raise
 
 

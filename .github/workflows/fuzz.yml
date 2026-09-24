@@ -38,7 +38,7 @@ jobs:
       - name: Install Dependencies
         run: |
           python -m pip install --upgrade pip setuptools wheel maturin
-          python -m pip install ruff mypy pytest coverage regex tokenizers transformers sentencepiece tiktoken jinja2 hypothesis
+          python -m pip install ruff==0.16.8 mypy==2.3.1 pytest coverage regex tokenizers transformers==4.57.6 sentencepiece tiktoken jinja2 hypothesis
 
       - name: Build & Install Native Extension
         run: |

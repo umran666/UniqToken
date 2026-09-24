@@ -260,11 +260,7 @@ class MultimodalTokenizer:
             raise ValueError("unterminated image stream: missing image_end marker")
 
         # Filter out visual tokens that might have leaked into text.
-        filtered_text = [
-            t
-            for t in text_segments
-            if not (t.startswith("<|vis_") and t.endswith("|>"))
-        ]
+        filtered_text = [t for t in text_segments if not (t.startswith("<|vis_") and t.endswith("|>"))]
 
         # Decode text using the text tokenizer — a missing token means the stream
         # does not match this tokenizer; surface it instead of corrupting text

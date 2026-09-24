@@ -10,9 +10,13 @@ from tools import phase_c_exposure as gate
 
 def doc(identifier, index, size, domain="domain", language="lang"):
     return {
-        "id": identifier, "domain": domain, "language": language,
-        "train_row_index": index, "normalized_text_hash": f"hash-{identifier}",
-        "normalized_utf8_bytes": size, "source_utf8_bytes": size + 1,
+        "id": identifier,
+        "domain": domain,
+        "language": language,
+        "train_row_index": index,
+        "normalized_text_hash": f"hash-{identifier}",
+        "normalized_utf8_bytes": size,
+        "source_utf8_bytes": size + 1,
         "source": {"dataset": "source"},
         "dedup": {"status": "accepted_after_exact_and_near_eval_check", "truncated_to_quota": False},
         "upstream_text_sha256": f"upstream-{identifier}",
@@ -22,7 +26,9 @@ def doc(identifier, index, size, domain="domain", language="lang"):
 def test_largest_remainder_is_exact_and_ties_use_stratum_order():
     source = {("b", "x"): 1, ("a", "x"): 1, ("c", "x"): 1}
     assert gate.proportional_quotas(source, 2) == {
-        ("a", "x"): 1, ("b", "x"): 1, ("c", "x"): 0,
+        ("a", "x"): 1,
+        ("b", "x"): 1,
+        ("c", "x"): 0,
     }
 
 
@@ -57,8 +63,9 @@ def test_independent_verifier_rejects_altered_witness(monkeypatch):
     rows = [doc("a", 0, 1)]
     monkeypatch.setattr(gate, "EXACT_BYTES", 1)
     monkeypatch.setattr(gate, "load_training", lambda *_: (rows, None))
-    exposure = gate.exposure_body(rows, [{"domain": "domain", "language": "lang"}],
-                                  {("domain", "lang"): 1}, {"source_manifest_sha256": "x"})
+    exposure = gate.exposure_body(
+        rows, [{"domain": "domain", "language": "lang"}], {("domain", "lang"): 1}, {"source_manifest_sha256": "x"}
+    )
     assert gate.verify_exposure(None, {}, exposure, set())["status"] == "PASS"
     changed = copy.deepcopy(exposure)
     changed["ordered_documents"][0]["normalized_utf8_bytes"] = 2
@@ -69,7 +76,11 @@ def test_independent_verifier_rejects_altered_witness(monkeypatch):
 def test_validation_assignment_uses_confirmation_half_and_never_test(monkeypatch):
     rows = [{"raw_utf8_bytes": 1}, {"raw_utf8_bytes": 1}]
     texts = ["a", "b"]
-    monkeypatch.setattr(gate.stages, "_load_rows", lambda path, manifest, split: (rows, texts) if split == "validation" else pytest.fail("test opened"))
+    monkeypatch.setattr(
+        gate.stages,
+        "_load_rows",
+        lambda path, manifest, split: (rows, texts) if split == "validation" else pytest.fail("test opened"),
+    )
     monkeypatch.setattr(gate.stages, "partition_validation", lambda r, t: ([(r[0], t[0])], [(r[1], t[1])]))
     result = gate.validation_assignment(None, {}, set())
     assert result["partition"] == "confirmation"

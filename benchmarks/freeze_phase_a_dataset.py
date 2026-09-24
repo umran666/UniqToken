@@ -159,9 +159,7 @@ def copy_source(
     }
 
 
-def repo_files(
-    api: HfApi, repo: str, revision: str, prefix: str, *, filename_prefix: str | None = None
-) -> list[str]:
+def repo_files(api: HfApi, repo: str, revision: str, prefix: str, *, filename_prefix: str | None = None) -> list[str]:
     paths = [
         entry.path
         for entry in api.list_repo_tree(
@@ -371,9 +369,7 @@ def stack_records(
     parquet = pq.ParquetFile(source["local_path_abs"])
     require(set(STACK_LICENSE_COLUMNS) <= set(parquet.schema_arrow.names), "The Stack license columns are missing")
     index = 0
-    for batch in parquet.iter_batches(
-        batch_size=1024, columns=["content", *STACK_LICENSE_COLUMNS], use_threads=False
-    ):
+    for batch in parquet.iter_batches(batch_size=1024, columns=["content", *STACK_LICENSE_COLUMNS], use_threads=False):
         for row in batch.to_pylist():
             text = row["content"]
             licenses = {
@@ -404,10 +400,7 @@ def flores_records(source: dict[str, Any]) -> Iterable[tuple[str, str, int]]:
 def minhash_signature(text: str) -> tuple[int, ...]:
     grams = {text[index : index + 13] for index in range(max(0, len(text) - 12))} or {text}
     base_hashes = np.fromiter(
-        (
-            int.from_bytes(hashlib.blake2b(gram.encode("utf-8"), digest_size=8).digest(), "big")
-            for gram in grams
-        ),
+        (int.from_bytes(hashlib.blake2b(gram.encode("utf-8"), digest_size=8).digest(), "big") for gram in grams),
         dtype=np.uint64,
         count=len(grams),
     )
@@ -441,11 +434,7 @@ class DedupIndex:
             return "exact"
         signature = minhash_signature(normalized)
         keys = self.band_keys(signature)
-        if any(
-            near_duplicate(normalized, candidate)
-            for key in keys
-            for candidate in self.buckets.get(key, [])
-        ):
+        if any(near_duplicate(normalized, candidate) for key in keys for candidate in self.buckets.get(key, [])):
             return "near"
         self.hashes.add(digest)
         for key in keys:
@@ -563,7 +552,9 @@ def validate_selection(groups: list[dict[str, Any]]) -> None:
             f"incomplete FLORES-200 {split} coverage",
         )
         require(
-            all(group["domain"] == "flores200" and group["release_variant"] == "FLORES-200/all" for group in evaluation),
+            all(
+                group["domain"] == "flores200" and group["release_variant"] == "FLORES-200/all" for group in evaluation
+            ),
             f"incorrect FLORES-200 {split} source",
         )
 
@@ -727,11 +718,11 @@ def run(args: argparse.Namespace) -> Path:
                 continue
 
             def records() -> Iterable[tuple[str, dict[str, Any], int]]:
-                    for remote in files:
-                        yield from stack_records(
-                            get_source(STACK, stack_revision, remote, STACK_LICENSE, args.stack_release),
-                            permissive_stack_licenses,
-                        )
+                for remote in files:
+                    yield from stack_records(
+                        get_source(STACK, stack_revision, remote, STACK_LICENSE, args.stack_release),
+                        permissive_stack_licenses,
+                    )
 
             append_exact(
                 records(),
