@@ -3,6 +3,7 @@ name: UniqToken Tokenizer CI
 on:
   push:
     branches: [ main, master, "feat/*", "fix/*", "test/*" ]
+    tags: ["v*"]
   pull_request:
     branches: [ main, master ]
 
