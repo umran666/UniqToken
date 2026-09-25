@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "uniqtoken"
 version = "1.0.0"
-description = "High-precision Byte-Fallback Unigram and Multimodal Tokenizer with dual-offset tracking and subword regularization."
+description = "Research tokenizer toolkit with Unigram, BPE, SuperBPE, byte fallback, and offset tracking."
 readme = "README.md"
 license = { file = "LICENSE" }
 authors = [

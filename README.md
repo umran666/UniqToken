@@ -105,7 +105,7 @@ The completed Phase B screen does not establish comparative superiority. A publi
 - Native Rust acceleration core (`crates/uniqtoken_core`) with Rayon parallel batching and fused Viterbi dynamic programming
 - Byte-fallback codec for 0% OOV across all Unicode
 - FFBS subword regularization for training-time augmentation
-- PrefixTrie for O(L) single-pass lattice edge mining
+- PrefixTrie-backed lattice edge mining
 
 </td><td>
 
@@ -236,11 +236,11 @@ tok.export_to_gguf("model.gguf", model_name="llama")
 
 ### Use the native HuggingFace ``PreTrainedTokenizerFast`` adapter
 
-UniqToken ships a drop-in ``transformers.PreTrainedTokenizerFast`` subclass so a
-trained tokenizer gets the full standard fast-tokenizer surface —
-``save_pretrained`` / ``from_pretrained``, padding & truncation strategies,
-``return_tensors`` (``"np"`` and ``"pt"``), batched encoding, offset
-mappings, and ``Trainer`` compatibility — with no custom glue code.
+UniqToken ships a ``transformers.PreTrainedTokenizerFast`` adapter covering the
+repository-tested integration surface: ``save_pretrained`` / ``from_pretrained``,
+padding and truncation strategies, ``return_tensors`` (``"np"`` and ``"pt"``),
+batched encoding, and offset mappings. Compatibility outside the tested
+Transformers versions and surfaces is not guaranteed.
 
 ```python
 from uniqtoken import CustomTokenizer, UniqTokenizerFast
@@ -370,7 +370,7 @@ UniqToken/
 │   ├── tokenizer.py               # CustomTokenizer — unified facade + parallel batching
 │   ├── pre_tokenizer.py           # Normalizer + ordered RegexPreTokenizer boundaries
 │   ├── byte_codec.py              # ByteFallbackEngine — UTF-8 ↔ <0xHH> codec
-│   ├── trie.py                    # PrefixTrie — slots-optimized O(L) prefix matching
+│   ├── trie.py                    # PrefixTrie — prefix lookup for lattice edge mining
 │   ├── seed_builder.py            # SeedVocabularyBuilder — PMI + script balancing + entropy
 │   ├── unigram_lattice.py         # UnigramLattice — DAG, beam pruning, EM stats, FFBS
 │   ├── unigram_trainer.py         # UnigramTrainer — EM early-stopping + Viterbi memoization
@@ -605,7 +605,11 @@ python benchmarks/downstream_eval.py            # held-out tokenizer-only measur
 
 ## Multimodal
 
-The `multimodal/` package extends UniqToken to handle text and image inputs through a unified `MultimodalTokenizer`. Audio tokenization is not supported because this distribution does not include a trained audio codebook.
+The `multimodal/` package provides experimental text-and-image composition
+through `MultimodalTokenizer`. Image token IDs are meaningful only after its
+visual codebook is trained or a trained codebook is loaded; no trained visual or
+neural codec checkpoint is bundled. Audio tokenization is unsupported because
+this distribution does not include a trained audio codebook.
 
 | Module | Purpose |
 |:-------|:--------|

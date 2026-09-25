@@ -72,7 +72,7 @@ class TokenizationReport:
 
 class CustomTokenizer:
     """
-    Production-Grade Byte-Fallback Unigram Custom Tokenizer.
+    Byte-fallback Unigram tokenizer with normalization and raw-span tracking.
     """
 
     def __init__(

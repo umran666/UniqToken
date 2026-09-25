@@ -1,13 +1,12 @@
 """Native HuggingFace ``PreTrainedTokenizerFast`` adapter for UniqToken.
 
-This module exposes :class:`UniqTokenizerFast`, a drop-in
-``transformers.PreTrainedTokenizerFast`` subclass that is driven by the
-canonical ``tokenizer.json`` produced by
-:class:`uniqtoken.hf_exporter.HuggingFaceExporter`. It gives UniqToken models
-the full standard fast-tokenizer surface - ``save_pretrained()`` /
-``from_pretrained()``, padding & truncation strategies, ``return_tensors``
-(``"np"`` / ``"pt"`` / ``"tf"``), batched encoding, offset mappings and
-``Trainer`` compatibility - without any custom glue in user code.
+This module exposes :class:`UniqTokenizerFast`, a
+``transformers.PreTrainedTokenizerFast`` subclass driven by the canonical
+``tokenizer.json`` produced by
+:class:`uniqtoken.hf_exporter.HuggingFaceExporter`. The repository tests its
+save/load, padding, truncation, tensor-return, batched-encoding, and offset
+mapping surfaces against the pinned Transformers dependency. Compatibility
+with other versions and downstream integrations is not universal.
 
 Wiring back to the HuggingFace ecosystem
 ----------------------------------------

@@ -1,7 +1,7 @@
 """
 vLLM Custom Tokenizer & Streaming Detokenizer Integration for UniqToken.
 
-Provides a high-throughput, zero-overhead adapter for vLLM inference backends:
+Provides an adapter for vLLM-style inference backends:
 - Non-blocking async batch encoding (`encode_batch_async`) and decoding (`decode_batch_async`).
 - Thread-safe incremental streaming detokenization compatible with vLLM's `Detokenizer`.
 - Byte-fallback UTF-8 buffering preventing replacement character (U+FFFD) corruptions during streaming.
@@ -186,12 +186,12 @@ class VLLMStreamingState:
 
 class UniqTokenVLLMAdapter:
     """
-    High-throughput vLLM tokenizer and detokenizer adapter for UniqToken.
+    vLLM-style tokenizer and detokenizer adapter for UniqToken.
 
     Provides:
-    - Zero-overhead async batch encoding (`encode_batch_async`) and decoding (`decode_batch_async`).
+    - Async batch encoding (`encode_batch_async`) and decoding (`decode_batch_async`).
     - Thread-safe streaming state management compatible with vLLM's `Detokenizer`.
-    - Drop-in interface compatibility with Hugging Face PreTrainedTokenizer expectations in vLLM.
+    - The tokenizer methods exercised by this repository's vLLM integration tests.
     """
 
     REQUIRED_TOKENIZER_METHODS: Tuple[str, ...] = (

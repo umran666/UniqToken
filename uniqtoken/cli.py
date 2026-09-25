@@ -4,7 +4,7 @@ UniqToken Production Command-Line Interface (CLI).
 Provides unified command-line entry points:
 - uniqtoken train: Train Unigram / SuperBPE models from corpus files.
 - uniqtoken encode: Tokenize text inputs to subword tokens or integer IDs with metrics.
-- uniqtoken decode: Reconstruct original text losslessly from token IDs.
+- uniqtoken decode: Reconstruct text from token IDs (normalized when configured).
 - uniqtoken compare: Side-by-side color-coded token comparison across engines.
 - uniqtoken benchmark: Run the multilingual empirical benchmark suite.
 - uniqtoken eval-downstream: Run downstream LLM context efficiency evaluations.
@@ -478,7 +478,7 @@ def downstream_command(args: argparse.Namespace) -> int:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="uniqtoken",
-        description="UniqToken: Production-Grade Byte-Fallback Unigram Tokenizer Engine",
+        description="UniqToken: Byte-Fallback Tokenizer Research Toolkit",
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 

@@ -3,7 +3,7 @@ name = "uniqtoken-core"
 version = "1.0.0"
 edition = "2021"
 authors = ["UniqToken Authors"]
-description = "High-performance native Rust core acceleration engine for UniqToken"
+description = "Native Rust acceleration core for UniqToken"
 license = "MIT"
 
 [lib]
