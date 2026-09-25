@@ -45,7 +45,7 @@ jobs:
           python -c "import shutil; shutil.rmtree('dist', ignore_errors=True)"
           python -m maturin build --release --out dist --interpreter python
           python -c "import glob, subprocess, sys; wheels = glob.glob('dist/uniqtoken_core*.whl'); assert len(wheels) == 1, wheels; subprocess.check_call([sys.executable, '-m', 'pip', 'install', '--force-reinstall', '--no-deps', wheels[0]])"
-          python -c "import uniqtoken, uniqtoken_core; assert uniqtoken.__version__ == '1.0.0'; assert hasattr(uniqtoken_core, 'RustPrefixTrie')"
+          python -I -c "import uniqtoken, uniqtoken_core; assert uniqtoken.__version__ == '1.0.0'; assert hasattr(uniqtoken_core, 'RustPrefixTrie')"
 
       - name: Run Hypothesis Fuzzing Suite
         env:

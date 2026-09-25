@@ -64,7 +64,7 @@ jobs:
           python -c "import shutil; shutil.rmtree('dist', ignore_errors=True)"
           python -m maturin build --release --out dist --interpreter python
           python -c "import glob, subprocess, sys; wheels = glob.glob('dist/uniqtoken_core*.whl'); assert len(wheels) == 1, wheels; print('Installing:', wheels[0]); subprocess.check_call([sys.executable, '-m', 'pip', 'install', '--force-reinstall', wheels[0]])"
-          python -c "import importlib.metadata, uniqtoken, uniqtoken_core; assert uniqtoken.__version__ == '1.0.0'; assert importlib.metadata.version('uniqtoken-core') == '1.0.0'; assert hasattr(uniqtoken_core, 'RustPrefixTrie')"
+          python -I -c "import importlib.metadata, uniqtoken, uniqtoken_core; assert uniqtoken.__version__ == '1.0.0'; assert importlib.metadata.version('uniqtoken-core') == '1.0.0'; assert hasattr(uniqtoken_core, 'RustPrefixTrie')"
 
       - name: Install UniqToken Tokenizer (Editable)
         run: |

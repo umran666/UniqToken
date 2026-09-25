@@ -23,6 +23,7 @@ class ReleasePackagingTests(unittest.TestCase):
 
         self.assertIn("tools/verify_release_wheel.py", workflow)
         self.assertIn("Verify clean install, uninstall, and reinstall", workflow)
+        self.assertIn('python -I -c "import importlib.metadata, uniqtoken, uniqtoken_core', workflow)
         self.assertIn("python -m maturin sdist", workflow)
         self.assertIn("dist/uniqtoken_core-1.0.0.tar.gz", workflow)
         self.assertIn("publish-dist/*", workflow)
