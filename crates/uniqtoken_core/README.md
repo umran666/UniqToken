@@ -11,16 +11,16 @@ Native Rust acceleration crate for the UniqToken tokenizer.
 To compile the native extension into the local environment:
 
 ```bash
-# Using maturin
-pip install maturin
+# Run from the repository root so the wheel includes both Python and Rust.
+pip install "maturin>=1.15,<2.0"
 maturin develop --release
 
 # Or build wheel
 maturin build --release
 ```
 
-The crate exposes an optional Python extension API. When a compatible
-`uniqtoken_core` extension is installed, the Python package dispatches supported
+The root mixed-project build installs both the public `uniqtoken` package and
+the `uniqtoken_core` extension. The Python package dispatches supported
 normalization, pre-tokenization, Viterbi, and batch operations to it. Unsupported
 configurations use the Python implementation, while native computation errors
 propagate instead of silently changing implementations. Python/Rust parity is

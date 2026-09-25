@@ -8,7 +8,7 @@
     <strong>Script-Aware, Entropy-Guided Multilingual Subword Tokenizer</strong>
   </p>
   <p align="center">
-    Python tokenizer research toolkit with optional Rust acceleration, byte fallback, and raw-text span tracking.
+    Python tokenizer research toolkit with Rust acceleration, byte fallback, and raw-text span tracking.
   </p>
 </p>
 
@@ -36,11 +36,11 @@ Token counts depend on the vocabulary, training corpus, normalization, and pre-t
 
 > **Architecture & Contributor Roadmap**: See [ROADMAP.md](ROADMAP.md) for the eight-stage architecture roadmap and its historical GitHub issue ledger.
 
-UniqToken provides trainable Unigram and BPE models, post-training CEM/SuperBPE vocabulary extension, preprocessing and offset composition, serialization, compatibility importers, and an optional native Rust extension. Its research-specific mechanisms include script-aware candidate generation and configurable frequency, character-savings, byte-savings, PMI, and boundary-entropy filters. Their empirical effects remain open questions under the protocol below.
+UniqToken provides trainable Unigram and BPE models, post-training CEM/SuperBPE vocabulary extension, preprocessing and offset composition, serialization, compatibility importers, and a bundled native Rust extension. Its research-specific mechanisms include script-aware candidate generation and configurable frequency, character-savings, byte-savings, PMI, and boundary-entropy filters. Their empirical effects remain open questions under the protocol below.
 
 ### Two Engines, One Core
 
-UniqToken's public API is split into two namespaces that share the tokenizer data model and can use the optional native Rust core (`crates/uniqtoken_core`):
+UniqToken's public API is split into two namespaces that share the tokenizer data model and dispatch supported operations to the bundled native Rust core (`crates/uniqtoken_core`):
 
 | Engine | Namespace | Purpose | Contract |
 |:-|:-|:-|:-|
@@ -141,12 +141,15 @@ The completed Phase B screen does not establish comparative superiority. A publi
 ## Installation
 
 ```bash
+pip install uniqtoken-core==1.0.0
+
+# The distribution exposes the public Python API and native implementation.
+python -c "import uniqtoken, uniqtoken_core; print(uniqtoken.__version__)"
+
+# Source checkout / contributor installation
 git clone https://github.com/umran666/UniqToken.git
 cd UniqToken
 pip install -e .
-
-# Optional: compile native Rust acceleration engine with maturin
-maturin develop --manifest-path crates/uniqtoken_core/Cargo.toml --release
 ```
 
 **Optional extras** (defined in [`pyproject.toml`](pyproject.toml)):

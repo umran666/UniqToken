@@ -37,18 +37,15 @@ jobs:
 
       - name: Install Dependencies
         run: |
-          python -m pip install --upgrade pip setuptools wheel maturin
+          python -m pip install --upgrade pip wheel "maturin>=1.15,<2.0"
           python -m pip install ruff==0.16.8 mypy==1.19.1 pytest coverage regex tokenizers transformers==4.57.6 sentencepiece tiktoken jinja2 hypothesis
 
-      - name: Build & Install Native Extension
+      - name: Build & Install Combined Distribution
         run: |
           python -c "import shutil; shutil.rmtree('dist', ignore_errors=True)"
-          python -m maturin build --release --manifest-path crates/uniqtoken_core/Cargo.toml -o dist
-          python -c "import glob, subprocess, sys; wheels = glob.glob('dist/*.whl'); subprocess.check_call([sys.executable, '-m', 'pip', 'install', '--force-reinstall', '--no-deps', wheels[0]])"
-
-      - name: Install Package (Editable)
-        run: |
-          python -m pip install -e .
+          python -m maturin build --release --out dist --interpreter python
+          python -c "import glob, subprocess, sys; wheels = glob.glob('dist/uniqtoken_core*.whl'); assert len(wheels) == 1, wheels; subprocess.check_call([sys.executable, '-m', 'pip', 'install', '--force-reinstall', '--no-deps', wheels[0]])"
+          python -c "import uniqtoken, uniqtoken_core; assert uniqtoken.__version__ == '1.0.0'; assert hasattr(uniqtoken_core, 'RustPrefixTrie')"
 
       - name: Run Hypothesis Fuzzing Suite
         env:

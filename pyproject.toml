@@ -1,9 +1,9 @@
 [build-system]
-requires = ["setuptools>=61.0.0", "wheel"]
-build-backend = "setuptools.build_meta"
+requires = ["maturin>=1.15,<2.0"]
+build-backend = "maturin"
 
 [project]
-name = "uniqtoken"
+name = "uniqtoken-core"
 version = "1.0.0"
 description = "Research tokenizer toolkit with Unigram, BPE, SuperBPE, byte fallback, and offset tracking."
 readme = "README.md"
@@ -108,8 +108,17 @@ Repository = "https://github.com/umran666/uniqtoken"
 [project.scripts]
 uniqtoken = "uniqtoken.cli:main"
 
-[tool.setuptools.packages.find]
-include = ["uniqtoken*", "benchmarks*"]
+[tool.maturin]
+manifest-path = "crates/uniqtoken_core/Cargo.toml"
+python-source = "."
+python-packages = ["uniqtoken", "uniqtoken_core", "benchmarks"]
+module-name = "uniqtoken_core.uniqtoken_core"
+bindings = "pyo3"
+exclude = [
+    "benchmarks/legacy/**",
+    "benchmarks/*.md",
+    "benchmarks/*.json",
+]
 
 [tool.ruff]
 line-length = 120

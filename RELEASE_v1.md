@@ -14,8 +14,9 @@ additional research experiment.
 - Complete UTF-8 byte fallback when all 256 byte tokens are configured.
 - NFKC-aware normalization, Unicode pre-tokenization, security filtering, and
   raw-text offset composition.
-- Save/load support, streaming decoding, batching, CLI commands, and optional
-  Rust acceleration through the separately built `uniqtoken-core` extension.
+- Save/load support, streaming decoding, batching, CLI commands, and native
+  Rust acceleration. The single `uniqtoken-core` distribution installs both
+  the public `uniqtoken` package and the `uniqtoken_core` extension.
 - Compatibility and export surfaces for the tested tiktoken, SentencePiece,
   Hugging Face, GGUF, and llama.cpp paths documented in the repository.
 - Versioned research harnesses and the preserved Phase A and Phase B evidence.
@@ -36,8 +37,8 @@ failure is claimed.
 
 - With NFKC enabled, the round-trip contract is
   `decode(encode(x)) == normalize(x)`, not preservation of the original bytes.
-- The Rust extension is optional. Unsupported native configurations use the
-  Python implementation; the release makes no universal throughput claim.
+- Unsupported native configurations use the Python implementation; the
+  release makes no universal throughput claim.
 - Imported tokenizer fidelity depends on representable normalization and
   pre-tokenization behavior. Unsupported details emit warnings as documented.
 - The Hugging Face adapter is verified for the repository-tested versions and
