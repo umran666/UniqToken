@@ -15,6 +15,7 @@ class DependencyPolicyTests(unittest.TestCase):
         self.assertIn('"torch==2.13.0"', pyproject)
         self.assertIn('"pyarrow==23.0.1"', pyproject)
         self.assertIn('"accelerate==1.15.0"', pyproject)
+        self.assertIn('"transformers==5.10.4"', pyproject)
 
     def test_ci_installs_the_declared_test_extra(self) -> None:
         workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")

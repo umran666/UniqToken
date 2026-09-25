@@ -152,8 +152,8 @@ maturin develop --manifest-path crates/uniqtoken_core/Cargo.toml --release
 | Extra | Command | What it adds |
 |:------|:--------|:-------------|
 | PyTorch | `pip install -e ".[torch]"` | `torch>=2.13.0` — tensor output in `BatchCollator` |
-| HuggingFace | `pip install -e ".[huggingface]"` | `tokenizers>=0.13.0`, `transformers>=4.30.0,<5.0.0` — interop & export |
-| Benchmarks | `pip install -e ".[bench]"` | `sentencepiece>=0.1.99`, `tokenizers>=0.13.0` — comparison baselines |
+| HuggingFace | `pip install -e ".[huggingface]"` | `tokenizers>=0.22.0`, `transformers>=5.10.4,<6.0.0` — interop & export |
+| Benchmarks | `pip install -e ".[bench]"` | `sentencepiece>=0.1.99`, `tokenizers>=0.22.0` — comparison baselines |
 | Testing | `pip install -e ".[test]"` | Full regression dependencies, including pinned PyTorch, PyArrow, Accelerate, Ruff, and Mypy versions |
 | Everything | `pip install -e ".[all]"` | All of the above |
 

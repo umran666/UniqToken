@@ -5,11 +5,11 @@ Covers issue #45 acceptance criteria:
 * ``uniqtoken.hf_adapter.UniqTokenizerFast`` subclasses ``PreTrainedTokenizerFast``.
 * ``save_pretrained`` / ``from_pretrained`` round-trips exactly.
 * Saves are re-discoverable through ``AutoTokenizer.from_pretrained``.
-* Padding, truncation and ``return_tensors`` (``np``, and ``pt``/``tf`` when
-  the framework is installed) work through the standard HF API surface.
+* Padding, truncation and ``return_tensors`` (``np`` and ``pt``) work through
+  the standard HF API surface.
 * The exported ``tokenizer.json`` encodes identically to the source
   ``CustomTokenizer``.
-* ``Trainer(tokenizer=tokenizer, ...)`` accepts the adapter without warning.
+* ``Trainer(processing_class=tokenizer, ...)`` accepts the adapter.
 """
 
 from __future__ import annotations
@@ -35,13 +35,6 @@ try:
     HAS_TORCH = True
 except ImportError:  # pragma: no cover
     HAS_TORCH = False
-
-try:
-    import tensorflow as tf  # type: ignore[import-untyped]
-
-    HAS_TF = True
-except ImportError:  # pragma: no cover
-    HAS_TF = False
 
 CORPUS = [
     "the quick brown fox jumps over the lazy dog and runs fast",
@@ -235,17 +228,12 @@ class UniqTokenizerFastIntegrationTests(unittest.TestCase):
         self.assertTrue(hasattr(encoded["input_ids"], "shape"))
         self.assertEqual(encoded["input_ids"].dtype, torch.long)
 
-    @unittest.skipUnless(HAS_TF, "tensorflow not installed")
-    def test_return_tensors_tf(self) -> None:
-        encoded = self.tokenizer(TEXTS, padding=True, return_tensors="tf", add_special_tokens=False)
-        self.assertTrue(hasattr(encoded["input_ids"], "shape"))
-
     # -- save / load / hub wiring ----------------------------------------
 
     # -- Trainer compatibility -------------------------------------------
 
     @unittest.skipUnless(HAS_TORCH, "torch not installed")
-    def test_trainer_accepts_tokenizer(self) -> None:
+    def test_trainer_accepts_processing_class(self) -> None:
         # Acceptance criterion: Trainer(tokenizer=tokenizer, ...) runs without
         # warning or error. Training is not executed; construction + tokenize
         # path is enough to prove the tokenizer plugs in.
@@ -263,9 +251,9 @@ class UniqTokenizerFastIntegrationTests(unittest.TestCase):
                 return {"loss": self.head(self.embed(input_ids)).mean()}
 
         args = TrainingArguments(output_dir=tempfile.mkdtemp(), report_to=[], num_train_epochs=0)
-        trainer = Trainer(model=TinyModel(self.tokenizer.vocab_size), args=args, tokenizer=self.tokenizer)  # type: ignore[call-arg]
+        trainer = Trainer(model=TinyModel(self.tokenizer.vocab_size), args=args, processing_class=self.tokenizer)
         train_ids = self.tokenizer(TEXTS, padding="max_length", max_length=16, truncation=True, return_tensors="pt")
-        self.assertEqual(trainer.tokenizer, self.tokenizer)  # type: ignore[attr-defined]
+        self.assertEqual(trainer.processing_class, self.tokenizer)
         self.assertEqual(train_ids["input_ids"].shape[1], 16)
 
     # -- chat template ---------------------------------------------------
