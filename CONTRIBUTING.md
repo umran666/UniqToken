@@ -1,14 +1,14 @@
 # Contributing to UniqToken
 
-Thank you for your interest in contributing to **UniqToken**! UniqToken is an ultra-fast, high-precision, zero-fallback Byte-Fallback Unigram Tokenizer engineered in Rust and Python.
+Thank you for your interest in contributing to **UniqToken**. It is a Python tokenizer research toolkit with trainable Unigram and BPE models and an optional Rust acceleration extension.
 
 ---
 
 ## Quickstart Development Setup
 
 ### 1. Prerequisites
-- Python 3.9+ (`python --version`)
-- Rust & Cargo 1.70+ (`cargo --version`)
+- Python 3.10+ (`python --version`)
+- A current stable Rust toolchain (`cargo --version`)
 - `maturin` (for native PyO3 wheel compilation)
 
 ### 2. Clone and Setup Environment
@@ -20,8 +20,8 @@ cd UniqToken
 python -m venv .venv
 source .venv/bin/activate
 
-pip install -r requirements.txt
-pip install maturin ruff mypy pytest
+python -m pip install -e ".[test]"
+python -m pip install maturin
 ```
 
 ### 3. Build the Native Rust Core
@@ -46,10 +46,10 @@ python -m ruff format .
 python -m ruff check .
 
 # 3. Python Type Checking
-python -m mypy .
+python -m mypy uniqtoken
 
-# 4. Run Full Unit Test Suite (150+ tests)
-python -m unittest discover -p "test_*.py" -v
+# 4. Run Full Test Suite
+python -m pytest
 
 # 5. Run Benchmark Suite
 python benchmarks/benchmark_suite.py
@@ -60,24 +60,17 @@ python benchmarks/benchmark_suite.py
 ## Codebase Architecture Tour
 
 - `crates/uniqtoken_core/`: Native Rust acceleration core with PyO3 bindings, character prefix trie, dynamic programming Viterbi lattice, and Rayon parallel batch encoder.
-- `tokenizer.py`: Top-level `CustomTokenizer` and `TokenSpan` APIs with zero-copy slice tracking.
-- `pre_tokenizer.py`: `RegexPreTokenizer` with compiled regex LRU pattern caching.
-- `normalizer.py`: Unicode normalization, whitespace collapsing, and exact character offset mapping.
-- `unigram_trainer.py`: EM-based Unigram vocabulary trainer with early stopping and log-likelihood convergence.
-- `seed_builder.py`: Multi-character PMI and frequency candidate miner.
-- `bpe_trainer.py`: SuperBPE cross-word merge engine.
-- `vocab_adapter.py`: Dynamic online vocabulary expansion and lossless ID compaction adapter.
-- `hf_exporter.py`: HuggingFace `PreTrainedTokenizerFast` schema exporter.
-- `hf_adapter.py`: Native `PreTrainedTokenizerFast` subclass (`UniqTokenizerFast`) that round-trips a trained tokenizer through the HuggingFace ecosystem.
-- `streaming_decoder.py`: Incremental token streaming decoder with UTF-8 byte accumulation.
-- `benchmarks/`: Empirical evaluation suite across diverse scripts and languages.
+- `uniqtoken/tokenizer.py`: `CustomTokenizer`, encoding, alignment, batching, and serialization facade.
+- `uniqtoken/pre_tokenizer.py`: normalization, character alignment, and ordered regex boundaries.
+- `uniqtoken/unigram_trainer.py`: EM-based Unigram vocabulary trainer with convergence checks.
+- `uniqtoken/bpe_trainer.py`: BPE vocabulary training; cross-word CEM/SuperBPE extension lives in `uniqtoken/cem_merger.py`.
+- `uniqtoken/hf_adapter.py`: native `PreTrainedTokenizerFast` adapter.
+- `uniqtoken/integrations/`: serving integrations such as the vLLM adapter.
+- `benchmarks/`: held-out diagnostics plus the fail-closed Phase A/B/C research harnesses and protocols.
+- `tests/`: unit, differential, fuzz, native-parity, and research-integrity regression suites.
 
 ---
 
 ## Good First Issues & Roadmap
 
-1. **Add Language Corpora**: Add evaluation texts for underrepresented languages (e.g. Swahili, Yoruba, Amharic, Vietnamese) to `benchmarks/benchmark_suite.py`.
-2. **WebAssembly Target (`wasm32-unknown-unknown`)**: Enable `wasm-bindgen` in `crates/uniqtoken_core` for in-browser client tokenization.
-3. **GGUF Export Support**: Add `.gguf` metadata exporter for direct consumption in `llama.cpp`.
-4. **Interactive Colab / Playground**: Build a Gradio app or Colab notebook demonstrating tokenization comparisons.
-5. **C-API Header Export**: Expose a clean `uniqtoken.h` C shared library for embedding in C/C++/Go applications.
+Use the current [GitHub issue tracker](https://github.com/umran666/UniqToken/issues) rather than this document as the source of open work. Confirm that an issue is still open and unassigned before starting implementation.

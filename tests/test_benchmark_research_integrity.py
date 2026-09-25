@@ -234,6 +234,63 @@ class DocumentationClaimTests(unittest.TestCase):
         for fragment in retired_claim_fragments:
             self.assertNotIn(fragment, active_documents)
 
+    def test_readme_matches_current_api_and_ci_contracts(self):
+        root = Path(__file__).resolve().parents[1]
+        readme = (root / "README.md").read_text(encoding="utf-8")
+
+        self.assertIn("Python character-index offsets", readme)
+        self.assertNotIn("exact byte range", readme)
+        self.assertNotIn('``"tf"``', readme)
+        self.assertIn("9-cell matrix", readme)
+        self.assertNotIn("12-cell matrix", readme)
+        self.assertNotIn("target `py39`", readme)
+        self.assertIn("above the maximum existing ID", readme)
+        self.assertNotIn("id = len(old_vocab) + i", readme)
+
+    def test_active_documents_record_phase_c_as_unexecuted(self):
+        root = Path(__file__).resolve().parents[1]
+        readme = (root / "README.md").read_text(encoding="utf-8")
+        paper = (root / "PAPER_DRAFT.md").read_text(encoding="utf-8")
+
+        for document in (readme, paper):
+            self.assertIn("Phase C", document)
+            self.assertIn("not executed", document.casefold())
+            self.assertIn("remained unopened", document.casefold())
+        self.assertIn("research schema 5", readme)
+        self.assertNotIn("research schema 3", readme)
+        self.assertIn("2-layer, width-128, FFN-512, 4-head", paper)
+        self.assertNotIn("Phase C runs selected conditions with three new paired LM seeds using 12 layers", paper)
+
+    def test_quickstart_labels_unmatched_comparison_as_non_evidence(self):
+        root = Path(__file__).resolve().parents[1]
+        notebook = json.loads((root / "notebooks" / "quickstart.ipynb").read_text(encoding="utf-8"))
+        notebook_text = "\n".join(line for cell in notebook["cells"] for line in cell.get("source", [])).casefold()
+
+        self.assertIn("unmatched side-by-side diagnostic is illustrative only", notebook_text)
+        self.assertNotIn("token tax", notebook_text)
+        self.assertNotIn("context savings", notebook_text)
+        self.assertNotIn("lower api inference costs", notebook_text)
+
+    def test_closed_roadmap_issues_are_not_marked_open(self):
+        root = Path(__file__).resolve().parents[1]
+        roadmap_lines = (root / "ROADMAP.md").read_text(encoding="utf-8").splitlines()
+
+        for issue in (42, 22, 33, 27, 23):
+            line = next(line for line in roadmap_lines if f"[#{issue}]" in line)
+            self.assertTrue(line.startswith("- [x]"), line)
+
+    def test_active_docs_match_supported_python_versions(self):
+        root = Path(__file__).resolve().parents[1]
+        active_docs = "\n".join(
+            (root / filename).read_text(encoding="utf-8")
+            for filename in ("README.md", "CONTRIBUTING.md", "COMPATIBILITY_EXCEPTIONS.md", "ROADMAP.md")
+        )
+
+        self.assertNotIn("Python 3.9", active_docs)
+        self.assertNotIn("3.9-3.12", active_docs)
+        self.assertNotIn("3.9–3.12", active_docs)
+        self.assertNotIn("pip install -r requirements.txt", active_docs)
+
 
 if __name__ == "__main__":
     unittest.main()

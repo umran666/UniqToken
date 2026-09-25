@@ -8,7 +8,7 @@ document records the formal compatibility status and any known intentional diver
 between UniqToken and each supported reference tokenizer.
 
 The differential test suite in `tests/test_differential_compat.py` enforces the matrix
-on every CI run (Python 3.9-3.12 on Ubuntu, macOS, and Windows). Tests that require
+on every CI run (Python 3.10-3.12 on Ubuntu, macOS, and Windows). Tests that require
 optional reference packages (`tiktoken`, `tokenizers`, `transformers`) skip gracefully
 when the package is missing or the reference model cannot be downloaded.
 

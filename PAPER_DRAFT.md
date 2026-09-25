@@ -1,11 +1,11 @@
 # UniqToken: Implementation Description and Evaluation Protocol
 
-**Status**: Research protocol; no comparative result claims
+**Status**: Implementation description plus exploratory Phase B screening status; no confirmatory claim
 **Artifact repository**: `https://github.com/umran666/UniqToken`
 
 ## Abstract
 
-UniqToken is a research implementation of trainable Unigram and BPE tokenizers with optional cross-word CEM/SuperBPE vocabulary extension. The implementation also includes byte fallback, Unicode-aware pre-tokenization, subword regularization, and raw-text offset tracking. This document describes the code and the experiments required to evaluate it. It does not claim that UniqToken improves language-model quality, cost, linguistic segmentation, throughput, or a Pareto frontier.
+UniqToken is a research implementation of trainable Unigram and BPE tokenizers with optional cross-word CEM/SuperBPE vocabulary extension. The implementation also includes byte fallback, Unicode-aware pre-tokenization, subword regularization, and raw-text offset tracking. This document describes the code, the completed exploratory screening stages, and the frozen but unexecuted confirmation protocol. It does not claim that UniqToken improves language-model quality, cost, linguistic segmentation, throughput, or a Pareto frontier.
 
 Earlier draft Tables 1-3, their ANOVA statistics, and derived Pareto claims were based on experimental artifacts that do not satisfy the current held-out-data and exact-vocabulary contracts. Those artifacts remain under `benchmarks/legacy/` for provenance. They must not be cited as results for the current implementation.
 
@@ -31,16 +31,16 @@ The supported multimodal surface includes text and the repository's visual patch
 
 ## 2. Current benchmark contract
 
-The final research harness is `benchmarks/run_research_experiments.py`, with the executable methodology in `benchmarks/RESEARCH_PROTOCOL.md`. The older `benchmarks/run_matched_budget_eval.py` is a train/validation diagnostic. Small component checks also exist in `benchmarks/train_toy_transformer.py`, `benchmarks/downstream_eval.py`, and `benchmarks/benchmark_suite.py`.
+The active tokenizer stages use `benchmarks/run_phase_a.py`, and the completed one-seed LM screen uses `benchmarks/run_phase_b_screen.py`. `benchmarks/run_phase_c_confirm.py` implements the frozen confirmatory contract but is not launch authorization; Phase C was not executed. The executable methodology is in `benchmarks/RESEARCH_PROTOCOL.md`, the official exploratory analysis is in `benchmarks/PHASE_B_ANALYSIS_REPORT.md`, and the terminal confirmation status is in `benchmarks/PHASE_C_STATUS.md`. The older `benchmarks/run_matched_budget_eval.py` remains a train/validation diagnostic.
 
 Every current comparative run must satisfy all of the following:
 
 1. Tokenizer and language-model training documents are disjoint from every document used for measurement.
-2. The final runner requires frozen train/validation/test manifests before Phase A. Phase B uses validation LM NLL only for screening; Phase C requires an explicit screening-ledger-bound selection before computing test LM NLL. All data assignment and normalized-document fingerprints are shared across tokenizers. The Phase A freezer rejects exact and near duplicate training documents and exact or near train/evaluation overlap before emitting its immutable local manifest.
+2. The runners require frozen train/validation/test manifests before Phase A. Phase B used validation LM NLL only for screening. The frozen Phase C protocol requires an explicit screening-ledger-bound cohort and a complete immutable validation ledger before any final-test access. Phase C was not executed and the test set remained unopened. All data assignment and normalized-document fingerprints are shared across tokenizers. The Phase A freezer rejects exact and near duplicate training documents and exact or near train/evaluation overlap before emitting its immutable local manifest.
 3. Every trainable tokenizer reaches the exact requested vocabulary size. A shortfall is a failed condition, not a smaller-budget substitute.
 4. A SuperBPE condition learns at least one cross-word merge. Zero-merge configurations are invalid.
 5. Transformer rows are produced only by the declared Transformer implementation. Missing PyTorch, insufficient training tokens, or an unavailable requested device aborts the condition; no Laplace or unigram model is substituted.
-6. Every persisted row records `model_kind`. Active JSON ledgers use shared schema version 3. The final runner additionally requires research schema 3, a clean Git commit, source and installed extension hashes, dataset manifest/assignment hashes, tokenizer artifact hashes, seeds, complete model configuration, and the matching regime/budget. Its loader validates these against the current runtime and rejects diagnostic or stale ledgers. An installed extension hash identifies bytes, not proof of a build from the current Rust source.
+6. Every persisted row records `model_kind`. Active JSON ledgers use shared schema version 3. The generic research-accounting runner additionally requires research schema 5, a clean Git commit, source and installed extension hashes, dataset manifest/assignment hashes, tokenizer artifact hashes, seeds, complete model configuration, and the matching regime/budget. Its loader validates these against the current runtime and rejects diagnostic or stale ledgers. An installed extension hash identifies bytes, not proof of a build from the current Rust source.
 7. A matched comparison is complete only if every pre-registered tokenizer, vocabulary budget, model tier, and seed succeeds. Partial grids are diagnostic outputs, not matched comparative evidence.
 
 ## 3. Metrics
@@ -69,7 +69,7 @@ Phase A compares independently trained SentencePiece Unigram, SentencePiece BPE,
 
 ### 4.3 Language-model comparison
 
-Phase B screens all conditions with one paired seed using a 2-layer, width-128, FFN-512 causal LM. Phase C runs selected conditions with three new paired LM seeds using 12 layers, width 768, FFN 3072, 12 heads, and context 1024. The existing architecture has learned positions and untied input/output matrices. Its non-embedding count is 85,842,432; total counts at 16K/32K/64K are 111,008,256 / 136,174,080 / 186,505,728, verified against instantiated parameters. It is not labeled "125M". Tokenizers are frozen from Phase A, so paired seeds measure LM variation, not tokenizer-training variation.
+Phase B screened the frozen conditions with one paired seed using a 2-layer, width-128, FFN-512, 4-head causal LM with context 128, learned positions, and untied input/output matrices. The frozen Phase C protocol retains that architecture and specifies a materially larger 300 MB exposure for the 16K byte-matched SPM-Unigram, Boundary-BPE, and UT-SuperBPE cohort across three new paired seeds. Phase C was not executed because the measured compute requirement exceeded the available free budget. Tokenizers remain frozen from Phase A, so a future conforming execution would measure LM-training variation rather than tokenizer retraining.
 
 Run both FLOP-matched and byte-matched regimes; neither is universally superior. The former uses a documented dense-matmul forward/backward estimator with at most 1% undershoot and no overshoot, not measured hardware FLOPs. The latter uses identical ordered normalized-document prefixes and rejects budgets ending inside documents. The ledger records requested/actual budgets, parameters, targets, optimizer updates, device, precision, context, and software provenance. Before efficiency claims, add separately controlled hardware profiling and end-to-end timing experiments; these are not inferred from analytical budgets.
 
@@ -83,7 +83,7 @@ Claims about clitics, morphemes, or root preservation require annotated linguist
 
 ## 5. Results status
 
-No result table is current. The repository's historical Phase 14/15 records, figures, and pre-integrity matched-budget run are archived and invalid for current claims because of data leakage, incomplete exact-budget enforcement, or insufficient result provenance. Small smoke runs may demonstrate that the harness executes and enforces its contracts; they are not evidence of model superiority.
+Phase A tokenizer screening and all 18 Phase B LM screening conditions completed. The official Phase B report classifies those results as exploratory and does not establish a general UniqToken advantage. The 16K byte-matched UT-SuperBPE result is a post-screen candidate for confirmation, not a confirmed result. Phase C confirmation was not executed because measured infrastructure cost exceeded the available free compute budget, and the final test set remained unopened. Historical Phase 14/15 records, figures, and the pre-integrity matched-budget run remain archived and invalid for current claims.
 
 ## 6. Open research questions
 
