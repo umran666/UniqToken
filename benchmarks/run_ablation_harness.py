@@ -43,6 +43,7 @@ VALIDATION_PARTITION_VERSION = stages.VALIDATION_PARTITION_VERSION
 
 
 def _seeded_condition():
+    """Reset the shared random generators exactly as Phase A does per condition."""
     random.seed(SEED)
     np.random.seed(SEED)
 
@@ -74,6 +75,7 @@ def _strata(rows, texts):
 
 
 def _stratum_key(row):
+    """Return the serializable (domain::language) key for a validation row."""
     return f"{row['domain']}::{row['language']}"
 
 
@@ -95,6 +97,7 @@ def _metrics(tokenizer, strata):
 
 
 def _build_plan(manifest_path, conditions):
+    """Build the full run plan from the frozen dataset and condition list."""
     train_rows, train, validation_rows, validation, source = stages.load_stage_source(manifest_path)
     identity = h.runtime_identity()
     h.require(not identity["working_tree_dirty"], "commit the reviewed harness before research runs")
@@ -140,11 +143,20 @@ def _build_plan(manifest_path, conditions):
 
 
 def _artifact_name(condition):
+    """Return the artifact-directory name for a (name, budget) condition."""
     name, budget = condition
     return f"{name}-{budget}"
 
 
 def _validate_record(record, condition, plan, strata, output):
+    """Verify a completed condition record against plan identity and disk artifacts.
+
+    The per-condition metric recompute from source documents (via
+    ``_metrics``) is intentionally retained on both the run and resume paths
+    even though it re-encodes the validation corpus: it is the integrity
+    check that makes a record's stored metrics self-consistent, at the cost
+    of a second encoding pass per condition.
+    """
     name, budget = condition
     expected_index = plan["conditions"].index([name, budget])
     h.require((record.get("tokenizer"), record.get("vocab_budget")) == (name, budget), "condition mismatch")
@@ -215,10 +227,12 @@ def _compare(records, conditions, metrics):
 
 
 def _conditions(plan):
+    """Return the plan's condition tuples in declared order."""
     return [tuple(item) for item in plan["conditions"]]
 
 
 def _validate_ledger(payload, plan, conditions):
+    """Validate a complete ablation ledger and its comparison table."""
     h.validate_ledger(payload, expected_commit=plan["identity"]["commit_hash"])
     records = payload.get("records", [])
     h.require(len(records) == len(conditions), "incomplete ablation ledger")
@@ -234,10 +248,12 @@ def _validate_ledger(payload, plan, conditions):
 
 
 def _check_lock(args, plan):
+    """Fail loudly if the frozen dataset manifest changed mid-run."""
     h.require(h.file_hash(args.dataset) == plan["dataset"]["manifest_sha256"], "dataset changed during the run")
 
 
 def resume_records(output, plan, strata):
+    """Load and re-validate completed condition checkpoints from the output dir."""
     records = {}
     for path in sorted(output.glob("condition-*.json")):
         h.require(re.fullmatch(r"condition-\d{3}\.json", path.name), "invalid checkpoint filename")
@@ -252,6 +268,7 @@ def resume_records(output, plan, strata):
 
 
 def run(args):
+    """Execute every ablation condition and atomically publish the ledger."""
     conditions = [(name, budget) for name in h.COHORT for budget in h.VOCABS]
     plan = _build_plan(args.dataset, conditions)
     output = Path(args.output)
@@ -274,6 +291,7 @@ def run(args):
         _seeded_condition()
         artifact = output / _artifact_name(condition)
         tokenizer, elapsed = h.train_tokenizer(name, train, budget, artifact)
+        h.require(elapsed > 0.0, "nonpositive tokenizer training elapsed time")
         whole, per_stratum = _metrics(tokenizer, strata)
         record = {
             "condition_index": index,
@@ -325,6 +343,7 @@ def report(args):
 
 
 def main():
+    """Parse subcommands and dispatch to preflight, run, or compare."""
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
     preflight = subparsers.add_parser("preflight", help="Validate the frozen dataset and configuration")
