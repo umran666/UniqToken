@@ -197,6 +197,19 @@ def test_provenance_mismatch_is_rejected_on_resume(synthetic, tmp_path, monkeypa
         ablation.run(SimpleNamespace(dataset=synthetic, output=output, resume=True))
 
 
+def test_resume_discards_artifact_lacking_a_checkpoint(synthetic, tmp_path):
+    output = tmp_path / "out"
+    ablation.run(SimpleNamespace(dataset=synthetic, output=output, resume=False))
+    (output / "ledger.json").unlink()
+    envelope = research.read_json(output / "condition-007.json")
+    orphan = output / envelope["record"]["artifact"]
+    assert orphan.is_dir()
+    (output / "condition-007.json").unlink()
+    resumed = ablation.run(SimpleNamespace(dataset=synthetic, output=output, resume=True))
+    assert len(resumed["records"]) == len(research.COHORT) * len(research.VOCABS)
+    assert (output / "ledger.json").exists()
+
+
 def test_incomplete_run_fails_loud(synthetic, tmp_path):
     output = tmp_path / "out"
     ablation.run(SimpleNamespace(dataset=synthetic, output=output, resume=False))

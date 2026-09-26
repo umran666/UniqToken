@@ -25,6 +25,7 @@ import json
 from pathlib import Path
 import random
 import re
+import shutil
 
 import numpy as np
 
@@ -290,6 +291,12 @@ def run(args):
         name, budget = condition
         _seeded_condition()
         artifact = output / _artifact_name(condition)
+        # A crash between train_tokenizer's mkdir and the checkpoint publish
+        # leaves an artifact directory with no condition-NNN.json. Nothing ever
+        # bound or validated it, so discard it instead of letting mkdir() raise
+        # FileExistsError and strand an otherwise resumable run.
+        if artifact.exists():
+            shutil.rmtree(artifact)
         tokenizer, elapsed = h.train_tokenizer(name, train, budget, artifact)
         h.require(elapsed > 0.0, "nonpositive tokenizer training elapsed time")
         whole, per_stratum = _metrics(tokenizer, strata)
