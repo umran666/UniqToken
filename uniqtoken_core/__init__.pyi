@@ -106,7 +106,6 @@ def rust_encode_text_native_ids_batch(
     collapse_whitespaces: bool = False,
     strip_whitespace: bool = False,
 ) -> List[List[int]]: ...
-
 def rust_profile_native_batch(
     texts: Sequence[str],
     trie: RustPrefixTrie,
