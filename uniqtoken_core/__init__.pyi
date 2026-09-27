@@ -117,7 +117,7 @@ def rust_profile_native_batch(
     lowercase: bool = False,
     collapse_whitespaces: bool = False,
     strip_whitespace: bool = False,
-) -> List[Tuple[List[str], List[int], Tuple[int, int, int, int, int, int]]]: ...
+) -> List[Tuple[List[str], List[int], List[int]]]: ...
 def rust_diagnostic_batch(
     texts: Sequence[str],
     trie: RustPrefixTrie,

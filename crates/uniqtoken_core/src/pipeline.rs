@@ -779,7 +779,7 @@ fn profile_text_native(
     Ok((tokens, ids, ns))
 }
 
-/// Per-row CPU timing in nanoseconds: security, normalization, regex,
+/// Per-row elapsed timing in nanoseconds: security, normalization, regex,
 /// grapheme snapping and chunk copies, cached segmentation, output copies.
 #[cfg(feature = "python")]
 #[pyfunction]

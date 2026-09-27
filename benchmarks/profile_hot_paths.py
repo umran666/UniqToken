@@ -54,9 +54,8 @@ def tool_version(*command: str) -> str:
     return result.stdout.strip()
 
 
-def percentile_interval(values: list[float]) -> list[float]:
-    ordered = sorted(values)
-    return [ordered[int(0.025 * (len(ordered) - 1))], ordered[int(0.975 * (len(ordered) - 1))]]
+def observed_range(values: list[float]) -> list[float]:
+    return [min(values), max(values)]
 
 
 def benchmark(call, iterations: int, warmup: int, repetitions: int) -> list[float]:
@@ -87,6 +86,49 @@ def workload_cases():
     ]
 
 
+def reference_raw_spans(tok, text, tokens):
+    """Align token text to normalized characters without using tokenizer offset APIs."""
+    normalized, alignment = tok.normalizer.normalize_with_alignment(text)
+    source_spans = [entry if isinstance(entry, tuple) else (entry, entry + 1) for entry in alignment]
+    spans = []
+    pending = bytearray()
+    pending_count = 0
+    position = 0
+    for token in tokens:
+        if len(token) == 6 and token.startswith("<0x") and token.endswith(">"):
+            pending.append(int(token[3:5], 16))
+            pending_count += 1
+            try:
+                piece = pending.decode("utf-8")
+            except UnicodeDecodeError as error:
+                if error.reason == "unexpected end of data":
+                    continue
+                raise AssertionError("invalid byte fallback sequence") from error
+            pending.clear()
+            if len(piece) != 1:
+                raise AssertionError("byte fallback must complete one normalized character")
+            count = pending_count
+            pending_count = 0
+        else:
+            if pending:
+                raise AssertionError("incomplete byte fallback sequence")
+            piece = token
+            count = 1
+        end = position + len(piece)
+        if normalized[position:end] != piece:
+            raise AssertionError("token stream does not tile normalized text")
+        raw = source_spans[position:end]
+        if not raw:
+            raise AssertionError("token has no source span")
+        spans.extend([(min(start for start, _ in raw), max(stop for _, stop in raw))] * count)
+        position = end
+    if pending or position != len(normalized):
+        raise AssertionError("token stream does not cover normalized text")
+    if {index for start, stop in spans for index in range(start, stop)} != set(range(len(text))):
+        raise AssertionError("token spans do not cover raw text")
+    return spans
+
+
 def validate(tok, native, cases):
     kwargs = tok._native_pipeline_kwargs()
     trie = tok.model._get_rust_trie()
@@ -103,8 +145,8 @@ def validate(tok, native, cases):
         for text, tokens, ids, spans in zip(texts, expected_tokens, expected_ids, offsets):
             if [(item.text, item.id) for item in spans] != list(zip(tokens, ids)):
                 raise AssertionError(f"offset token/ID parity: {name}")
-            if any(not (0 <= item.raw_span[0] <= item.raw_span[1] <= len(text)) for item in spans):
-                raise AssertionError(f"offset range: {name}")
+            if [item.raw_span for item in spans] != reference_raw_spans(tok, text, tokens):
+                raise AssertionError(f"exact offset parity: {name}")
             if tok.decode(ids) != tok.decode_tokens(tokens):
                 raise AssertionError(f"decode parity: {name}")
         if tok.decode_batch(expected_ids) != [tok.decode(ids) for ids in expected_ids]:
@@ -155,20 +197,20 @@ def profile(args):
                 "tokens": token_count,
                 "encode_wall_ns": {
                     "median": median_encode,
-                    "range_95_observed": percentile_interval(encode_ns),
+                    "observed_min_max": observed_range(encode_ns),
                     "samples": encode_ns,
                 },
                 "decode_wall_ns": {
                     "median": statistics.median(decode_ns),
-                    "range_95_observed": percentile_interval(decode_ns),
+                    "observed_min_max": observed_range(decode_ns),
                     "samples": decode_ns,
                 },
                 "input_mb_per_s": normalized_bytes / median_encode * 1000,
                 "tokens_per_s": token_count / median_encode * 1e9,
-                "stage_cpu_ns": {
+                "stage_elapsed_ns": {
                     stage: {
                         "median": statistics.median(sample[i] for sample in stage_samples),
-                        "range_95_observed": percentile_interval([sample[i] for sample in stage_samples]),
+                        "observed_min_max": observed_range([sample[i] for sample in stage_samples]),
                         "samples": [sample[i] for sample in stage_samples],
                     }
                     for i, stage in enumerate(STAGES)
@@ -199,7 +241,7 @@ def write_results(args, records, callstack, tok):
     vocab_hash = hashlib.sha256(json.dumps(vocab, ensure_ascii=True).encode()).hexdigest()
     fixture_hash = hashlib.sha256(json.dumps(workload_cases(), ensure_ascii=True).encode()).hexdigest()
     metadata = {
-        "schema_version": 1,
+        "schema_version": 2,
         "issue": 95,
         "parity_gate": "passed_before_measurements",
         "git_commit": commit,
@@ -218,11 +260,11 @@ def write_results(args, records, callstack, tok):
         "repetitions": args.repetitions,
         "iterations_per_repetition": args.iterations,
         "batch_rows": 32,
-        "native_module": str(Path(native_file()).resolve()),
+        "native_module": Path(native_file()).name,
         "native_module_sha256": sha256(Path(native_file())),
         "fixture_sha256": fixture_hash,
         "vocabulary_sha256": vocab_hash,
-        "timing_note": "Stage values are diagnostic replay CPU nanoseconds summed across rows; end-to-end encode/decode values are public API wall nanoseconds. Intervals are observed 2.5/97.5 percentiles, not confidence intervals.",
+        "timing_note": "Stage values are diagnostic replay elapsed nanoseconds summed across rows; end-to-end encode/decode values are public API wall nanoseconds. Bounds are observed minimum and maximum over repetitions, not confidence intervals.",
         "unisolated": [
             "trie_lookup_vs_viterbi_vs_byte_fallback",
             "ffi_boundary_vs_python_dispatch",
@@ -256,27 +298,27 @@ def write_results(args, records, callstack, tok):
     lines.extend(
         [
             "",
-            "Diagnostic stage CPU time (ms, summed across rows):",
+            "Diagnostic stage elapsed time (ms, summed across rows):",
             "",
             "| Workload | Gate | Normalize | Regex | Grapheme + chunks | Cached segmentation | Output copy |",
             "| --- | ---: | ---: | ---: | ---: | ---: | ---: |",
         ]
     )
     for record in records:
-        values = [record["stage_cpu_ns"][stage]["median"] / 1e6 for stage in STAGES]
+        values = [record["stage_elapsed_ns"][stage]["median"] / 1e6 for stage in STAGES]
         lines.append(f"| {record['workload']} | " + " | ".join(f"{value:.3f}" for value in values) + " |")
     lines.extend(
         [
             "",
-            "Largest measured stage per workload (median and observed 95% range, ms):",
+            "Largest measured stage per workload (median and observed min/max, ms):",
             "",
             "| Workload | Stage | Median | Observed range |",
             "| --- | --- | ---: | ---: |",
         ]
     )
     for record in records:
-        stage, value = max(record["stage_cpu_ns"].items(), key=lambda item: item[1]["median"])
-        low, high = value["range_95_observed"]
+        stage, value = max(record["stage_elapsed_ns"].items(), key=lambda item: item[1]["median"])
+        low, high = value["observed_min_max"]
         lines.append(
             f"| {record['workload']} | {stage} | {value['median'] / 1e6:.3f} | {low / 1e6:.3f}-{high / 1e6:.3f} |"
         )
