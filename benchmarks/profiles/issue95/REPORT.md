@@ -1,52 +1,52 @@
 # UniqToken hot-path profile
 
-Commit: `88a386e3f50a2829fa2e105350b05a660afb130f`; build: `release`; Rayon threads: `1`.
+Commit: `a0fe7a8eab04a930bf659c157ec901fa76bc60f8`; build: `release`; Rayon threads: `1`.
 Warmup: 2; repetitions: 7; iterations per repetition: 10.
 
 Exact parity gate passed before timings. Input MB/s uses normalized UTF-8 bytes (decimal MB).
 
 | Workload | Normalized bytes | Encode MB/s | Encode ms | Decode ms | Tokens/s |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| short_single | 60 | 1.15 | 0.052 | 0.065 | 192493 |
-| short_batch | 2080 | 1.44 | 1.445 | 1.520 | 287877 |
-| medium_single | 1260 | 0.70 | 1.812 | 0.602 | 86663 |
-| medium_batch | 40480 | 0.70 | 57.653 | 21.069 | 88808 |
-| long_single | 5940 | 1.76 | 3.384 | 1.306 | 195308 |
-| long_batch | 190240 | 1.07 | 177.475 | 84.731 | 119724 |
-| multilingual_single | 948 | 0.50 | 1.896 | 0.308 | 63833 |
-| multilingual_batch | 30496 | 0.51 | 59.659 | 10.297 | 66511 |
-| source_code_single | 1310 | 0.54 | 2.439 | 0.819 | 180424 |
-| source_code_batch | 42080 | 0.50 | 83.930 | 30.293 | 168903 |
+| short_single | 60 | 2.25 | 0.027 | 0.019 | 375516 |
+| short_batch | 2080 | 3.16 | 0.658 | 0.662 | 632421 |
+| medium_single | 1260 | 1.90 | 0.663 | 0.248 | 236763 |
+| medium_batch | 40480 | 1.84 | 22.018 | 8.339 | 232538 |
+| long_single | 5940 | 2.68 | 2.216 | 1.178 | 298350 |
+| long_batch | 190240 | 2.56 | 74.449 | 39.281 | 285403 |
+| multilingual_single | 948 | 1.23 | 0.771 | 0.147 | 156850 |
+| multilingual_batch | 30496 | 1.26 | 24.277 | 4.824 | 163448 |
+| source_code_single | 1310 | 1.36 | 0.962 | 0.370 | 457176 |
+| source_code_batch | 42080 | 1.41 | 29.846 | 12.442 | 474971 |
 
-Diagnostic stage CPU time (ms, summed across rows):
+Diagnostic stage elapsed time (ms, summed across rows):
 
 | Workload | Gate | Normalize | Regex | Grapheme + chunks | Cached segmentation | Output copy |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| short_single | 0.003 | 0.004 | 0.014 | 0.001 | 0.004 | 0.003 |
-| short_batch | 0.097 | 0.123 | 0.491 | 0.057 | 0.138 | 0.113 |
-| medium_single | 0.037 | 0.047 | 1.138 | 0.016 | 0.046 | 0.031 |
-| medium_batch | 1.248 | 1.543 | 40.594 | 0.659 | 1.597 | 1.116 |
-| long_single | 0.094 | 0.114 | 1.714 | 0.042 | 0.132 | 0.070 |
-| long_batch | 5.578 | 7.180 | 110.184 | 2.801 | 6.771 | 4.991 |
-| multilingual_single | 0.022 | 0.028 | 1.340 | 0.060 | 0.035 | 0.024 |
-| multilingual_batch | 0.833 | 1.027 | 47.961 | 2.160 | 1.302 | 0.903 |
-| source_code_single | 0.039 | 0.048 | 1.706 | 0.046 | 0.133 | 0.082 |
-| source_code_batch | 1.505 | 1.773 | 65.025 | 1.721 | 4.886 | 3.238 |
+| short_single | 0.002 | 0.002 | 0.005 | 0.001 | 0.002 | 0.001 |
+| short_batch | 0.050 | 0.063 | 0.187 | 0.025 | 0.060 | 0.051 |
+| medium_single | 0.020 | 0.024 | 0.502 | 0.009 | 0.024 | 0.016 |
+| medium_batch | 0.606 | 0.723 | 15.871 | 0.316 | 0.797 | 0.510 |
+| long_single | 0.081 | 0.095 | 1.496 | 0.035 | 0.109 | 0.060 |
+| long_batch | 2.720 | 3.312 | 49.587 | 1.389 | 3.376 | 2.312 |
+| multilingual_single | 0.013 | 0.016 | 0.601 | 0.036 | 0.020 | 0.014 |
+| multilingual_batch | 0.384 | 0.482 | 18.533 | 1.096 | 0.635 | 0.415 |
+| source_code_single | 0.020 | 0.024 | 0.719 | 0.024 | 0.070 | 0.042 |
+| source_code_batch | 0.660 | 0.774 | 23.193 | 0.761 | 2.307 | 1.353 |
 
-Largest measured stage per workload (median and observed 95% range, ms):
+Largest measured stage per workload (median and observed min/max, ms):
 
 | Workload | Stage | Median | Observed range |
 | --- | --- | ---: | ---: |
-| short_single | pretokenization_regex | 0.014 | 0.011-0.015 |
-| short_batch | pretokenization_regex | 0.491 | 0.439-0.536 |
-| medium_single | pretokenization_regex | 1.138 | 1.083-1.269 |
-| medium_batch | pretokenization_regex | 40.594 | 27.656-43.161 |
-| long_single | pretokenization_regex | 1.714 | 1.512-2.456 |
-| long_batch | pretokenization_regex | 110.184 | 107.611-111.692 |
-| multilingual_single | pretokenization_regex | 1.340 | 1.269-1.430 |
-| multilingual_batch | pretokenization_regex | 47.961 | 45.065-51.204 |
-| source_code_single | pretokenization_regex | 1.706 | 1.505-1.779 |
-| source_code_batch | pretokenization_regex | 65.025 | 61.839-67.625 |
+| short_single | pretokenization_regex | 0.005 | 0.005-0.006 |
+| short_batch | pretokenization_regex | 0.187 | 0.182-0.202 |
+| medium_single | pretokenization_regex | 0.502 | 0.483-0.601 |
+| medium_batch | pretokenization_regex | 15.871 | 15.653-16.641 |
+| long_single | pretokenization_regex | 1.496 | 1.426-2.613 |
+| long_batch | pretokenization_regex | 49.587 | 47.536-52.488 |
+| multilingual_single | pretokenization_regex | 0.601 | 0.576-0.798 |
+| multilingual_batch | pretokenization_regex | 18.533 | 18.024-19.209 |
+| source_code_single | pretokenization_regex | 0.719 | 0.694-0.946 |
+| source_code_batch | pretokenization_regex | 23.193 | 22.254-23.705 |
 
 All stage ranges and raw wall samples are in `results.json`.
 `python_callstack.txt` is a cProfile call-stack report; native Rust frames are opaque there.
