@@ -1,0 +1,64 @@
+         1729767 function calls (1729447 primitive calls) in 1.579 seconds
+
+   Ordered by: cumulative time
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        5    0.000    0.000    0.538    0.108 tokenizer.py:879(encode_batch)
+        5    0.000    0.000    0.538    0.108 tokenizer.py:212(_encode_tokens_native_batch)
+        5    0.000    0.000    0.531    0.106 tokenizer.py:940(encode_to_ids_batch)
+        5    0.000    0.000    0.531    0.106 tokenizer.py:226(_encode_ids_native_batch)
+      165    0.002    0.000    0.472    0.003 tokenizer.py:1095(decode)
+        5    0.000    0.000    0.453    0.091 tokenizer.py:1107(decode_batch)
+        5    0.001    0.000    0.453    0.091 tokenizer.py:1125(<listcomp>)
+  525/205    0.100    0.000    0.407    0.002 {built-in method builtins.any}
+      330    0.002    0.000    0.405    0.001 tokenizer.py:138(_requires_python_security)
+      330    0.001    0.000    0.397    0.001 _native.py:6(native_text_supported)
+        5    0.352    0.070    0.352    0.070 {built-in method uniqtoken_core.uniqtoken_core.rust_encode_text_native_batch}
+        5    0.323    0.065    0.323    0.065 {built-in method uniqtoken_core.uniqtoken_core.rust_encode_text_native_ids_batch}
+   480714    0.218    0.000    0.297    0.000 _native.py:7(<genexpr>)
+      165    0.194    0.001    0.286    0.002 pre_tokenizer.py:260(restore_escaped_metaspace)
+      165    0.000    0.000    0.207    0.001 tokenizer.py:236(<genexpr>)
+      165    0.000    0.000    0.185    0.001 tokenizer.py:222(<genexpr>)
+      165    0.004    0.000    0.182    0.001 unigram_trainer.py:594(decode)
+      165    0.073    0.000    0.147    0.001 byte_codec.py:70(decode_tokens)
+   480384    0.079    0.000    0.079    0.000 {built-in method builtins.ord}
+   286083    0.056    0.000    0.056    0.000 {method 'append' of 'list' objects}
+   286293    0.049    0.000    0.049    0.000 {built-in method builtins.len}
+    46317    0.023    0.000    0.034    0.000 byte_codec.py:31(is_byte_token)
+      165    0.021    0.000    0.030    0.000 unigram_trainer.py:597(<listcomp>)
+        5    0.000    0.000    0.019    0.004 tokenizer.py:647(encode)
+        5    0.000    0.000    0.018    0.004 tokenizer.py:772(encode_to_ids)
+    46177    0.016    0.000    0.016    0.000 {method 'replace' of 'str' objects}
+        5    0.012    0.002    0.012    0.002 {built-in method uniqtoken_core.uniqtoken_core.rust_encode_text_native_ids}
+    46342    0.011    0.000    0.011    0.000 byte_codec.py:82(flush_bytes)
+        5    0.011    0.002    0.011    0.002 {built-in method uniqtoken_core.uniqtoken_core.rust_encode_text_native}
+    46537    0.009    0.000    0.009    0.000 {method 'get' of 'dict' objects}
+      330    0.006    0.000    0.006    0.000 {built-in method unicodedata.normalize}
+      330    0.005    0.000    0.005    0.000 {method 'join' of 'str' objects}
+     4859    0.002    0.000    0.002    0.000 {method 'startswith' of 'str' objects}
+      185    0.001    0.000    0.002    0.000 tokenizer.py:1091(_indent_compression_enabled)
+       20    0.000    0.000    0.002    0.000 tokenizer.py:179(_native_pipeline_kwargs)
+     1110    0.001    0.000    0.001    0.000 tokenizer.py:1093(<genexpr>)
+      165    0.001    0.000    0.001    0.000 <frozen importlib._bootstrap>:404(parent)
+      140    0.001    0.000    0.001    0.000 byte_codec.py:44(token_to_byte)
+       40    0.000    0.000    0.001    0.000 tokenizer.py:126(_sync_model_caches)
+       20    0.000    0.000    0.001    0.000 tokenizer.py:147(_cross_word_tokens)
+      280    0.001    0.000    0.001    0.000 {method 'match' of 're.Pattern' objects}
+       20    0.000    0.000    0.001    0.000 byte_codec.py:7(validate_dropout_prob)
+       60    0.000    0.000    0.001    0.000 unigram_trainer.py:254(_ensure_validated)
+      165    0.000    0.000    0.000    0.000 {method 'rpartition' of 'str' objects}
+      110    0.000    0.000    0.000    0.000 {method 'decode' of 'bytearray' objects}
+       20    0.000    0.000    0.000    0.000 unigram_trainer.py:352(_get_rust_trie)
+       20    0.000    0.000    0.000    0.000 tokenizer.py:166(_special_tokens_contain_pipe_marker)
+      140    0.000    0.000    0.000    0.000 {method 'group' of 're.Match' objects}
+       20    0.000    0.000    0.000    0.000 unigram_trainer.py:332(_sync_cache)
+      140    0.000    0.000    0.000    0.000 {method 'append' of 'bytearray' objects}
+       60    0.000    0.000    0.000    0.000 unigram_trainer.py:249(_state_version)
+       20    0.000    0.000    0.000    0.000 _native.py:15(native_function)
+      110    0.000    0.000    0.000    0.000 {method 'clear' of 'bytearray' objects}
+       60    0.000    0.000    0.000    0.000 {built-in method builtins.isinstance}
+       20    0.000    0.000    0.000    0.000 pre_tokenizer.py:588(_native_pretok_parity)
+       20    0.000    0.000    0.000    0.000 {built-in method builtins.getattr}
+       40    0.000    0.000    0.000    0.000 {built-in method builtins.id}
+       15    0.000    0.000    0.000    0.000 {built-in method builtins.hasattr}
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}
