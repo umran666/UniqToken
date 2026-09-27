@@ -727,6 +727,9 @@ pub fn rust_encode_text_native_ids_batch<'py>(
 /// Diagnostic replay of the fused token path. Timers surround the same
 /// operations as `encode_text_native_inner`; no timers run in production.
 #[cfg(feature = "python")]
+type NativeProfileRow = (Vec<String>, Vec<u32>, [u64; 6]);
+
+#[cfg(feature = "python")]
 #[allow(clippy::too_many_arguments)]
 fn profile_text_native(
     text: &str,
@@ -739,7 +742,7 @@ fn profile_text_native(
     lowercase: bool,
     collapse_whitespaces: bool,
     strip_whitespace: bool,
-) -> CoreResult<(Vec<String>, Vec<u32>, [u64; 6])> {
+) -> CoreResult<NativeProfileRow> {
     let mut ns = [0_u64; 6];
     let start = Instant::now();
     native_security_gate(text)?;
@@ -794,7 +797,7 @@ pub fn rust_profile_native_batch<'py>(
     lowercase: bool,
     collapse_whitespaces: bool,
     strip_whitespace: bool,
-) -> CoreResult<Vec<(Vec<String>, Vec<u32>, [u64; 6])>> {
+) -> CoreResult<Vec<NativeProfileRow>> {
     let borrowed = extract_borrowed_strings(texts)?;
     let run = |text: &PyBackedStr| profile_text_native(
         text.as_ref(), trie, byte_fallback, space_char, normalize_unicode,
