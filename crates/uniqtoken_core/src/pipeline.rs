@@ -19,6 +19,8 @@ use rayon::prelude::*;
 use regex::Regex;
 #[cfg(feature = "python")]
 use std::collections::HashSet;
+#[cfg(feature = "python")]
+use std::time::Instant;
 use std::sync::OnceLock;
 #[cfg(feature = "python")]
 use unicode_normalization::UnicodeNormalization;
@@ -720,6 +722,89 @@ pub fn rust_encode_text_native_ids_batch<'py>(
             })
             .collect()
     })
+}
+
+/// Diagnostic replay of the fused token path. Timers surround the same
+/// operations as `encode_text_native_inner`; no timers run in production.
+#[cfg(feature = "python")]
+#[allow(clippy::too_many_arguments)]
+fn profile_text_native(
+    text: &str,
+    trie: &RustPrefixTrie,
+    byte_fallback: bool,
+    space_char: char,
+    normalize_unicode: bool,
+    normalize_unicode_spaces: bool,
+    normalize_punctuation: bool,
+    lowercase: bool,
+    collapse_whitespaces: bool,
+    strip_whitespace: bool,
+) -> CoreResult<(Vec<String>, Vec<u32>, [u64; 6])> {
+    let mut ns = [0_u64; 6];
+    let start = Instant::now();
+    native_security_gate(text)?;
+    ns[0] = start.elapsed().as_nanos() as u64;
+    let start = Instant::now();
+    let normalized = normalize_inner(
+        text, space_char, normalize_unicode, normalize_unicode_spaces,
+        normalize_punctuation, lowercase, collapse_whitespaces, strip_whitespace,
+    )?;
+    ns[1] = start.elapsed().as_nanos() as u64;
+    let re = get_full_pretok_regex();
+    let start = Instant::now();
+    let spans: Vec<(usize, usize)> = re.find_iter(&normalized)
+        .map(|m| (m.start(), m.end())).collect();
+    ns[2] = start.elapsed().as_nanos() as u64;
+    let start = Instant::now();
+    let spans = snap_spans_to_graphemes(&normalized, &spans);
+    let chunks: Vec<String> = spans.into_iter()
+        .map(|(s, e)| normalized[s..e].to_string()).collect();
+    ns[3] = start.elapsed().as_nanos() as u64;
+    let mut tokens = Vec::new();
+    let mut ids = Vec::new();
+    for chunk in chunks {
+        let start = Instant::now();
+        let seg = decode_cached(&chunk, trie, byte_fallback).map_err(CoreError)?;
+        ns[4] += start.elapsed().as_nanos() as u64;
+        let start = Instant::now();
+        for (token, token_id, ..) in seg.iter() {
+            ids.push(token_id.ok_or_else(|| CoreError(format!("decoded token {:?} has no integer ID", token)))?);
+            tokens.push(token.clone());
+        }
+        ns[5] += start.elapsed().as_nanos() as u64;
+    }
+    Ok((tokens, ids, ns))
+}
+
+/// Per-row CPU timing in nanoseconds: security, normalization, regex,
+/// grapheme snapping and chunk copies, cached segmentation, output copies.
+#[cfg(feature = "python")]
+#[pyfunction]
+#[allow(clippy::too_many_arguments)]
+#[pyo3(signature = (texts, trie, byte_fallback=true, space_char='\u{2581}', normalize_unicode=true, normalize_unicode_spaces=true, normalize_punctuation=false, lowercase=false, collapse_whitespaces=false, strip_whitespace=false))]
+pub fn rust_profile_native_batch<'py>(
+    py: Python<'py>,
+    texts: &Bound<'py, PyAny>,
+    trie: &RustPrefixTrie,
+    byte_fallback: bool,
+    space_char: char,
+    normalize_unicode: bool,
+    normalize_unicode_spaces: bool,
+    normalize_punctuation: bool,
+    lowercase: bool,
+    collapse_whitespaces: bool,
+    strip_whitespace: bool,
+) -> CoreResult<Vec<(Vec<String>, Vec<u32>, [u64; 6])>> {
+    let borrowed = extract_borrowed_strings(texts)?;
+    let run = |text: &PyBackedStr| profile_text_native(
+        text.as_ref(), trie, byte_fallback, space_char, normalize_unicode,
+        normalize_unicode_spaces, normalize_punctuation, lowercase,
+        collapse_whitespaces, strip_whitespace,
+    );
+    if borrowed.len() < 32 {
+        return borrowed.iter().map(run).collect();
+    }
+    py.detach(|| borrowed.par_iter().map(run).collect())
 }
 
 #[cfg(all(test, feature = "python"))]

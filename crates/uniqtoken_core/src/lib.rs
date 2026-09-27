@@ -18,6 +18,7 @@ use normalizer::{rust_normalize, rust_normalize_with_alignment};
 use pipeline::{
     rust_encode_text_batch, rust_encode_text_native, rust_encode_text_native_batch, rust_encode_text_native_ids,
     rust_encode_text_native_ids_batch, rust_pre_tokenize,
+    rust_profile_native_batch,
 };
 #[cfg(feature = "python")]
 use rust_tokenizer::{rust_diagnostic_batch, RustTokenizer};
@@ -50,6 +51,7 @@ fn uniqtoken_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(rust_encode_text_native_batch, m)?)?;
     m.add_function(wrap_pyfunction!(rust_encode_text_native_ids, m)?)?;
     m.add_function(wrap_pyfunction!(rust_encode_text_native_ids_batch, m)?)?;
+    m.add_function(wrap_pyfunction!(rust_profile_native_batch, m)?)?;
     m.add_function(wrap_pyfunction!(rust_forward_backward_expectations, m)?)?;
     m.add_function(wrap_pyfunction!(rust_normalize, m)?)?;
     m.add_function(wrap_pyfunction!(rust_normalize_with_alignment, m)?)?;
