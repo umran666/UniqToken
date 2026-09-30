@@ -279,7 +279,7 @@ class FailureIntegrityTests(unittest.TestCase):
             manifest = {"splits": {split: {"path": split + ".jsonl"} for split in ("train", "validation", "test")}}
             with patch.object(Path, "open", side_effect=AssertionError("test must not be opened")):
                 paths = runner.guard_split_paths(base / "manifest.json", manifest)
-                self.assertEqual(paths["test"], base / "test.jsonl")
+                self.assertEqual(paths["test"], (base / "test.jsonl").resolve())
                 alias = copy.deepcopy(manifest)
                 alias["splits"]["train"]["path"] = "test.jsonl"
                 with self.assertRaisesRegex(ValueError, "alias"):
