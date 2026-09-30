@@ -88,8 +88,13 @@ def workload_cases():
 
 def reference_raw_spans(tok, text, tokens):
     """Align token text to normalized characters without using tokenizer offset APIs."""
-    normalized, alignment = tok.normalizer.normalize_with_alignment(text)
-    source_spans = [entry if isinstance(entry, tuple) else (entry, entry + 1) for entry in alignment]
+    prepared, prepared_alignment = tok._prepare_text_with_alignment(
+        text,
+        allowed_special="none",
+        disallowed_special_action="escape",
+    )
+    normalized, normalization_alignment = tok.normalizer.normalize_with_alignment(prepared)
+    source_spans = tok._compose_alignment(normalization_alignment, prepared_alignment)
     spans = []
     pending = bytearray()
     pending_count = 0
@@ -124,8 +129,10 @@ def reference_raw_spans(tok, text, tokens):
         position = end
     if pending or position != len(normalized):
         raise AssertionError("token stream does not cover normalized text")
-    if {index for start, stop in spans for index in range(start, stop)} != set(range(len(text))):
-        raise AssertionError("token spans do not cover raw text")
+    covered = {index for start, stop in spans for index in range(start, stop)}
+    expected = {index for start, stop in prepared_alignment for index in range(start, stop)}
+    if covered != expected:
+        raise AssertionError("token spans do not cover prepared text")
     return spans
 
 

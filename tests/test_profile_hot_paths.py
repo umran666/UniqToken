@@ -11,6 +11,12 @@ class HotPathProfilerTests(unittest.TestCase):
     def test_observed_range_includes_all_samples(self):
         self.assertEqual(profiler.observed_range([1.0, 3.0, 2.0]), [1.0, 3.0])
 
+    def test_reference_spans_match_offsets_for_escaped_special_token(self):
+        tok = profiler.make_tokenizer()
+        text = "  hello <|endoftext|> world  "
+        expected = [token.raw_span for token in tok.encode_with_offsets(text)]
+        self.assertEqual(profiler.reference_raw_spans(tok, text, tok.encode(text)), expected)
+
     def test_profile_parity_gate_rejects_corrupt_offsets(self):
         import uniqtoken_core
 
