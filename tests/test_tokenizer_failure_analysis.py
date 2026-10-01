@@ -143,6 +143,22 @@ class FailureMetricTests(unittest.TestCase):
 
 
 class FailureIntegrityTests(unittest.TestCase):
+    def test_invalid_configuration_rejected_before_data_access(self):
+        import argparse
+
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            args = argparse.Namespace(
+                dataset=base / "inputs" / "manifest.json",
+                phase_a=base / "models" / "ledger.json",
+                output=base / "output",
+                rare_threshold=5,
+                max_training_documents_per_stratum=-1,
+            )
+            with patch.object(h, "read_json", side_effect=AssertionError("must not read inputs")):
+                with self.assertRaisesRegex(ValueError, "training document cap"):
+                    runner.run(args)
+
     def test_deterministic_json_csv_report_and_plots_on_fixed_fixture(self):
         _, assignments, records = fixed_analysis()
         all_records = []

@@ -81,7 +81,8 @@ def character_runs(text, predicate):
 
 def fragmentation(runs, starts, ends):
     intersections, split_runs, excess = 0, 0, 0
-    isolated, mixed = set(), set()
+    isolated: set[int] = set()
+    mixed: set[int] = set()
     for start, end, _ in runs:
         left, right = bisect_right(ends, start), bisect_left(starts, end)
         count = right - left
@@ -139,7 +140,7 @@ class Counts:
             ("punctuation", lambda char: unicodedata.category(char).startswith("P")),
         ):
             self.boundaries[kind].update(fragmentation(character_runs(text, predicate), starts, ends))
-        fields_per_token = Counter()
+        fields_per_token: Counter[int] = Counter()
         for start, end, _ in character_runs(text, lambda char: not char.isspace()):
             fields_per_token.update(range(bisect_right(ends, start), bisect_left(starts, end)))
         self.cross_word_tokens += sum(count > 1 for count in fields_per_token.values())
@@ -230,19 +231,21 @@ def analyze_condition(tokenizer, assignments, rare_threshold=5):
     """Pool raw counts before computing ratios, vocabulary unions, and quantiles."""
     split_counts = {}
     for split in ("train", "validation"):
-        strata = {}
+        strata: dict[tuple[str, str], Counts] = {}
         for row, text in assignments[split]:
             strata.setdefault((row["domain"], row["language"]), Counts()).observe(tokenizer, row, text)
         require(strata, f"no diagnostic documents for {split}")
         split_counts[split] = strata
-    training_frequencies = Counter()
+    training_frequencies: Counter[int] = Counter()
     for counts in split_counts["train"].values():
         training_frequencies.update(counts.frequencies)
     records = []
     for split, strata in split_counts.items():
-        scopes = [("stratum", domain, language, counts) for (domain, language), counts in sorted(strata.items())]
+        scopes: list[tuple[str, str | None, str | None, Counts]] = [
+            ("stratum", domain, language, counts) for (domain, language), counts in sorted(strata.items())
+        ]
         for scope, position in (("language", 1), ("domain", 0)):
-            grouped = {}
+            grouped: dict[str, Counts] = {}
             for key, counts in sorted(strata.items()):
                 grouped.setdefault(key[position], Counts()).combine(counts)
             scopes.extend(

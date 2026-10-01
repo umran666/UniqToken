@@ -61,7 +61,8 @@ def assignment_info(pairs):
 
 def select_training(pairs, cap):
     h.require(type(cap) is int and cap >= 0, "training document cap must be a non-negative integer")
-    seen, selected = Counter(), []
+    seen: Counter[tuple[str, str]] = Counter()
+    selected = []
     for row, text in pairs:
         key = (row["domain"], row["language"])
         if not cap or seen[key] < cap:
@@ -431,6 +432,10 @@ def run(args):
     )
     h.require(
         type(args.rare_threshold) is int and args.rare_threshold >= 0, "rare threshold must be a non-negative integer"
+    )
+    h.require(
+        type(args.max_training_documents_per_stratum) is int and args.max_training_documents_per_stratum >= 0,
+        "training document cap must be a non-negative integer",
     )
     identity = h.runtime_identity()
     h.require(not identity["working_tree_dirty"], "commit the diagnostic code before research runs")
