@@ -64,6 +64,7 @@ python benchmarks/benchmark_suite.py
 - `uniqtoken/pre_tokenizer.py`: normalization, character alignment, and ordered regex boundaries.
 - `uniqtoken/unigram_trainer.py`: EM-based Unigram vocabulary trainer with convergence checks.
 - `uniqtoken/bpe_trainer.py`: BPE vocabulary training; cross-word CEM/SuperBPE extension lives in `uniqtoken/cem_merger.py`.
+- `docs/MERGE_ENGINE_DESIGN.md`: proposed internal SuperBPE merge-execution contract and implementation-track review gates ([issue #107](https://github.com/umran666/UniqToken/issues/107)).
 - `uniqtoken/hf_adapter.py`: native `PreTrainedTokenizerFast` adapter.
 - `uniqtoken/integrations/`: serving integrations such as the vLLM adapter.
 - `benchmarks/`: held-out diagnostics plus the fail-closed Phase A/B/C research harnesses and protocols.
