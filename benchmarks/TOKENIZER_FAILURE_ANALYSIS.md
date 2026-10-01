@@ -13,6 +13,7 @@ The loader verifies their relationship, exact training and screening-validation
 assignments, all model artifact hashes, controls, budgets and historical
 condition records. A replacement dataset with the same name is not equivalent.
 Commit the reviewed code first; a dirty checkout is rejected.
+Install the `bench` extra for the analysis and plots (`pip install -e ".[bench]"`).
 
 ```bash
 python -m benchmarks.analyze_tokenizer_failures \
@@ -117,7 +118,8 @@ It makes no throughput claim and changes no library code or frozen artifact.
   #86, #88 and #89, limitations and the missing-validation gap for #94.
 - `manifest.json`: complete-run marker and SHA-256 for every published artifact.
 
-The retained issue-85 results under `benchmarks/failure_analysis/issue85/` use the
+The retained [issue-85 report](failure_analysis/issue85/REPORT.md) and results
+under `benchmarks/failure_analysis/issue85/` use the
 configuration and source commit recorded in their receipt. They are descriptive
 observations scoped to these frozen models and samples. They do not establish a
 globally best tokenizer or a causal mechanism. Phase B's 16K byte-matched

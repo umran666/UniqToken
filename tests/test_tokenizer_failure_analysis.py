@@ -187,6 +187,25 @@ class FailureMetricTests(unittest.TestCase):
 
 
 class FailureIntegrityTests(unittest.TestCase):
+    def test_retained_frozen_run_receipt_and_accounting(self):
+        evidence = Path(runner.__file__).parent / "failure_analysis" / "issue85"
+        receipt = json.loads((evidence / "manifest.json").read_text(encoding="utf-8"))
+        self.assertEqual(receipt["status"], "complete")
+        for name, expected in receipt["artifacts"].items():
+            self.assertEqual(hashlib.sha256((evidence / name).read_bytes()).hexdigest(), expected, name)
+        result = json.loads((evidence / "results.json").read_text(encoding="utf-8"))
+        self.assertEqual(h.digest(result), receipt["results_content_sha256"])
+        self.assertEqual(result["test_access"], "forbidden_not_opened_or_hashed")
+        self.assertFalse(result["identity"]["working_tree_dirty"])
+        self.assertEqual(len(result["models"]), 9)
+        self.assertEqual(len(result["inputs"]["coverage"]), 30)
+        for record in result["records"]:
+            histogram = record["token_length_bytes_histogram"]
+            self.assertEqual(sum(histogram.values()), record["tokens"])
+            self.assertEqual(
+                sum(int(length) * count for length, count in histogram.items()), record["normalized_utf8_bytes"]
+            )
+
     def test_invalid_configuration_rejected_before_data_access(self):
         import argparse
 
