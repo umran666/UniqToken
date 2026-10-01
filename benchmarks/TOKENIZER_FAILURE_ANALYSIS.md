@@ -93,6 +93,14 @@ The metrics module pools sufficient counts, ID frequency counters and length
 histograms before calculating language, domain and aggregate values. It never
 averages per-stratum ratios or quantiles. All plots use the same recorded tables.
 
+For Boundary-BPE the analyzer validates the byte maps once and temporarily uses
+immutable copies of vocabulary/ID/rank lookup tables for each condition. Within
+that read-only scope it memoizes repeated byte-map validation; the production
+heap, whitespace chunking, pieces, IDs and round-trip checks are unchanged.
+Original object fields/methods are restored even on failure. This reader is
+recorded as `validated_immutable_maps_v1` and has production-ID parity tests.
+It makes no throughput claim and changes no library code or frozen artifact.
+
 ## Outputs
 
 - `results.json`: schema, deterministic configuration, metric definitions,
@@ -128,4 +136,5 @@ two runs on one runtime. Independent tests cover multi-byte punctuation fallback
 weighted aggregate accounting, vocabulary unions, quantiles, training-only rarity,
 source reconstruction errors, the production SuperBPE observer, explicit sampling,
 split aliases, a poison test path, and legacy validation metric drift. Cross-host
-PNG byte identity is not promised; software/font versions are recorded.
+PNG byte identity is not promised; software versions are recorded and plots use
+the DejaVu Sans font family.

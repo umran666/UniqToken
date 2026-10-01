@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from bisect import bisect_left, bisect_right
 from collections import Counter
+from contextlib import contextmanager, ExitStack
 from dataclasses import dataclass, field
-import re
+from types import MappingProxyType
 import unicodedata
 from unittest.mock import patch
 
@@ -227,7 +228,34 @@ class Counts:
         return result
 
 
+@contextmanager
+def readonly_tokenizer(tokenizer):
+    """Memoize invariant validation only while BPE lookup tables are immutable."""
+    if tokenizer.name != "boundary_bpe":
+        yield tokenizer
+        return
+    model = tokenizer.model
+    model._validate_byte_fallback()
+    snapshot = {
+        "vocab": frozenset(model.vocab),
+        "token_to_id": MappingProxyType(dict(model.token_to_id)),
+        "id_to_token": MappingProxyType(dict(model.id_to_token)),
+        "merges": MappingProxyType(dict(model.merges)),
+    }
+    with ExitStack() as stack:
+        for name, value in snapshot.items():
+            stack.enter_context(patch.object(model, name, value))
+        stack.enter_context(patch.object(tokenizer, "vocab", snapshot["token_to_id"]))
+        stack.enter_context(patch.object(model, "_validate_byte_fallback", lambda: None))
+        yield tokenizer
+
+
 def analyze_condition(tokenizer, assignments, rare_threshold=5):
+    with readonly_tokenizer(tokenizer):
+        return _analyze_condition(tokenizer, assignments, rare_threshold)
+
+
+def _analyze_condition(tokenizer, assignments, rare_threshold):
     """Pool raw counts before computing ratios, vocabulary unions, and quantiles."""
     split_counts = {}
     for split in ("train", "validation"):

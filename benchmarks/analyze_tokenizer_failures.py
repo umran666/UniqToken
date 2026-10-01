@@ -513,6 +513,7 @@ def run(args):
             "validation_partition": "screening",
             "rare_threshold": args.rare_threshold,
             "dropout_prob": 0.0,
+            "boundary_bpe_reader": "validated_immutable_maps_v1",
             "plots": not args.no_plots,
         },
         "metric_definitions": DEFINITIONS,

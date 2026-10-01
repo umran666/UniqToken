@@ -14,7 +14,7 @@ from unittest.mock import patch
 from benchmarks import analyze_tokenizer_failures as runner
 from benchmarks import run_phase_a as stages
 from benchmarks import run_research_experiments as h
-from benchmarks.tokenizer_failure_metrics import Counts, analyze_condition, encode_document
+from benchmarks.tokenizer_failure_metrics import Counts, analyze_condition, encode_document, readonly_tokenizer
 
 
 class FixtureTokenizer:
@@ -58,6 +58,50 @@ def fixed_analysis():
 
 
 class FailureMetricTests(unittest.TestCase):
+    def _boundary_tokenizer(self):
+        from uniqtoken.bpe_model import BPEModel
+
+        pieces = [*h.SPECIALS, *(f"<0x{i:02X}>" for i in range(256)), "a", "b", "ab", " "]
+        vocab = {piece: i for i, piece in enumerate(pieces)}
+        model = BPEModel(
+            set(vocab), vocab, {i: piece for piece, i in vocab.items()}, {("a", "b"): 0}, list(h.SPECIALS), True
+        )
+        return h.ResearchTokenizer("boundary_bpe", model, vocab)
+
+    def test_immutable_boundary_reader_matches_production_ids_and_restores_state(self):
+        import random
+
+        tokenizer = self._boundary_tokenizer()
+        rng = random.Random(85)
+        texts = ["ab ab", "ab\tab\n", "\u00e9\u2014!ab"]
+        texts.extend("".join(rng.choice("ab \t\n\u00e9\u2014!") for _ in range(rng.randint(1, 50))) for _ in range(100))
+        expected = [tokenizer.encode(text) for text in texts]
+        model = tokenizer.model
+        originals = {name: getattr(model, name) for name in ("vocab", "token_to_id", "id_to_token", "merges")}
+        with patch.object(model, "_validate_byte_fallback", wraps=model._validate_byte_fallback) as validator:
+            with readonly_tokenizer(tokenizer):
+                self.assertEqual([tokenizer.encode(text) for text in texts], expected)
+                with self.assertRaises(TypeError):
+                    model.token_to_id["new"] = 999
+                with self.assertRaises(TypeError):
+                    model.merges[("b", "a")] = 1
+                self.assertEqual(validator.call_count, 1)
+        for name, value in originals.items():
+            self.assertIs(getattr(model, name), value)
+        self.assertIs(tokenizer.vocab, originals["token_to_id"])
+        with self.assertRaisesRegex(RuntimeError, "fixture failure"):
+            with readonly_tokenizer(tokenizer):
+                raise RuntimeError("fixture failure")
+        for name, value in originals.items():
+            self.assertIs(getattr(model, name), value)
+
+    def test_immutable_boundary_reader_rejects_invalid_maps_before_encoding(self):
+        tokenizer = self._boundary_tokenizer()
+        tokenizer.model.id_to_token[tokenizer.vocab["<0x00>"]] = "broken"
+        with self.assertRaisesRegex(ValueError, "byte fallback IDs"):
+            with readonly_tokenizer(tokenizer):
+                self.fail("invalid frozen snapshot was accepted")
+
     def test_byte_fallback_length_and_unicode_punctuation_fragmentation(self):
         text = "\u00e9\u2014!"
         tokenizer = FixtureTokenizer({text: ["<0xC3>", "<0xA9>", "<0xE2>", "<0x80>", "<0x94>", "!"]})
