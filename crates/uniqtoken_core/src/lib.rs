@@ -9,6 +9,8 @@ pub mod rust_tokenizer;
 pub mod seed;
 pub mod trie;
 pub mod viterbi;
+#[cfg(feature = "allocation-profile")]
+mod allocation_profile;
 #[cfg(feature = "wasm")]
 pub mod wasm;
 
@@ -52,6 +54,10 @@ fn uniqtoken_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(rust_encode_text_native_ids, m)?)?;
     m.add_function(wrap_pyfunction!(rust_encode_text_native_ids_batch, m)?)?;
     m.add_function(wrap_pyfunction!(rust_profile_native_batch, m)?)?;
+    #[cfg(feature = "allocation-profile")]
+    m.add_function(wrap_pyfunction!(pipeline::rust_allocation_profile_native_batch, m)?)?;
+    #[cfg(feature = "allocation-profile")]
+    m.add_function(wrap_pyfunction!(viterbi::rust_allocation_profile_viterbi, m)?)?;
     m.add_function(wrap_pyfunction!(rust_forward_backward_expectations, m)?)?;
     m.add_function(wrap_pyfunction!(rust_normalize, m)?)?;
     m.add_function(wrap_pyfunction!(rust_normalize_with_alignment, m)?)?;

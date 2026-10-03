@@ -729,6 +729,39 @@ pub fn rust_encode_text_native_ids_batch<'py>(
 #[cfg(feature = "python")]
 type NativeProfileRow = (Vec<String>, Vec<u32>, [u64; 6]);
 
+#[cfg(all(feature = "python", feature = "allocation-profile"))]
+type AllocationProfileRow = (Option<Vec<Vec<String>>>, Option<Vec<Vec<u32>>>, crate::allocation_profile::Counts);
+
+/// Count Rust heap requests around the ordinary fused batch API. Run in an
+/// isolated process; concurrent unrelated Rust calls would share the counter.
+#[cfg(all(feature = "python", feature = "allocation-profile"))]
+#[pyfunction]
+#[allow(clippy::too_many_arguments)]
+#[pyo3(signature = (texts, trie, output_ids=false, byte_fallback=true, space_char='\u{2581}', normalize_unicode=true, normalize_unicode_spaces=true, normalize_punctuation=false, lowercase=false, collapse_whitespaces=false, strip_whitespace=false))]
+pub fn rust_allocation_profile_native_batch<'py>(
+    py: Python<'py>, texts: &Bound<'py, PyAny>, trie: &RustPrefixTrie,
+    output_ids: bool, byte_fallback: bool, space_char: char,
+    normalize_unicode: bool, normalize_unicode_spaces: bool,
+    normalize_punctuation: bool, lowercase: bool,
+    collapse_whitespaces: bool, strip_whitespace: bool,
+) -> CoreResult<AllocationProfileRow> {
+    if output_ids {
+        let (result, counts) = crate::allocation_profile::measure(|| rust_encode_text_native_ids_batch(
+            py, texts, trie, byte_fallback, space_char, normalize_unicode,
+            normalize_unicode_spaces, normalize_punctuation, lowercase,
+            collapse_whitespaces, strip_whitespace,
+        ))?;
+        Ok((None, Some(result?), counts))
+    } else {
+        let (result, counts) = crate::allocation_profile::measure(|| rust_encode_text_native_batch(
+            py, texts, trie, byte_fallback, space_char, normalize_unicode,
+            normalize_unicode_spaces, normalize_punctuation, lowercase,
+            collapse_whitespaces, strip_whitespace,
+        ))?;
+        Ok((Some(result?), None, counts))
+    }
+}
+
 #[cfg(feature = "python")]
 #[allow(clippy::too_many_arguments)]
 fn profile_text_native(

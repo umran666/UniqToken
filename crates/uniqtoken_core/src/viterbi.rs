@@ -224,6 +224,24 @@ pub fn rust_diagnostic_viterbi(
     Ok((t_trie, t_dp, edges, states))
 }
 
+#[cfg(all(feature = "python", feature = "allocation-profile"))]
+#[pyfunction]
+pub fn rust_allocation_profile_viterbi(
+    text: &str,
+    trie: &RustPrefixTrie,
+    byte_fallback: bool,
+) -> CoreResult<(Vec<ViterbiSpan>, crate::allocation_profile::Counts)> {
+    let (result, counts) = crate::allocation_profile::measure(|| {
+        if text.is_ascii() {
+            viterbi_decode_ascii(text.as_bytes(), trie, byte_fallback, None)
+        } else {
+            let chars: Vec<char> = text.chars().collect();
+            viterbi_decode_chars(&chars, trie, byte_fallback, None)
+        }
+    })?;
+    Ok((result.map_err(CoreError)?, counts))
+}
+
 #[cfg(any(test, feature = "fuzzing"))]
 pub fn viterbi_decode_chars(
     chars: &[char],
