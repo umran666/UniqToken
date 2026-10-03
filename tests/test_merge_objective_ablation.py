@@ -6,6 +6,7 @@ from pathlib import Path
 import unittest
 
 from benchmarks import merge_objective_ablation as m
+from benchmarks import receipt_archive as a
 from benchmarks import run_research_experiments as h
 from tests.test_byte_fallback_analysis import byte_model
 from uniqtoken.cem_merger import SuperBPE
@@ -21,7 +22,10 @@ def inputs():
 
 class ObjectiveAblationTests(unittest.TestCase):
     def test_retained_matrix_is_receipted_and_uses_one_candidate_pool(self):
-        root = Path(m.__file__).parent / "objective_ablation" / "issue87"
+        with a.retained_bundle(Path(m.__file__).parent / "objective_ablation" / "issue87") as root:
+            self._check_retained(root)
+
+    def _check_retained(self, root):
         receipt = h.read_json(root / "manifest.json")
         self.assertEqual(receipt["status"], "complete")
         for path, digest in receipt["artifacts"].items():

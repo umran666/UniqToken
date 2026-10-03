@@ -79,3 +79,12 @@ python -m unittest tests.test_merge_objective_ablation -v
 Run from a clean committed checkout with the release native extension installed.
 The output must be new. Source/runtime, assignment, pool, model and output hashes
 make each condition auditable. No frozen Phase A/B/C artifact is rewritten.
+
+The committed `objective_ablation/issue87/evidence.zip` preserves every original
+model, result and manifest byte. Reports and CSV remain directly readable;
+`archive.json` binds the ZIP and previews. Tests verify and extract the archive
+before checking the complete matrix. To inspect the original layout:
+
+```powershell
+python -m benchmarks.receipt_archive unpack --source benchmarks/objective_ablation/issue87 --output artifacts/issue87-original
+```

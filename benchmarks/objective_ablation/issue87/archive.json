@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "status": "complete",
+  "archive_sha256": "124edffa73721d3696142fd4250a480303cd8718853f05a080f4620192960407",
+  "original_manifest_sha256": "71163a2f8b38967dd94eba960622e3b3a2de7cd926bd2519d9f3b83a77873912",
+  "artifacts": {
+    "evidence.zip": "124edffa73721d3696142fd4250a480303cd8718853f05a080f4620192960407",
+    "metrics.csv": "d097792ed6f93527e37ddda6e630f3b09b21b8f5876671d2b48e6d6236b71133",
+    "REPORT.md": "14413d30b7b3cc8ec7621b7615e55c16a0e27e3a263af0888bae9f68048eddeb"
+  }
+}
