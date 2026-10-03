@@ -341,7 +341,7 @@ def report(rows, payload):
         "",
         "## Memory and Complexity",
         "",
-        "Every batch size has isolated allocation/requested-byte/live-peak and process high-water RSS observations. Rust counts exclude Python and C++ heaps. Process RSS includes imports, model construction and validation; its high-water subtraction does not isolate live scratch. Prefix-only memory is not directly measured; its purpose is timing attribution while retaining the old lattice.",
+        "Every batch size has isolated allocation/requested-byte/live-peak and process high-water RSS observations. Raw segmentation counters cover the uncached Rust decoder before Python materialization; its timing API includes the ordinary memoization wrapper with cold clears outside call wall. Full-batch counters wrap the ordinary fused Rust API before Python materialization. Rust counts exclude Python and C++ heaps. Process RSS includes imports, model construction and validation; its high-water subtraction does not isolate live scratch. Prefix-only memory is not directly measured; its purpose is timing attribution while retaining the old lattice.",
         "",
         "The compact unpruned algorithm takes O(n L) time and O(n) scratch plus O(n) selected output. At most four fallback tokens are emitted per source character. With no maximum subword length, L can equal n, yielding quadratic time but linear scratch. The old dense lattice stores O(n L) owned edges and up to O(n L squared) copied prefix bytes. Pruned decoding retains the old lattice, edge sorting and tie behavior. No additional cache, buffer pooling, unbounded retention, trie representation change or SIMD is introduced.",
         "",
