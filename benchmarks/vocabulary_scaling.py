@@ -325,6 +325,32 @@ def main():
         run(args.dataset, args.output, args.timeout)
 
 
+def verified_bundle(path):
+    """Verify both the artifact receipt and the recorded measurement provenance."""
+    root = path.resolve().parent
+    receipt = h.read_json(root / "manifest.json")
+    h.require(receipt.get("status") == "complete", "incomplete measurement receipt")
+    hashes = receipt["artifacts"]
+    h.require(path.name in hashes and hashes, "measurement result missing from receipt")
+    h.require("manifest.json" not in hashes, "measurement receipt cannot include itself")
+    for relative, digest in hashes.items():
+        target = (root / relative).resolve()
+        h.require(target.is_relative_to(root), "measurement receipt path escape")
+        h.require(target.is_file() and h.file_hash(target) == digest, f"measurement receipt mismatch: {relative}")
+    payload = validate_results(h.read_json(path))
+    h.require(not payload["identity"]["working_tree_dirty"], "uncommitted scaling measurement")
+    h.require(payload["assignments"]["source"]["test_access"] == "forbidden_not_opened", "test access forbidden")
+    for condition in payload["conditions"]:
+        if condition["status"] == "complete":
+            model = root / condition["artifact_directory"] / "model"
+            h.require(model.resolve().is_relative_to(root), "model directory escapes receipt")
+            h.require(h.artifact_hashes(model) == condition["model_hashes"], "scaling model hash mismatch")
+            for relative, digest in condition["model_hashes"].items():
+                key = (model / relative).relative_to(root).as_posix()
+                h.require(hashes.get(key) == digest, "model missing from scaling receipt")
+    return payload, receipt
+
+
 def export_report(path, output):
     """Regenerate presentation in a new bundle without altering measurements."""
     from benchmarks.scaling_plots import scaling_report
@@ -335,20 +361,14 @@ def export_report(path, output):
     )
     identity = h.runtime_identity()
     h.require(not identity["working_tree_dirty"], "commit report exporter before publishing")
-    receipt = h.read_json(root / "manifest.json")
-    h.require(receipt["status"] == "complete", "incomplete measurement receipt")
-    h.require(path.name in receipt["artifacts"], "measurement result missing from receipt")
-    for relative, digest in receipt["artifacts"].items():
-        source_path = (root / relative).resolve()
-        h.require(source_path.is_relative_to(root), "measurement receipt path escape")
-        h.require(h.file_hash(source_path) == digest, f"measurement receipt mismatch: {relative}")
-    payload = validate_results(h.read_json(path))
+    payload, receipt = verified_bundle(path)
     output.mkdir(parents=True)
     for relative in receipt["artifacts"]:
         if relative != "REPORT.md":
             target = output / relative
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(root / relative, target)
+            h.require(h.file_hash(target) == receipt["artifacts"][relative], "measurement changed while copying")
     (output / "REPORT.md").write_text(scaling_report(payload), encoding="utf-8")
     h.require(h.runtime_identity() == identity, "report exporter source/runtime changed")
     h.write_new_json(

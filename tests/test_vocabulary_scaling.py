@@ -61,7 +61,8 @@ class VocabularyScalingTests(unittest.TestCase):
         self.assertFalse((root / "worker-input.json").exists())
         for path, digest in receipt["artifacts"].items():
             self.assertEqual(h.file_hash(root / path), digest, path)
-        result = s.validate_results(h.read_json(root / "results.json"))
+        result, verified_receipt = s.verified_bundle(root / "results.json")
+        self.assertEqual(verified_receipt, receipt)
         self.assertFalse(result["identity"]["working_tree_dirty"])
         self.assertEqual(result["assignments"]["source"]["test_access"], "forbidden_not_opened")
         self.assertEqual(len(result["conditions"]), 15)
@@ -86,6 +87,32 @@ class VocabularyScalingTests(unittest.TestCase):
             changed = copy.deepcopy(payload)
             changed["conditions"][0] = {**changed["conditions"][0], "status": status, "records": []}
             s.validate_results(changed)
+
+    def test_bundle_rejects_unreceipted_models_and_invalid_recorded_provenance(self):
+        for mutation in ("missing_model", "wrong_model_hash", "dirty", "test_access"):
+            with self.subTest(mutation=mutation), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                payload = matrix()
+                payload["assignments"] = {"source": {"test_access": "forbidden_not_opened"}}
+                for condition in payload["conditions"][1:]:
+                    condition.update(status="worker_failed", records=[])
+                model = root / "condition" / "model"
+                model.mkdir(parents=True)
+                h.write_new_json(model / "model.json", {"vocab": {"a": -1.0}})
+                payload["conditions"][0].update(artifact_directory="condition", model_hashes=h.artifact_hashes(model))
+                if mutation == "wrong_model_hash":
+                    payload["conditions"][0]["model_hashes"]["model.json"] = "f" * 64
+                elif mutation == "dirty":
+                    payload["identity"]["working_tree_dirty"] = True
+                elif mutation == "test_access":
+                    payload["assignments"]["source"]["test_access"] = "opened"
+                h.write_new_json(root / "results.json", payload)
+                hashes = h.artifact_hashes(root)
+                if mutation == "missing_model":
+                    del hashes["condition/model/model.json"]
+                h.write_new_json(root / "manifest.json", {"status": "complete", "artifacts": hashes})
+                with self.assertRaises(ValueError):
+                    s.verified_bundle(root / "results.json")
 
     def test_missing_duplicate_relabeling_and_padding_rejected(self):
         baseline = matrix()
