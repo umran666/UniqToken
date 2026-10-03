@@ -2,6 +2,7 @@
 
 import copy
 import math
+from pathlib import Path
 import unittest
 
 from benchmarks import merge_objective_ablation as m
@@ -19,6 +20,29 @@ def inputs():
 
 
 class ObjectiveAblationTests(unittest.TestCase):
+    def test_retained_matrix_is_receipted_and_uses_one_candidate_pool(self):
+        root = Path(m.__file__).parent / "objective_ablation" / "issue87"
+        receipt = h.read_json(root / "manifest.json")
+        self.assertEqual(receipt["status"], "complete")
+        for path, digest in receipt["artifacts"].items():
+            self.assertEqual(h.file_hash(root / path), digest, path)
+        result = h.read_json(root / "results.json")
+        self.assertEqual(h.digest(result["pool"]), result["pool_sha256"])
+        self.assertEqual(set(result["conditions"]), {"current_superbpe", *m.MATRIX})
+        self.assertEqual(result["assignments"]["source"]["test_access"], "forbidden_not_opened")
+        self.assertFalse(result["identity"]["working_tree_dirty"])
+        self.assertEqual(result["constant_components"], ["fallback_cost"])
+        for name, condition in result["conditions"].items():
+            self.assertEqual(condition["actual_vocab_size"], 8192)
+            self.assertEqual(len(condition["selected"]), 64)
+            self.assertEqual(h.artifact_hashes(root / name), condition["model_hashes"])
+            if name != "current_superbpe":
+                self.assertEqual(m.select_candidates(result["pool"], name, 64), condition["selected"])
+        self.assertEqual(
+            h.file_hash(root / "current_superbpe" / "tokenizer.json"),
+            "bcabbdeddb1bb4054234cd9b034ae62c8d75875c2a169aca9ff3cd45cb47960f",
+        )
+
     def test_initial_ce_selection_matches_current_superbpe(self):
         model, chunks, _, pool = inputs()
         selected = m.select_candidates(pool, "pool_ce", 1)
