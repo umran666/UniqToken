@@ -96,6 +96,7 @@ def scaling_report(payload):
         lines.append(
             f"| {condition['tokenizer']} | {condition['vocab_budget']} | {condition['status']} | {elapsed_text} | {peak_text} |"
         )
+    for condition in payload["conditions"]:
         if condition["status"] != "complete":
             lines.extend(
                 [

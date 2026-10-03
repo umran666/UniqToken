@@ -8,6 +8,7 @@ import math
 import os
 from pathlib import Path
 import platform
+import shutil
 import subprocess
 import sys
 import time
@@ -310,15 +311,56 @@ def main():
     parser.add_argument("--dataset", type=Path)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--worker", type=Path)
+    parser.add_argument("--report-source", type=Path)
     parser.add_argument("--tokenizer", choices=COHORT)
     parser.add_argument("--budget", type=int)
     parser.add_argument("--timeout", type=int, default=900)
     args = parser.parse_args()
-    if args.worker:
+    if args.report_source:
+        export_report(args.report_source, args.output)
+    elif args.worker:
         worker(args.worker, args.tokenizer, args.budget, args.output)
     else:
         h.require(args.dataset is not None, "--dataset is required")
         run(args.dataset, args.output, args.timeout)
+
+
+def export_report(path, output):
+    """Regenerate presentation in a new bundle without altering measurements."""
+    from benchmarks.scaling_plots import scaling_report
+
+    root = path.resolve().parent
+    h.require(
+        not output.exists() and not output.resolve().is_relative_to(root), "report output must be new and disjoint"
+    )
+    identity = h.runtime_identity()
+    h.require(not identity["working_tree_dirty"], "commit report exporter before publishing")
+    receipt = h.read_json(root / "manifest.json")
+    h.require(receipt["status"] == "complete", "incomplete measurement receipt")
+    h.require(path.name in receipt["artifacts"], "measurement result missing from receipt")
+    for relative, digest in receipt["artifacts"].items():
+        source_path = (root / relative).resolve()
+        h.require(source_path.is_relative_to(root), "measurement receipt path escape")
+        h.require(h.file_hash(source_path) == digest, f"measurement receipt mismatch: {relative}")
+    payload = validate_results(h.read_json(path))
+    output.mkdir(parents=True)
+    for relative in receipt["artifacts"]:
+        if relative != "REPORT.md":
+            target = output / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(root / relative, target)
+    (output / "REPORT.md").write_text(scaling_report(payload), encoding="utf-8")
+    h.require(h.runtime_identity() == identity, "report exporter source/runtime changed")
+    h.write_new_json(
+        output / "manifest.json",
+        {
+            "status": "complete",
+            "artifacts": h.artifact_hashes(output),
+            "measurement_manifest_sha256": h.file_hash(root / "manifest.json"),
+            "worker_input_sha256": receipt["worker_input_sha256"],
+            "report_export_identity": identity,
+        },
+    )
 
 
 if __name__ == "__main__":

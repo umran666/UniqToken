@@ -8,6 +8,7 @@ from unittest.mock import patch
 
 from benchmarks import vocabulary_scaling as s
 from benchmarks import run_research_experiments as h
+from benchmarks.scaling_plots import scaling_report
 from tests.test_token_density import fixture
 
 
@@ -43,6 +44,41 @@ def matrix():
 
 
 class VocabularyScalingTests(unittest.TestCase):
+    def test_failure_receipt_does_not_split_results_table(self):
+        payload = matrix()
+        payload.update(time_method="wall observation", memory_method="process peak")
+        payload["conditions"][1].update(status="budget_not_reached", error="fixed pool exhausted")
+        lines = scaling_report(payload).splitlines()
+        first = next(i for i, line in enumerate(lines) if line.startswith("| Tokenizer |"))
+        self.assertTrue(all(line.startswith("| ") for line in lines[first : first + 17]))
+        self.assertGreater(next(i for i, line in enumerate(lines) if line.startswith("Failure receipt")), first + 16)
+
+    def test_retained_full_matrix_receipts_models_and_fixed_baseline(self):
+        root = Path(s.__file__).parent / "scaling" / "issue92"
+        receipt = h.read_json(root / "manifest.json")
+        self.assertEqual(receipt["status"], "complete")
+        self.assertNotIn("worker-input.json", receipt["artifacts"])
+        self.assertFalse((root / "worker-input.json").exists())
+        for path, digest in receipt["artifacts"].items():
+            self.assertEqual(h.file_hash(root / path), digest, path)
+        result = s.validate_results(h.read_json(root / "results.json"))
+        self.assertFalse(result["identity"]["working_tree_dirty"])
+        self.assertEqual(result["assignments"]["source"]["test_access"], "forbidden_not_opened")
+        self.assertEqual(len(result["conditions"]), 15)
+        failures = [c for c in result["conditions"] if c["status"] != "complete"]
+        self.assertEqual(
+            [(c["tokenizer"], c["vocab_budget"], c["status"]) for c in failures],
+            [("sp_unigram", 131072, "budget_not_reached")],
+        )
+        for condition in result["conditions"]:
+            if condition["status"] == "complete":
+                model = root / condition["artifact_directory"] / "model"
+                self.assertEqual(h.artifact_hashes(model), condition["model_hashes"])
+        self.assertEqual(
+            h.file_hash(root / "uniq_superbpe_r64-8192" / "model" / "tokenizer.json"),
+            "bcabbdeddb1bb4054234cd9b034ae62c8d75875c2a169aca9ff3cd45cb47960f",
+        )
+
     def test_full_exact_matrix_and_explicit_failures(self):
         payload = matrix()
         self.assertEqual(len(s.validate_results(payload)["conditions"]), 15)
