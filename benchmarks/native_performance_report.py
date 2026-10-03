@@ -141,9 +141,11 @@ def classify(comparisons):
     return "inconclusive_or_mixed"
 
 
-def analyze(payload):
+def analyze(payload, prefix_allocations=None):
     groups = {}
     allocations = {(key(row), row["variant"]): row for row in payload["allocations"]}
+    if prefix_allocations:
+        allocations.update({(key(row), "prefix"): row for row in prefix_allocations["records"]})
     for row in payload["records"]:
         groups.setdefault(key(row), []).append(row)
     rows = []
@@ -185,7 +187,7 @@ def analyze(payload):
                         max(x["bootstrap_95_interval"][1] for x in comparisons),
                     ],
                 )
-            if name != "prefix":
+            if (cell, name) in allocations:
                 allocation = allocations[(cell, name)]
                 result.update(allocation["rust_allocations"])
                 result["temporary_peak_live_bytes"] = result["peak_live_bytes"] - result["live_before_bytes"]
@@ -282,9 +284,9 @@ def plots(rows, output):
         ("latency_p50_ns", "requested_bytes", "temporary_peak_live_bytes"),
         ("Latency ns", "Rust requested allocation bytes", "Temporary Rust peak requested bytes"),
     ):
-        for variant in ("baseline", "compact"):
+        for variant in colors:
             selected = sorted(
-                [row for row in rows if row["length"] == "stress" and row["variant"] == variant],
+                [row for row in rows if row["length"] == "stress" and row["variant"] == variant and metric in row],
                 key=lambda row: row["characters"],
             )
             axis.loglog(
@@ -304,6 +306,11 @@ def plots(rows, output):
 
 
 def report(rows, payload):
+    prefix_note = (
+        "Prefix-only allocation and memory attribution is measured separately for all 49 segmentation cells; its trie layout and vocabulary are identical."
+        if any(row["variant"] == "prefix" and "requests" in row for row in rows)
+        else "Prefix-only memory is not directly measured; its purpose is timing attribution while retaining the old lattice."
+    )
     lines = [
         "# Native encode and segmentation comparison",
         "",
@@ -341,7 +348,8 @@ def report(rows, payload):
         "",
         "## Memory and Complexity",
         "",
-        "Every batch size has isolated allocation/requested-byte/live-peak and process high-water RSS observations. Raw segmentation counters cover the uncached Rust decoder before Python materialization; its timing API includes the ordinary memoization wrapper with cold clears outside call wall. Full-batch counters wrap the ordinary fused Rust API before Python materialization. Rust counts exclude Python and C++ heaps. Process RSS includes imports, model construction and validation; its high-water subtraction does not isolate live scratch. Prefix-only memory is not directly measured; its purpose is timing attribution while retaining the old lattice.",
+        "Every batch size has isolated allocation/requested-byte/live-peak and process high-water RSS observations. Raw segmentation counters cover the uncached Rust decoder before Python materialization; its timing API includes the ordinary memoization wrapper with cold clears outside call wall. Full-batch counters wrap the ordinary fused Rust API before Python materialization. Rust counts exclude Python and C++ heaps. Process RSS includes imports, model construction and validation; its high-water subtraction does not isolate live scratch. "
+        + prefix_note,
         "",
         "The compact unpruned algorithm takes O(n L) time and O(n) scratch plus O(n) selected output. At most four fallback tokens are emitted per source character. With no maximum subword length, L can equal n, yielding quadratic time but linear scratch. The old dense lattice stores O(n L) owned edges and up to O(n L squared) copied prefix bytes. Pruned decoding retains the old lattice, edge sorting and tie behavior. No additional cache, buffer pooling, unbounded retention, trie representation change or SIMD is introduced.",
         "",
@@ -405,7 +413,7 @@ def batch_span_parity(payload):
     }
 
 
-def export(path, output, verify_batch_spans=False):
+def export(path, output, verify_batch_spans=False, prefix_source=None):
     h.require(
         not output.exists() and not output.resolve().is_relative_to(path.resolve().parent),
         "output must be new and disjoint",
@@ -413,10 +421,17 @@ def export(path, output, verify_batch_spans=False):
     identity = h.runtime_identity()
     h.require(not identity["working_tree_dirty"], "commit reporting source before export")
     payload, receipt = verified(path)
-    rows = analyze(payload)
+    prefix = None
+    if prefix_source:
+        from benchmarks import profile_prefix_allocations
+
+        prefix, _ = profile_prefix_allocations.verified(prefix_source, path, payload)
+    rows = analyze(payload, prefix)
     output.mkdir(parents=True)
     if verify_batch_spans:
         h.write_new_json(output / "batch-span-parity.json", batch_span_parity(payload))
+    if prefix:
+        h.write_new_json(output / "prefix-attribution.json", prefix)
     h.write_new_json(
         output / "summary.json", {"schema_version": 1, "source_results_sha256": h.file_hash(path), "records": rows}
     )
@@ -432,6 +447,7 @@ def export(path, output, verify_batch_spans=False):
             "source_results_sha256": h.file_hash(path),
             "source_artifacts": receipt["artifacts"],
             "export_identity": identity,
+            "prefix_source_results_sha256": h.file_hash(prefix_source) if prefix_source else None,
             "artifacts": h.artifact_hashes(output),
         },
     )
@@ -442,8 +458,9 @@ def main():
     parser.add_argument("--source", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--verify-batch-spans", action="store_true")
+    parser.add_argument("--prefix-source", type=Path)
     args = parser.parse_args()
-    export(args.source, args.output, args.verify_batch_spans)
+    export(args.source, args.output, args.verify_batch_spans, args.prefix_source)
 
 
 if __name__ == "__main__":
