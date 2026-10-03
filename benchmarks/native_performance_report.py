@@ -363,7 +363,49 @@ def report(rows, payload):
     return "\n".join(lines)
 
 
-def export(path, output):
+def batch_span_parity(payload):
+    """Untimed raw batch-span replay, separate from primary measurements."""
+    binaries = payload["records"][0]["variants"]
+    modules = {name: p.load_native(Path(binary)) for name, binary in binaries.items()}
+    results = []
+    seen = set()
+    for row in payload["records"]:
+        if row["surface"] != "batch" or key(row) in seen:
+            continue
+        seen.add(key(row))
+        texts = p.fixture(row)
+        streams = {}
+        for name, module in modules.items():
+            h.require(
+                h.file_hash(Path(binaries[name])) == row["measurements"][name]["native_sha256"],
+                "span replay binary changed",
+            )
+            model = Path(row["model"])
+            h.require(h.file_hash(model) == row["model_sha256"], "span replay model changed")
+            trie, ids, scores = p.model_trie(module, model)
+            single = p.span_stream(module.rust_viterbi_decode(texts[0], trie, True))
+            path_score = p.validate_spans(texts[0], single, ids, scores)
+            batch = [p.span_stream(spans) for spans in module.rust_viterbi_decode_batch(texts, trie, True)]
+            h.require(batch == [single] * len(texts), "raw single/batch spans differ")
+            streams[name] = (h.digest(batch), path_score)
+        h.require(len(set(streams.values())) == 1, "raw batch token/ID/offset/score parity mismatch")
+        results.append(
+            {
+                **{field: row.get(field) for field in FIELDS},
+                "batch_span_sha256": streams["baseline"][0],
+                "single_path_score_float_hex": streams["baseline"][1],
+            }
+        )
+    h.require(len(results) == 48, "incomplete raw batch span matrix")
+    return {
+        "status": "complete",
+        "records": results,
+        "native_sha256": {name: h.file_hash(Path(binary)) for name, binary in binaries.items()},
+        "method": "untimed raw batch/single exact token, ID, character-offset and path-score replay at every fused-batch matrix cell",
+    }
+
+
+def export(path, output, verify_batch_spans=False):
     h.require(
         not output.exists() and not output.resolve().is_relative_to(path.resolve().parent),
         "output must be new and disjoint",
@@ -373,6 +415,8 @@ def export(path, output):
     payload, receipt = verified(path)
     rows = analyze(payload)
     output.mkdir(parents=True)
+    if verify_batch_spans:
+        h.write_new_json(output / "batch-span-parity.json", batch_span_parity(payload))
     h.write_new_json(
         output / "summary.json", {"schema_version": 1, "source_results_sha256": h.file_hash(path), "records": rows}
     )
@@ -397,8 +441,9 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--verify-batch-spans", action="store_true")
     args = parser.parse_args()
-    export(args.source, args.output)
+    export(args.source, args.output, args.verify_batch_spans)
 
 
 if __name__ == "__main__":
