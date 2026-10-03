@@ -59,3 +59,41 @@ maturin build --release --interpreter C:/Users/shaik/AppData/Local/Programs/Pyth
 maturin build --release --features allocation-profile --interpreter C:/Users/shaik/AppData/Local/Programs/Python/Python310/python.exe --out path/to/allocation-wheels
 python -m benchmarks.profile_residual_native --native path/to/default/uniqtoken_core.pyd --allocation-native path/to/instrumented/uniqtoken_core.pyd --models benchmarks/byte_fallback/issue86 --build-commit FULL_SHA --output artifacts/residual-native
 ```
+
+The follow-up `benchmarks.compare_residual_native` protocol compares baseline,
+prefix-only and compact variants in the same fresh worker, with separate tries.
+It preserves the 93-cell matrix and adds four synthetic dense-prefix lengths
+(32, 256, 4096 and 16384 characters). The stress vocabulary has all 16 prefixes
+of repeated `a`, four controls and 256 fallback bytes; it is not a trained model.
+Two independent worker rounds each have three warmups and eleven repetitions.
+Calibration chooses a common iteration count targeting 50 ms for the fastest
+variant, bounded by 80000 iterations. Ordering alternates forward/reverse across
+repetitions and rounds. All variants use the same compiler and release flags.
+
+Report median paired throughput ratios and fixed-seed 95 percent percentile
+bootstrap intervals in each round. These describe local timing variation, not
+corpus or hardware population uncertainty. Retain the prefix change only where
+both rounds show a gain beyond noise in its targeted cold segmentation cells;
+likewise require a repeatable compact-path gain. Reject a retained final variant
+with repeatable statistically detectable batch-size-one degradation (both rounds'
+upper ratio bounds below one); inspect isolated regressions instead of hiding
+them in a pooled average. Warm short/medium batches primarily measure unchanged
+cache and output paths. Long chunks exceed the existing cache limit in both
+warm and cold scenarios. No additional cache or pooling is introduced.
+
+CPU utilization pools CPU time and wall time over all eleven blocks rather
+than averaging short, quantized Windows CPU samples. It includes cache clearing
+and loop overhead and remains approximate. The two variants' allocation and
+RSS observations run in separate fresh processes for every cell, outside primary
+timing. Shared timing-worker RSS cannot attribute memory to a variant and is not
+used for that purpose. Hash and verify every stream, error and selected path
+score before timing; all raw requests, responses and build identities are retained.
+
+The compact path visits at most `L` trie characters at each of `n` source
+positions: worst-case time is O(n L), scratch space O(n), and selected output
+space O(n) (at most four fallback tokens per source character). With an unbounded
+maximum token length, L can equal n and time becomes quadratic; scratch remains
+linear. The former lattice held O(n L) owned edges whose copied prefix strings
+can occupy O(n L squared) bytes on dense prefixes. Pruned decoding retains its
+existing lattice and pruning behavior. The trie representation, EM expectation
+path, segmentation cache policy and public prefix-list API remain unchanged.
