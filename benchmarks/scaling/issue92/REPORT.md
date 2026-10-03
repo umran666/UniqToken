@@ -20,11 +20,11 @@ All budgets include four controls and 256 byte leaves. Underfilled conditions ha
 | boundary_bpe | 65536 | complete | 110.4681 | 1174.98 |
 | uniq_superbpe_r64 | 65536 | complete | 164.4856 | 675.39 |
 | sp_unigram | 131072 | budget_not_reached | NA | NA |
+| boundary_bpe | 131072 | complete | 146.1055 | 1194.29 |
+| uniq_superbpe_r64 | 131072 | complete | 204.2959 | 791.28 |
 
 Failure receipt for sp_unigram at 131072: Internal: D:\a\sentencepiece\sentencepiece\src\trainer_interface.cc(664) [(trainer_spec_.vocab_size()) == (model_proto->pieces_size())] Vocabulary size too high (131072). Please set it to a value <= 79552.
 
-| boundary_bpe | 131072 | complete | 146.1055 | 1194.29 |
-| uniq_superbpe_r64 | 131072 | complete | 204.2959 | 791.28 |
 
 ## Measurement scope
 

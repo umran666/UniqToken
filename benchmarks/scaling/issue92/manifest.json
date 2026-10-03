@@ -22,7 +22,7 @@
     "languages_tokens_per_unicode_character.png": "512ef8935d102224b9c24d702e7a23b4378a1bd6a5c8bfb717e0d19948ac8828",
     "languages_vocabulary_utilization_percent.png": "a3072302a29d38ec3fda4544865e16cb0b0d5440a671ae43575a53bdee64e20a",
     "metrics.csv": "450f58e16500c398026b943b3e10ceb4afaea3a80206ad69458eb849706f75c7",
-    "REPORT.md": "48e34eb076a90f0880291f4e2facb70e889d78b10537fad4df84fc3dbe0c920c",
+    "REPORT.md": "a9570cd4473b96a85a93eb33fb21a0b914d01a317d5779e93aef9805aa3a1848",
     "results.json": "e9ecd3ba49828acf149f2069edfa8e02a6d75d90f95db1023f7e700a9ddecd8c",
     "sp_unigram-131072/response.json": "0948edba10f56d0d9605b6248c344c75f3b630f6d1ee99684407fcdca763f43a",
     "sp_unigram-131072.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
@@ -58,5 +58,21 @@
     "uniq_superbpe_r64-8192/response.json": "aff3b01245956dc3c37f11d30dded9d088a287191f58a6586905fd7dda1fd090",
     "uniq_superbpe_r64-8192.log": "668e524a7160c6ef05d02d14a2dc3a43e6f15efbd64989a978d82987a35af44c"
   },
-  "worker_input_sha256": "fd93c990ebb461fe1cc84dc9b138ac37d545ecbd5727c227bf4bd66581877477"
+  "measurement_manifest_sha256": "6ba6e29070f53f08248d1ed0c51c033a2d5da09a9e2d1c9c2c2e42d7d0ac5006",
+  "worker_input_sha256": "fd93c990ebb461fe1cc84dc9b138ac37d545ecbd5727c227bf4bd66581877477",
+  "report_export_identity": {
+    "ledger_schema_version": 3,
+    "commit_hash": "ceccef25377b2e0a5e423e992ad639cc75164b37",
+    "working_tree_dirty": false,
+    "source_hash": "97007316119719cbfde9b6ca9ead1c5a8e498934e4ba8ba6fca13be1becd91a5",
+    "extension_hash": "9032d519418328b01cec77ab641ee22c160fcd84cb199e6991d9146509c7ce36",
+    "extension_status": "installed",
+    "versions": {
+      "python": "3.10.11",
+      "torch": "2.13.0",
+      "sentencepiece": "0.2.1",
+      "numpy": "2.2.6",
+      "regex": "2026.4.4"
+    }
+  }
 }
