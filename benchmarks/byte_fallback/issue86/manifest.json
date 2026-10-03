@@ -1,0 +1,17 @@
+{
+  "status": "complete",
+  "artifacts": {
+    "16384-atomic_recovery/tokenizer.json": "8b6cbc6793b3a18ab9a7fd9e57373333c5dba9353aff6b7b1e68085c46246fc6",
+    "16384-baseline/tokenizer.json": "0d2d37a02a3fa2c65ede79ceabbbabab08dc55d6c89c35e8c5b06f3fdbb8ad0f",
+    "16384-fallback_weighted/tokenizer.json": "ad59f3cf537a0c477229f3579fe6ac5325d43bc0ada879eb3d3bf2b0c46be826",
+    "32768-atomic_recovery/tokenizer.json": "f38dd4a4726d977a80db99ba9458293ff0a5d0c1969782fadbb39882657f3a0c",
+    "32768-baseline/tokenizer.json": "4933f87e957e3c9c0fb59525c43051117d0b5bbe20a7952d8c9757767fcf0f55",
+    "32768-fallback_weighted/tokenizer.json": "216e9752d823aa7b6e2ec0593b44e795e0bce395b48377157ea92633db5ba388",
+    "8192-atomic_recovery/tokenizer.json": "3c24279688eb86f9ee97b5196e4163763f99bf7afd741ac7a669c8ef10587905",
+    "8192-baseline/tokenizer.json": "bcabbdeddb1bb4054234cd9b034ae62c8d75875c2a169aca9ff3cd45cb47960f",
+    "8192-fallback_weighted/tokenizer.json": "0f9035c4bac6dad1f66ddfdd3c99fda12ddb7da3b9b2ac262b2febed4261fa04",
+    "fallback_metrics.csv": "9efd892d3706982a97beeb9698e87d3f06c85d4fb5a9a3b772cc48fdfaebdd45",
+    "REPORT.md": "c7afa1453ea98d4d0a896fd4f89a9012cfad3478612c46b6537fdd3cf213dad6",
+    "results.json": "1dbd0fa045309a305de02c0bad7a3f28eab47504f05a845b371743ee8f6488df"
+  }
+}

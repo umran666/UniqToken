@@ -10,7 +10,6 @@ from __future__ import annotations
 import argparse
 from collections import Counter, defaultdict
 from dataclasses import asdict
-import json
 import math
 from pathlib import Path
 import time
@@ -80,7 +79,8 @@ def recovery_candidates(model, chunks, fallback_weight=0.0):
     This is a fixed-candidate admission stage before ordinary SuperBPE.
     """
     h.require(math.isfinite(fallback_weight) and fallback_weight >= 0, "invalid fallback weight")
-    counts, total = Counter(), 0
+    counts: Counter[str] = Counter()
+    total = 0
     for chunk in chunks:
         tokens = model.encode(chunk)
         total += len(tokens)
@@ -141,7 +141,8 @@ def recover_characters(model, chunks, limit, fallback_weight=0.0):
 
 def evaluate_stratum(tok, texts):
     total_tokens, fallback, total_bytes = 0, 0, 0
-    spans, emissions = [], Counter()
+    spans = []
+    emissions: Counter[str] = Counter()
     for text in texts:
         tokens = tok.encode(text)
         h.require(tok.decode_tokens(tokens) == text, "normalized roundtrip failure")
@@ -164,7 +165,8 @@ def evaluate_stratum(tok, texts):
 
 def select_records(rows, texts, count, characters):
     h.require(count > 0 and characters > 0, "positive sample limits required")
-    seen, chosen = Counter(), []
+    seen: Counter[str] = Counter()
+    chosen = []
     for row, text in zip(rows, texts):
         key = row["domain"] + ":" + row["language"]
         if seen[key] < count:
@@ -294,7 +296,8 @@ def run_benchmark(
             seconds = time.perf_counter() - started
             directory = output / f"{budget}-{condition}"
             tok.save(directory, save_binary=False)
-            metrics, observed = {}, Counter()
+            metrics = {}
+            observed: Counter[str] = Counter()
             for stratum, texts in sorted(val.items()):
                 metrics[stratum], counts = evaluate_stratum(tok, texts)
                 observed.update(counts)
@@ -347,13 +350,39 @@ def report(result):
         "The regression gate checks every observed validation stratum at the predeclared 1% BpT loss threshold.",
         "Missing validation strata cannot be certified. Unobserved validation additions are not proof of intrinsically dead tokens.",
         "",
-        "| Budget | Condition | Recovery slots | Training-unobserved | Validation-unobserved | Worst BpT regression % | Gate |",
-        "| ---: | --- | ---: | ---: | ---: | ---: | --- |",
     ]
     for budget, rows in result["runs"].items():
+        lines.extend(
+            [
+                f"## Vocabulary budget {budget}",
+                "",
+                "| Condition | BpT | Fallback % | Recovery slots | Training-unobserved | Validation-unobserved | Worst BpT regression % | Gate |",
+                "| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |",
+            ]
+        )
         for name, row in rows.items():
+            strata = list(row["strata"].values())
+            tokens = sum(s["total_tokens"] for s in strata)
+            bpt = sum(s["normalized_utf8_bytes"] for s in strata) / tokens
+            fallback = 100 * sum(s["fallback_tokens"] for s in strata) / tokens
             lines.append(
-                f"| {budget} | {name} | {len(row['recovered'])} | {row['unobserved_training_additions']} | {row['unobserved_validation_additions']} | {max(row['regressions_pct'].values()):.4f} | {row['regression_gate_passed']} |"
+                f"| {name} | {bpt:.5f} | {fallback:.5f} | {len(row['recovered'])} | {row['unobserved_training_additions']} | {row['unobserved_validation_additions']} | {max(row['regressions_pct'].values()):.4f} | {row['regression_gate_passed']} |"
+            )
+        baseline = rows["baseline"]["strata"]
+        for name in CONDITIONS[1:]:
+            strata = rows[name]["strata"]
+            fewer = sum(strata[s]["fallback_tokens"] < baseline[s]["fallback_tokens"] for s in baseline)
+            longer = sum(
+                strata[s]["span_stats"]["p95"] is not None
+                and baseline[s]["span_stats"]["p95"] is not None
+                and strata[s]["span_stats"]["p95"] > baseline[s]["span_stats"]["p95"]
+                for s in baseline
+            )
+            lines.extend(
+                [
+                    "",
+                    f"{name}: {fewer}/{len(baseline)} strata emit fewer fallback bytes; {longer} have a longer fallback-span p95.",
+                ]
             )
         unweighted, weighted = rows["atomic_recovery"], rows["fallback_weighted"]
         equal = unweighted["strata"] == weighted["strata"]
@@ -368,12 +397,15 @@ def report(result):
         [
             "",
             "Per-stratum fallback frequency and contiguous byte-span p50/p95/max are in fallback_metrics.csv; exact histograms, merge records and token utilization audits are in results.json.",
-            "Validation is unavailable for these training strata: "
+            "The following training domain/language pairs are absent from validation, which uses distinct FLORES domain labels: "
             + ", ".join(result["validation_absent_training_strata"]),
             "The original PR's approximate-budget numbers and hard-coded positive conclusions are withdrawn. These data do not establish a general multilingual advantage or a downstream-quality improvement.",
             "",
         ]
     )
+    splits = result["assignments"]["splits"]
+    missing_languages = sorted({r["language"] for r in splits["train"]} - {r["language"] for r in splits["validation"]})
+    lines.extend(["Languages without any validation coverage: " + ", ".join(missing_languages) + ".", ""])
     return "\n".join(lines)
 
 

@@ -1,6 +1,5 @@
 """Regression tests for reviewed PR #124; no external dataset required."""
 
-from collections import Counter
 import math
 from pathlib import Path
 import tempfile
@@ -22,6 +21,40 @@ def byte_model():
 
 
 class ByteFallbackReviewTests(unittest.TestCase):
+    def test_retained_exact_budget_receipts_and_span_accounting(self):
+        root = Path(b.__file__).parent / "byte_fallback" / "issue86"
+        receipt = h.read_json(root / "manifest.json")
+        self.assertEqual(receipt["status"], "complete")
+        for name, digest in receipt["artifacts"].items():
+            self.assertEqual(h.file_hash(root / name), digest, name)
+        result = h.read_json(root / "results.json")
+        self.assertEqual(set(result["runs"]), {"8192", "16384", "32768"})
+        self.assertFalse(result["identity"]["working_tree_dirty"])
+        self.assertEqual(result["assignments"]["source"]["test_access"], "forbidden_not_opened")
+        for budget, conditions in result["runs"].items():
+            self.assertEqual(set(conditions), set(b.CONDITIONS))
+            baseline = conditions["baseline"]["strata"]
+            for condition, measured in conditions.items():
+                self.assertEqual(measured["actual_vocab_size"], int(budget))
+                self.assertEqual(measured["incomplete_prefix_additions"], 0)
+                self.assertEqual(len(measured["merges"]) + len(measured["recovered"]), 64)
+                passed, regressions = b.evaluate_regressions(baseline, measured["strata"], set(baseline))
+                self.assertTrue(passed)
+                self.assertEqual(measured["regression_gate_passed"], passed)
+                self.assertEqual(measured["regressions_pct"], regressions)
+                for stratum in measured["strata"].values():
+                    histogram = stratum["span_stats"]["histogram_bytes"]
+                    self.assertEqual(sum(int(k) * v for k, v in histogram.items()), stratum["fallback_tokens"])
+                directory = root / f"{budget}-{condition}"
+                self.assertEqual(h.artifact_hashes(directory), measured["artifact_hashes"])
+                tok = CustomTokenizer.load(directory, prefer_binary=False)
+                h.validate_tokenizer(
+                    h.ResearchTokenizer("uniq_superbpe", tok, tok.model.token_to_id, len(measured["merges"])),
+                    int(budget),
+                )
+                for text in ("literal <0xE0><0xA4>", "a\u093e\U0001f600 b", "\u4e2d\u6587", "\u0639\u0631\u0628\u064a"):
+                    self.assertEqual(tok.decode(tok.encode_to_ids(text)), h.normalize(text))
+
     def test_span_units_are_bytes(self):
         self.assertEqual(b.extract_fallback_spans(["a", "<0xE0>", "<0xA4>", "<0xBE>", "b", "<0xC3>", "<0xA9>"]), [3, 2])
         self.assertEqual(b.extract_fallback_spans([]), [])
