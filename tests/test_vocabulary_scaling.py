@@ -92,7 +92,7 @@ class VocabularyScalingTests(unittest.TestCase):
         for mutation in ("missing_model", "wrong_model_hash", "dirty", "test_access"):
             with self.subTest(mutation=mutation), tempfile.TemporaryDirectory() as directory:
                 root = Path(directory)
-                payload = matrix()
+                payload = copy.deepcopy(matrix())
                 payload["assignments"] = {"source": {"test_access": "forbidden_not_opened"}}
                 for condition in payload["conditions"][1:]:
                     condition.update(status="worker_failed", records=[])
