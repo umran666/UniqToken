@@ -29,6 +29,11 @@ jobs:
       - name: Test Rust core
         run: cargo test --manifest-path crates/uniqtoken_core/Cargo.toml --all-targets
 
+      - name: Check opt-in allocation profiler
+        run: |
+          cargo clippy --manifest-path crates/uniqtoken_core/Cargo.toml --all-targets --features allocation-profile -- -D warnings
+          cargo test --manifest-path crates/uniqtoken_core/Cargo.toml --all-targets --features allocation-profile -- --test-threads=1
+
       - name: Build and test standalone C++ llama.cpp adapter (with ASan & UBSan)
         run: |
           cargo build --manifest-path crates/uniqtoken_core/Cargo.toml --release --no-default-features --features c_abi
