@@ -192,13 +192,6 @@ def worker(spec):
         if spec["surface"] == "segmentation":
             spans, counts = native.rust_allocation_profile_viterbi(texts[0], trie, True)
             h.require(span_stream(spans) == expected, "allocation replay span parity")
-            diagnostic = native.rust_diagnostic_viterbi(texts[0], trie, True)
-            result["baseline_stage_replay"] = {
-                "owned_prefix_seconds": diagnostic[0],
-                "dp_seconds": diagnostic[1],
-                "edges": diagnostic[2],
-                "states": diagnostic[3],
-            }
         else:
             strings, integers, counts = native.rust_allocation_profile_native_batch(
                 texts, trie, spec["output"] == "ids"
@@ -213,6 +206,14 @@ def worker(spec):
         not hasattr(native, "rust_allocation_profile_viterbi"),
         "primary timings require default build without allocation instrumentation",
     )
+    if spec["surface"] == "segmentation":
+        diagnostic = native.rust_diagnostic_viterbi(texts[0], trie, True)
+        result["baseline_stage_replay"] = {
+            "owned_prefix_seconds": diagnostic[0],
+            "dp_seconds": diagnostic[1],
+            "edges": diagnostic[2],
+            "states": diagnostic[3],
+        }
     for _ in range(WARMUP):
         if cold:
             trie.clear_seg_cache()
