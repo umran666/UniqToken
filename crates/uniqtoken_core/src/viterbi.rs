@@ -272,6 +272,9 @@ fn viterbi_decode_chars_inner(
     if n == 0 {
         return Ok(Vec::new());
     }
+    if max_edges_per_node.is_none() {
+        return decode_compact(DecodeInput::Chars(chars), trie, byte_fallback);
+    }
 
     let mut incoming: Vec<Vec<Edge>> = vec![Vec::new(); n + 1];
     for i in 0..n {
@@ -384,6 +387,9 @@ pub(crate) fn viterbi_decode_ascii(
     if n == 0 {
         return Ok(Vec::new());
     }
+    if max_edges_per_node.is_none() {
+        return decode_compact(DecodeInput::Ascii(bytes), trie, byte_fallback);
+    }
 
     let mut incoming: Vec<Vec<Edge>> = vec![Vec::new(); n + 1];
     for i in 0..n {
@@ -468,6 +474,143 @@ pub(crate) fn viterbi_decode_ascii(
         end = edge.prev_node;
     }
 
+    spans.reverse();
+    Ok(spans)
+}
+
+#[derive(Clone, Copy)]
+enum DecodeInput<'a> {
+    Ascii(&'a [u8]),
+    Chars(&'a [char]),
+}
+
+impl DecodeInput<'_> {
+    fn len(self) -> usize {
+        match self {
+            Self::Ascii(bytes) => bytes.len(),
+            Self::Chars(chars) => chars.len(),
+        }
+    }
+
+    fn character(self, index: usize) -> char {
+        match self {
+            Self::Ascii(bytes) => bytes[index] as char,
+            Self::Chars(chars) => chars[index],
+        }
+    }
+
+    fn visit<'a>(
+        self,
+        trie: &'a RustPrefixTrie,
+        start: usize,
+        visitor: impl FnMut(&'a str, Option<u32>, f64, usize),
+    ) -> usize {
+        match self {
+            Self::Ascii(bytes) => trie.visit_prefix_ascii(bytes, start, visitor),
+            Self::Chars(chars) => trie.visit_prefix_chars(chars, start, visitor),
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+enum ChosenPiece<'a> {
+    Token(&'a str, Option<u32>),
+    Fallback(char),
+}
+
+#[derive(Clone, Copy)]
+struct Backpointer<'a> {
+    previous: usize,
+    piece: ChosenPiece<'a>,
+}
+
+fn byte_token(byte: u8) -> [u8; 6] {
+    const HEX: &[u8; 16] = b"0123456789ABCDEF";
+    [b'<', b'0', b'x', HEX[(byte >> 4) as usize], HEX[(byte & 15) as usize], b'>']
+}
+
+fn decode_compact(
+    input: DecodeInput<'_>,
+    trie: &RustPrefixTrie,
+    byte_fallback: bool,
+) -> Result<Vec<ViterbiSpan>, String> {
+    let n = input.len();
+    let mut scores = vec![f64::NEG_INFINITY; n + 1];
+    let mut backpointers: Vec<Option<Backpointer<'_>>> = vec![None; n + 1];
+    scores[0] = 0.0;
+    // Visiting source positions in ascending order preserves the old incoming
+    // edge order at every destination. Strict comparison keeps its first tie.
+    for start in 0..n {
+        let previous_score = scores[start];
+        if previous_score == f64::NEG_INFINITY {
+            continue;
+        }
+        let matches = input.visit(trie, start, |token, token_id, log_p, length| {
+            let end = start + length;
+            let score = previous_score + log_p;
+            if score > scores[end] {
+                scores[end] = score;
+                backpointers[end] = Some(Backpointer {
+                    previous: start,
+                    piece: ChosenPiece::Token(token, token_id),
+                });
+            }
+        });
+        if matches == 0 && byte_fallback {
+            let character = input.character(start);
+            let mut encoded = [0_u8; 4];
+            let mut edge_score = 0.0;
+            for &byte in character.encode_utf8(&mut encoded).as_bytes() {
+                let token = byte_token(byte);
+                let token = std::str::from_utf8(&token).expect("byte token is ASCII");
+                edge_score += trie.exact_metadata(token).map_or(DEFAULT_BYTE_LOG_P, |(_, score)| score);
+            }
+            let end = start + 1;
+            let score = previous_score + edge_score;
+            if score > scores[end] {
+                scores[end] = score;
+                backpointers[end] = Some(Backpointer {
+                    previous: start,
+                    piece: ChosenPiece::Fallback(character),
+                });
+            }
+        }
+    }
+    if backpointers[n].is_none() {
+        return Err(format!(
+            "lattice disconnected at character index {n}; enable byte fallback or provide complete vocabulary coverage"
+        ));
+    }
+    let mut count = 0;
+    let mut end = n;
+    while end > 0 {
+        let chosen = backpointers[end].ok_or_else(|| format!("lattice backpointer missing at character index {end}"))?;
+        count += match chosen.piece {
+            ChosenPiece::Token(..) => 1,
+            ChosenPiece::Fallback(character) => character.len_utf8(),
+        };
+        end = chosen.previous;
+    }
+    let mut spans = Vec::with_capacity(count);
+    end = n;
+    while end > 0 {
+        let chosen = backpointers[end].expect("backtrace was validated when sizing output");
+        match chosen.piece {
+            ChosenPiece::Token(token, token_id) => spans.push(ViterbiSpan {
+                token: token.to_owned(), token_id, start: chosen.previous, end,
+            }),
+            ChosenPiece::Fallback(character) => {
+                let mut encoded = [0_u8; 4];
+                for &byte in character.encode_utf8(&mut encoded).as_bytes().iter().rev() {
+                    let token = byte_token(byte);
+                    let token = std::str::from_utf8(&token).expect("byte token is ASCII");
+                    let token_id = trie.exact_metadata(token).and_then(|(id, _)| id);
+                    spans.push(ViterbiSpan { token: token.to_owned(), token_id, start: chosen.previous, end });
+                }
+            }
+        }
+        end = chosen.previous;
+    }
     spans.reverse();
     Ok(spans)
 }
@@ -754,6 +897,71 @@ fn log_add(a: f64, b: f64) -> f64 {
 #[cfg(all(test, feature = "python"))]
 mod tests {
     use super::*;
+
+    type SpanStream = Vec<(String, Option<u32>, usize, usize)>;
+
+    fn stream(result: Result<Vec<ViterbiSpan>, String>) -> Result<SpanStream, String> {
+        result.map(|spans| spans.into_iter().map(|s| (s.token, s.token_id, s.start, s.end)).collect())
+    }
+
+    #[test]
+    fn compact_matches_unpruned_incoming_edges_on_ties_fallback_limits_and_overflow() {
+        for maximum in [None, Some(0), Some(1), Some(2), Some(16)] {
+            for magnitude in [0.0, -1.0, 1.0, -f64::MAX, f64::MAX] {
+                let mut trie = RustPrefixTrie::new(maximum);
+                for (id, token) in ["a", "aa", "aaa", "ab", "b", "é", "éa", "\u{1f9ec}"].iter().enumerate() {
+                    trie.insert(token, magnitude, if id % 2 == 0 { Some(id as u32) } else { None }).unwrap();
+                }
+                trie.insert("<0xC3>", magnitude, Some(20)).unwrap();
+                trie.insert("<0xA9>", -magnitude, None).unwrap();
+                for text in ["", "aaaaaa", "aba", "éaé", "a\u{1f9ec}b", "z\u{1f9ec}é", "a"].iter() {
+                    let chars: Vec<char> = text.chars().collect();
+                    for fallback in [false, true] {
+                        let expected = stream(viterbi_decode_chars(&chars, &trie, fallback, Some(usize::MAX)));
+                        assert_eq!(stream(viterbi_decode_chars(&chars, &trie, fallback, None)), expected,
+                            "text={text:?} max={maximum:?} score={magnitude} fallback={fallback}");
+                        if text.is_ascii() {
+                            assert_eq!(stream(viterbi_decode_ascii(text.as_bytes(), &trie, fallback, None)), expected);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn compact_matches_legacy_for_exhaustive_short_inputs_and_dense_long_runs() {
+        let mut trie = RustPrefixTrie::new(Some(16));
+        for length in 1..=16 {
+            trie.insert(&"a".repeat(length), -(length as f64), Some(length as u32)).unwrap();
+        }
+        for (id, token, score) in [(20, "b", -0.25), (21, "ab", -0.75), (22, "ba", -0.75), (23, "éa", -1.5)] {
+            trie.insert(token, score, Some(id)).unwrap();
+        }
+        let alphabet = ['a', 'b', 'é'];
+        for code in 0..3_usize.pow(7) {
+            let mut remaining = code;
+            let chars: Vec<char> = (0..7).map(|_| {
+                let ch = alphabet[remaining % 3];
+                remaining /= 3;
+                ch
+            }).collect();
+            for fallback in [false, true] {
+                assert_eq!(
+                    stream(viterbi_decode_chars(&chars, &trie, fallback, None)),
+                    stream(viterbi_decode_chars(&chars, &trie, fallback, Some(usize::MAX))),
+                    "input={chars:?} fallback={fallback}"
+                );
+            }
+        }
+        for length in [32, 256, 4096, 16384] {
+            let text = "a".repeat(length);
+            assert_eq!(
+                stream(viterbi_decode_ascii(text.as_bytes(), &trie, false, None)),
+                stream(viterbi_decode_ascii(text.as_bytes(), &trie, false, Some(usize::MAX)))
+            );
+        }
+    }
 
     #[test]
     fn log_add_handles_infinities() {
