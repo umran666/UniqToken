@@ -2,3 +2,4 @@
 /benchmarks/boundary_analysis/issue89/* -text whitespace=cr-at-eol
 /benchmarks/multilingual_merges/issue88/* -text
 /benchmarks/token_density/issue90/* -text whitespace=cr-at-eol
+/benchmarks/byte_fallback/issue86/** -text whitespace=cr-at-eol
