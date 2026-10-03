@@ -70,3 +70,13 @@ python -m unittest tests.test_vocabulary_scaling -v
 
 Use a clean committed checkout with the release native extension installed.
 The output must be new and outside frozen inputs.
+
+The committed `scaling/issue92/evidence.zip` preserves every original model,
+worker response, failure log, result and manifest byte. Reports, CSV and plots
+remain directly readable; `archive.json` binds these previews and the archive.
+Tests verify and extract all evidence before validating the matrix and models.
+Extract the original layout before passing its results to report/Pareto tools:
+
+```powershell
+python -m benchmarks.receipt_archive unpack --source benchmarks/scaling/issue92 --output artifacts/issue92-original
+```

@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "status": "complete",
+  "archive_sha256": "0327de62671d7c8e2ddd109004ff1dc6227cee901e5556ae744aed3393a830d1",
+  "original_manifest_sha256": "2f5c177d3285dbd7b6c4cd529bd2e843ac1745a926e58587245fa8c30032aad7",
+  "artifacts": {
+    "aggregate.png": "cfa74987c748d60fa835e428cfe8c3351f7ab743a720feef332a1ee26682007a",
+    "evidence.zip": "0327de62671d7c8e2ddd109004ff1dc6227cee901e5556ae744aed3393a830d1",
+    "languages_byte_fallback_percent.png": "feb099ee3abeb0c9460159b8f355a1c8ef50b342cbdb5d363826ccfa15ab2572",
+    "languages_bytes_per_token.png": "fa5c6a0e5eabe5f29788bc40f260ac0ce8805dac2cca7e376e1bfd7528d9c0cc",
+    "languages_tokens_per_unicode_character.png": "512ef8935d102224b9c24d702e7a23b4378a1bd6a5c8bfb717e0d19948ac8828",
+    "languages_vocabulary_utilization_percent.png": "a3072302a29d38ec3fda4544865e16cb0b0d5440a671ae43575a53bdee64e20a",
+    "metrics.csv": "450f58e16500c398026b943b3e10ceb4afaea3a80206ad69458eb849706f75c7",
+    "REPORT.md": "a9570cd4473b96a85a93eb33fb21a0b914d01a317d5779e93aef9805aa3a1848"
+  }
+}

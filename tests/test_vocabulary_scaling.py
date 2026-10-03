@@ -7,6 +7,7 @@ import unittest
 from unittest.mock import patch
 
 from benchmarks import vocabulary_scaling as s
+from benchmarks import receipt_archive as a
 from benchmarks import run_research_experiments as h
 from benchmarks.scaling_plots import scaling_report
 from tests.test_token_density import fixture
@@ -54,7 +55,10 @@ class VocabularyScalingTests(unittest.TestCase):
         self.assertGreater(next(i for i, line in enumerate(lines) if line.startswith("Failure receipt")), first + 16)
 
     def test_retained_full_matrix_receipts_models_and_fixed_baseline(self):
-        root = Path(s.__file__).parent / "scaling" / "issue92"
+        with a.retained_bundle(Path(s.__file__).parent / "scaling" / "issue92") as root:
+            self._check_retained(root)
+
+    def _check_retained(self, root):
         receipt = h.read_json(root / "manifest.json")
         self.assertEqual(receipt["status"], "complete")
         self.assertNotIn("worker-input.json", receipt["artifacts"])
