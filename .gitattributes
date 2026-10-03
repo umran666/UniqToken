@@ -4,3 +4,4 @@
 /benchmarks/token_density/issue90/* -text whitespace=cr-at-eol
 /benchmarks/byte_fallback/issue86/** -text whitespace=cr-at-eol
 /benchmarks/scaling/issue92/** -text whitespace=cr-at-eol
+/benchmarks/objective_ablation/issue87/** -text whitespace=cr-at-eol
