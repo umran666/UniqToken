@@ -15,7 +15,8 @@ def inspect(archive):
     h.require(len(names) == len(set(names)), "duplicate archive entries")
     for name in names:
         h.require(
-            not Path(name).is_absolute() and ".." not in Path(name).parts and "\\" not in name, "archive path escape"
+            not Path(name).is_absolute() and ".." not in Path(name).parts and "\\" not in name and ":" not in name,
+            "archive path escape",
         )
     h.require("manifest.json" in names, "archive missing manifest")
     receipt = json.loads(archive.read("manifest.json"))
