@@ -185,6 +185,53 @@ impl RustPrefixTrie {
 }
 
 impl RustPrefixTrie {
+    pub(crate) fn visit_prefix_chars<'a>(
+        &'a self,
+        chars: &[char],
+        start: usize,
+        mut visit: impl FnMut(&'a str, Option<u32>, f64, usize),
+    ) -> usize {
+        let mut current = &self.root;
+        let max_len = self.max_subword_len.unwrap_or(usize::MAX);
+        let mut matches = 0;
+        for (offset, ch) in chars[start..].iter().enumerate() {
+            if offset >= max_len { break; }
+            let Some(next) = current.children.get(ch) else { break; };
+            current = next;
+            if current.is_terminal {
+                if let Some(token) = &current.token {
+                    visit(token, current.token_id, current.log_p, offset + 1);
+                    matches += 1;
+                }
+            }
+        }
+        matches
+    }
+
+    pub(crate) fn visit_prefix_ascii<'a>(
+        &'a self,
+        bytes: &[u8],
+        start: usize,
+        mut visit: impl FnMut(&'a str, Option<u32>, f64, usize),
+    ) -> usize {
+        let mut current = &self.root;
+        let max_len = self.max_subword_len.unwrap_or(usize::MAX);
+        let mut matches = 0;
+        for (offset, &byte) in bytes[start..].iter().enumerate() {
+            if offset >= max_len { break; }
+            let Some(next) = current.children.get(&(byte as char)) else { break; };
+            current = next;
+            if current.is_terminal {
+                if let Some(token) = &current.token {
+                    visit(token, current.token_id, current.log_p, offset + 1);
+                    matches += 1;
+                }
+            }
+        }
+        matches
+    }
+
+    #[cfg(any(feature = "python", test, feature = "fuzzing"))]
     pub(crate) fn common_prefix_search_chars(
         &self,
         chars: &[char],
@@ -222,6 +269,7 @@ impl RustPrefixTrie {
     /// Callers **must** ensure every byte in `bytes[start..]` satisfies
     /// `b < 0x80`.  The easiest way is to gate on `str::is_ascii()` before
     /// entering the ASCII fast-path.
+    #[cfg(any(feature = "python", test, feature = "fuzzing"))]
     pub(crate) fn common_prefix_search_ascii(
         &self,
         bytes: &[u8],
@@ -287,6 +335,48 @@ impl RustPrefixTrie {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn borrowed_prefix_visits_preserve_depth_ids_scores_and_character_limits() {
+        let mut trie = RustPrefixTrie::default();
+        for (token, score, id) in [
+            ("a", -1.0, 1), ("ab", -0.5, 2), ("aba", -0.25, 3), ("b", -2.0, 4),
+            ("\u{4e2d}", -1.5, 5), ("\u{4e2d}\u{6587}", -0.75, 6),
+            ("\u{4e2d}\u{6587}\u{6c49}", -0.2, 7),
+        ] { insert_token(&mut trie, token, score, Some(id)).unwrap(); }
+        let ascii = "abaz";
+        let expected = [("a".to_owned(), Some(1), -1.0, 1),
+                            ("ab".to_owned(), Some(2), -0.5, 2),
+                            ("aba".to_owned(), Some(3), -0.25, 3)];
+        for limit in [Some(0), Some(1), Some(2), None] {
+            trie.max_subword_len = limit;
+            let desired = &expected[..limit.unwrap_or(3).min(3)];
+            let mut seen = Vec::new();
+            let count = trie.visit_prefix_ascii(ascii.as_bytes(), 0, |token, id, score, len| {
+                seen.push((token.to_owned(), id, score, len));
+            });
+            assert_eq!(count, desired.len());
+            assert_eq!(seen, desired);
+            let chars: Vec<char> = ascii.chars().collect();
+            let mut seen = Vec::new();
+            trie.visit_prefix_chars(&chars, 0, |token, id, score, len| {
+                seen.push((token.to_owned(), id, score, len));
+            });
+            assert_eq!(seen, desired);
+        }
+        trie.max_subword_len = Some(2);
+        let text = "x\u{4e2d}\u{6587}\u{6c49}z";
+        let chars: Vec<char> = text.chars().collect();
+        let mut seen = Vec::new();
+        let count = trie.visit_prefix_chars(&chars, 1, |token, id, score, len| {
+            seen.push((token.to_owned(), id, score, len));
+        });
+        assert_eq!(count, 2);
+        assert_eq!(seen, vec![("\u{4e2d}".to_owned(), Some(5), -1.5, 1),
+                             ("\u{4e2d}\u{6587}".to_owned(), Some(6), -0.75, 2)]);
+        assert_eq!(seen, trie.common_prefix_search(&text[1..]));
+        assert_eq!(trie.visit_prefix_chars(&chars, 0, |_, _, _, _| panic!("unexpected match")), 0);
+    }
 
     #[test]
     fn common_prefix_search_ascii_parity() {

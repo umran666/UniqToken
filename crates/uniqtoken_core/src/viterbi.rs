@@ -275,8 +275,18 @@ fn viterbi_decode_chars_inner(
 
     let mut incoming: Vec<Vec<Edge>> = vec![Vec::new(); n + 1];
     for i in 0..n {
-        let matches = trie.common_prefix_search_chars(chars, i);
-        if matches.is_empty() && byte_fallback {
+        let matches = trie.visit_prefix_chars(chars, i, |token, token_id, log_p, char_len| {
+            let end = i + char_len;
+            if end <= n {
+                incoming[end].push(Edge {
+                    prev_node: i,
+                    pieces: vec![TokenPiece { token: token.to_owned(), token_id }],
+                    log_p,
+                    length: char_len,
+                });
+            }
+        });
+        if matches == 0 && byte_fallback {
             let mut pieces = Vec::new();
             let mut edge_log_p = 0.0;
             let mut encoded_buf = [0_u8; 4];
@@ -294,18 +304,6 @@ fn viterbi_decode_chars_inner(
                 log_p: edge_log_p,
                 length: 1,
             });
-        } else {
-            for (token, token_id, log_p, char_len) in matches {
-                let end = i + char_len;
-                if end <= n {
-                    incoming[end].push(Edge {
-                        prev_node: i,
-                        pieces: vec![TokenPiece { token, token_id }],
-                        log_p,
-                        length: char_len,
-                    });
-                }
-            }
         }
     }
 
@@ -389,8 +387,18 @@ pub(crate) fn viterbi_decode_ascii(
 
     let mut incoming: Vec<Vec<Edge>> = vec![Vec::new(); n + 1];
     for i in 0..n {
-        let matches = trie.common_prefix_search_ascii(bytes, i);
-        if matches.is_empty() && byte_fallback {
+        let matches = trie.visit_prefix_ascii(bytes, i, |token, token_id, log_p, char_len| {
+            let end = i + char_len;
+            if end <= n {
+                incoming[end].push(Edge {
+                    prev_node: i,
+                    pieces: vec![TokenPiece { token: token.to_owned(), token_id }],
+                    log_p,
+                    length: char_len,
+                });
+            }
+        });
+        if matches == 0 && byte_fallback {
             // ASCII byte fallback: single byte, single <0xHH> token.
             let b = bytes[i];
             let token = format!("<0x{b:02X}>");
@@ -403,18 +411,6 @@ pub(crate) fn viterbi_decode_ascii(
                 log_p,
                 length: 1,
             });
-        } else {
-            for (token, token_id, log_p, char_len) in matches {
-                let end = i + char_len;
-                if end <= n {
-                    incoming[end].push(Edge {
-                        prev_node: i,
-                        pieces: vec![TokenPiece { token, token_id }],
-                        log_p,
-                        length: char_len,
-                    });
-                }
-            }
         }
     }
 
