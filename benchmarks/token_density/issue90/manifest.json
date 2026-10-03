@@ -1,0 +1,10 @@
+{
+  "status": "complete",
+  "artifacts": {
+    "aggregate.csv": "507484bb35a32a096288c11d9d701855891f9cac512e00c9c73837e7550ff908",
+    "domain.csv": "d0424133b8d6d8a96f97b572e2036c836552a17d1718f7982b9bed8dd0f2f626",
+    "language.csv": "2dcee0849eebcd3e39494f7292bd100a15383fdda0b429817ad6f1d5dc42b84e",
+    "results.json": "3df21f5ed60fef18417066a0691d21605c3b9030e2102fdeeda43591a5347165",
+    "stratum.csv": "b5bc245896c7ca765989af763e6b9e90be9385f652b1ec20b7d3916b3ef62248"
+  }
+}

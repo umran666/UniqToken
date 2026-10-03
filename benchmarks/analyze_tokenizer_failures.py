@@ -30,6 +30,7 @@ PLOT_METRICS = (
 DEFINITIONS = {
     "bytes_per_token": "normalized UTF-8 bytes / emitted tokens; higher is more compression",
     "tokens_per_unicode_character": "emitted tokens / normalized Python Unicode characters",
+    "tokens_per_normalized_utf8_byte": "emitted tokens / normalized UTF-8 source bytes",
     "byte_fallback_percent": "100 * canonical byte-token emissions / all emissions",
     "token_length_bytes": "exact decoded source-byte contribution per token; fallback contributes one byte, not its spelling length",
     "vocabulary_utilization_percent": "100 * distinct observed IDs / (vocabulary size - four controls); byte IDs remain eligible",
