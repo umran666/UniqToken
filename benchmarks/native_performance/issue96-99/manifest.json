@@ -1,0 +1,49 @@
+{
+  "status": "complete",
+  "sources": {
+    "baseline": {
+      "archive_sha256": "26851b92fdb21029e56fd874fb89e588d8a7a5e51abc2a4dd8803b90757f9524",
+      "measurement_manifest_sha256": "50dd4f050bb9a643e39c39af9182572ec8cf61f2d07cf8ab229563e6c1d1eee7"
+    },
+    "paired": {
+      "archive_sha256": "86be54c0a611e4a5447a3400f4bb296c9ef9d6bf076b2f403e612539af3dc196",
+      "measurement_manifest_sha256": "a2ce86873a19267ba1987729dc6b336cba02337982e6ea27f0fbffc7de1d76d3"
+    },
+    "prefix": {
+      "archive_sha256": "df919290d68438ea77b5ba75ad1c9a860485822fd9a1acc73e293afac61bcd48",
+      "measurement_manifest_sha256": "31bb27a412d568ba0f5faa6d15b3230f0c7126541c6b5a71c6364011e43b9e58"
+    }
+  },
+  "publication_identity": {
+    "ledger_schema_version": 3,
+    "commit_hash": "9f1e4859eb42aebe8f5f49f67caa43fd1a8e125b",
+    "working_tree_dirty": false,
+    "source_hash": "284c4bf6bf55888c1e617567d2f7966d7facd76f1f96aeabddba4655639a0b95",
+    "extension_hash": "2d7bcc5249d73d8ba8520b8439eef0998738e1a907bd850573ec7a12d89a25f3",
+    "extension_status": "installed",
+    "versions": {
+      "python": "3.10.11",
+      "torch": "2.13.0",
+      "sentencepiece": "0.2.1",
+      "numpy": "2.2.6",
+      "regex": "2026.4.4"
+    }
+  },
+  "artifacts": {
+    "baseline-receipts.zip": "26851b92fdb21029e56fd874fb89e588d8a7a5e51abc2a4dd8803b90757f9524",
+    "paired-receipts.zip": "86be54c0a611e4a5447a3400f4bb296c9ef9d6bf076b2f403e612539af3dc196",
+    "prefix-receipts.zip": "df919290d68438ea77b5ba75ad1c9a860485822fd9a1acc73e293afac61bcd48",
+    "summary/batch-allocations.png": "82d3846e7218708c5b8b1957c44d31e6e2ef4b5192d37c97503d1f6ac708b6b6",
+    "summary/batch-process-memory.png": "d9ade34c58351333397fe71051619a238afc01620583550e454dfbb8e6e93052",
+    "summary/batch-span-parity.json": "c263f42ef825210da802bfc5311893507680132a2a51d1c9eff581b59a77c1f2",
+    "summary/batch-temporary-memory.png": "e37d08aa6c7e3c4e7ca3105088297126879c91391431b76c4e899d1444fae86d",
+    "summary/batch-throughput.png": "efcbd4727a6f32893340d3f3ef09106876a19936ea361a81be617e36bc3a7bfe",
+    "summary/dense-prefix-scaling.png": "2a3c9387356a4e9d2df46ca20b4ed900cbb285d5edbf64edd02219c1beb037bd",
+    "summary/manifest.json": "c63f5c2082b1a6fa775f7b76ad3d23f4380c49f2e169fd4d4e433d18b084ccd6",
+    "summary/metrics.csv": "956a43e3002c10e0e69fac3c1f73c7f89d75208590cc86d39ba3f57fcc8aaea4",
+    "summary/prefix-attribution.json": "f1652b6c96ce120ee3f17df6ca61f040dc88602469072508f3f80f9d03932739",
+    "summary/REPORT.md": "2441bf20ddbd21f194f8140cd5255b3acb1af9ea0e3ce753e57f188ae961c985",
+    "summary/segmentation-throughput.png": "8e5103439a31e85c5325a654a5e31b4a3c3eb7e7369f99d5ef0fe3d7b6ff5071",
+    "summary/summary.json": "43ab1deb8537000070a49d2b947bc7863ebd51020bf8fd18e8c01f05bd069636"
+  }
+}

@@ -5,3 +5,4 @@
 /benchmarks/byte_fallback/issue86/** -text whitespace=cr-at-eol
 /benchmarks/scaling/issue92/** -text whitespace=cr-at-eol
 /benchmarks/objective_ablation/issue87/** -text whitespace=cr-at-eol
+/benchmarks/native_performance/issue96-99/** -text whitespace=cr-at-eol
