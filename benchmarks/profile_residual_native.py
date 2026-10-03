@@ -343,7 +343,7 @@ def run(args):
         "records": records,
     }
     h.write_new_json(output / "results.json", payload)
-    (output / "metrics.csv").write_text(csv_text(records), encoding="utf-8")
+    (output / "metrics.csv").write_text(profile_csv(records), encoding="utf-8")
     h.write_new_json(output / "manifest.json", {"status": "complete", "artifacts": h.artifact_hashes(output)})
 
 
@@ -354,12 +354,101 @@ def main():
     parser.add_argument("--models", type=Path)
     parser.add_argument("--build-commit")
     parser.add_argument("--worker", type=Path)
+    parser.add_argument("--publish-source", type=Path)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
-    if args.worker:
+    if args.publish_source:
+        publish_profile(args.publish_source, args.output)
+    elif args.worker:
         h.write_new_json(args.output, worker(h.read_json(args.worker)))
     else:
         run(args)
+
+
+def profile_csv(records):
+    keys = sorted({key for record in records for key in record})
+    return csv_text([{key: record.get(key) for key in keys} for record in records])
+
+
+def validate_profile(payload):
+    fields = ("surface", "vocab_budget", "length", "script", "batch_size", "output", "cache", "mode")
+    expected = {
+        tuple({**spec, "mode": mode}[field] for field in fields)
+        for spec in specifications({budget: "model" for budget in (8192, 16384, 32768)})
+        for mode in ("timing", "allocations")
+    }
+    records, pairs = {}, {}
+    for row in payload["records"]:
+        key = tuple(row[field] for field in fields)
+        h.require(key in expected and key not in records, "unexpected/duplicate profile condition")
+        records[key] = row
+        for field in ("normalized_input_bytes", "tokens"):
+            h.require(type(row[field]) is int and row[field] > 0, "invalid profile counts")
+        if row["mode"] == "timing":
+            samples = row["wall_ns_samples"]
+            h.require(
+                len(samples) == REPETITIONS and all(math.isfinite(x) and x > 0 for x in samples),
+                "invalid timing samples",
+            )
+            h.require(row["latency_p50_ns"] == statistics.median(samples), "inconsistent median")
+            h.require(
+                row["normalized_mb_per_second"] == row["normalized_input_bytes"] * 1000 / row["latency_p50_ns"],
+                "inconsistent throughput",
+            )
+        else:
+            counts = row["rust_allocations"]
+            h.require(
+                all(type(value) is int and value >= 0 for value in counts.values()), "invalid Rust allocation counts"
+            )
+            h.require(
+                counts["requests"] > 0 and counts["peak_live_bytes"] >= counts["live_before_bytes"],
+                "invalid allocation observation",
+            )
+        invariant = tuple(
+            row.get(field)
+            for field in ("fixture_sha256", "model_sha256", "output_sha256", "error_sha256", "path_score_float_hex")
+        )
+        pair = key[:-1]
+        if pair in pairs:
+            h.require(pairs[pair] == invariant, "timing/allocation stream parity mismatch")
+        pairs[pair] = invariant
+    h.require(set(records) == expected, "incomplete native profile matrix")
+    return payload
+
+
+def publish_profile(path, output):
+    """Recover final presentation after a completed measurement matrix."""
+    import shutil
+
+    root = path.resolve().parent
+    h.require(
+        not output.exists() and not output.resolve().is_relative_to(root), "publication output must be new and disjoint"
+    )
+    identity = h.runtime_identity()
+    h.require(not identity["working_tree_dirty"], "commit publication code before exporting")
+    payload = validate_profile(h.read_json(path))
+    h.require(not payload["identity"]["working_tree_dirty"], "uncommitted profile measurements")
+    for index, row in enumerate(payload["records"]):
+        response = root / f"{index // 2}-{row['mode']}.json"
+        h.require(h.read_json(response) == row, "profile response differs from completed measurement")
+        native, model = Path(row["native"]), Path(row["model"])
+        h.require(h.file_hash(native) == row["native_sha256"], "native binary changed")
+        h.require(h.file_hash(model) == row["model_sha256"], "profile model changed")
+    output.mkdir(parents=True)
+    for source in root.glob("*.json"):
+        shutil.copyfile(source, output / source.name)
+    (output / "metrics.csv").write_text(profile_csv(payload["records"]), encoding="utf-8")
+    h.require(h.runtime_identity() == identity, "publication source/runtime changed")
+    h.write_new_json(
+        output / "manifest.json",
+        {
+            "status": "complete",
+            "artifacts": h.artifact_hashes(output),
+            "measurement_results_sha256": h.file_hash(path),
+            "publication_identity": identity,
+            "cpu_note": "Per-repetition CPU percentages have Windows accounting quantization error; use a longer observation for efficiency claims.",
+        },
+    )
 
 
 if __name__ == "__main__":

@@ -30,6 +30,25 @@ class ResidualNativeProfileTests(unittest.TestCase):
     def test_peak_rss_is_positive_process_memory(self):
         self.assertGreater(p.peak_rss(), 0)
 
+    def test_csv_preserves_both_timing_and_allocation_fields(self):
+        import csv
+        import io
+
+        rows = list(
+            csv.DictReader(
+                io.StringIO(
+                    p.profile_csv(
+                        [
+                            {"mode": "timing", "latency_p50_ns": 123},
+                            {"mode": "allocations", "rust_allocations": {"requests": 17}},
+                        ]
+                    )
+                )
+            )
+        )
+        self.assertEqual(rows[0]["latency_p50_ns"], "123")
+        self.assertIn('"requests": 17', rows[1]["rust_allocations"])
+
     def test_span_decode_and_grouped_fallback_score_are_exact(self):
         tokens = ["a", "<0xE4>", "<0xB8>", "<0xAD>"]
         ids = dict(zip(tokens, range(4)))
