@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "status": "complete",
+  "archive_sha256": "29f74e2295d45d277d52c08c8aebb1fbbd75383dac2ab1493ac04a3e0f6a8319",
+  "original_manifest_sha256": "9abb117d8834b8e1d1d75231e3f29c4e5736f627b6d5d8317839e97a654c4463",
+  "artifacts": {
+    "evidence.zip": "29f74e2295d45d277d52c08c8aebb1fbbd75383dac2ab1493ac04a3e0f6a8319",
+    "summary/batch-allocations.png": "82d3846e7218708c5b8b1957c44d31e6e2ef4b5192d37c97503d1f6ac708b6b6",
+    "summary/batch-process-memory.png": "d9ade34c58351333397fe71051619a238afc01620583550e454dfbb8e6e93052",
+    "summary/batch-temporary-memory.png": "e37d08aa6c7e3c4e7ca3105088297126879c91391431b76c4e899d1444fae86d",
+    "summary/batch-throughput.png": "efcbd4727a6f32893340d3f3ef09106876a19936ea361a81be617e36bc3a7bfe",
+    "summary/dense-prefix-scaling.png": "2a3c9387356a4e9d2df46ca20b4ed900cbb285d5edbf64edd02219c1beb037bd",
+    "summary/metrics.csv": "956a43e3002c10e0e69fac3c1f73c7f89d75208590cc86d39ba3f57fcc8aaea4",
+    "summary/REPORT.md": "2441bf20ddbd21f194f8140cd5255b3acb1af9ea0e3ce753e57f188ae961c985",
+    "summary/segmentation-throughput.png": "8e5103439a31e85c5325a654a5e31b4a3c3eb7e7369f99d5ef0fe3d7b6ff5071"
+  }
+}

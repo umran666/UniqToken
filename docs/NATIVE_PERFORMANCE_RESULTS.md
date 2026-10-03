@@ -8,16 +8,24 @@ version has no repeatable degraded batch cell, including batch size one.
 Retained evidence is under `benchmarks/native_performance/issue96-99`:
 
 - `summary/REPORT.md` states methods, uncertainty, memory scope and limits.
-- `summary/metrics.csv` and `summary/summary.json` contain all 291 variant/cell rows.
-- `summary/batch-span-parity.json` verifies all 48 raw single/batch span cells.
+- `summary/metrics.csv` contains all 291 variant/cell rows.
 - Six PNG plots cover segmentation, full batch throughput/allocation/memory and
   dense-prefix scaling; each is generated from the retained measurements.
-- Three receipt ZIPs preserve every original request, response, result and
+- `evidence.zip` preserves the complete original publication, including full
+  summary JSON, all 48 raw single/batch span parity cells and its original
+  manifest. Inside it, three receipt ZIPs preserve every request, response, result and
   manifest byte for the baseline profile, paired timing and prefix allocation
   attribution. Archive manifests and every contained file hash are checked by
   `native_receipt_archive.unpack` before extraction. ZIP timestamps are fixed.
-- The outer manifest binds archives and summary artifacts, retaining separate
-  measurement, report-export and archive-publication identities.
+- `archive.json` binds the archive and readable previews. The original manifest
+  inside the archive retains separate measurement, report-export and
+  archive-publication identities. Packaging changes none of those original bytes.
+
+Extract the verified original publication to inspect full JSON or worker ZIPs:
+
+```text
+python -m benchmarks.receipt_archive unpack --source benchmarks/native_performance/issue96-99 --output artifacts/native-original
+```
 
 Across the 45 natural-script/vocabulary segmentation cells, combined median
 paired speedups range from 2.45x to 9.13x. Every segmentation cell, including

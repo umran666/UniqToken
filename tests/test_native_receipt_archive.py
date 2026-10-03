@@ -7,6 +7,7 @@ import unittest
 import zipfile
 
 from benchmarks import native_receipt_archive as a
+from benchmarks.receipt_archive import retained_bundle
 from benchmarks import native_performance_report as r
 from benchmarks import profile_prefix_allocations as prefix
 from benchmarks import profile_residual_native as baseline
@@ -43,7 +44,10 @@ class NativeReceiptArchiveTests(unittest.TestCase):
 
 class RetainedNativeEvidenceTests(unittest.TestCase):
     def test_full_receipts_parity_uncertainty_memory_and_rejection_gate(self):
-        root = Path(a.__file__).parent / "native_performance" / "issue96-99"
+        with retained_bundle(Path(a.__file__).parent / "native_performance" / "issue96-99") as root:
+            self._check_retained(root)
+
+    def _check_retained(self, root):
         receipt = h.read_json(root / "manifest.json")
         self.assertEqual(receipt["status"], "complete")
         for relative, digest in receipt["artifacts"].items():
