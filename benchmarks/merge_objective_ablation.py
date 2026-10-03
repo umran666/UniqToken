@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import argparse
-from collections import Counter, defaultdict
+from collections import Counter
 from dataclasses import asdict
 import math
 from pathlib import Path
