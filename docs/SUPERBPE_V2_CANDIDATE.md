@@ -130,6 +130,28 @@ proxies. Name all denominators. Fallback percentage of tokens can increase when
 ordinary compression removes tokens even if fallback byte emissions are fixed;
 it is not a substitute for the source-byte fraction.
 
+Every comparison uses `uniq_superbpe_r64` at the same total budget, validation
+stratum, source assignments and normalization. Freeze its model SHA-256 and
+measured counts before evaluating the candidate; do not substitute a later run.
+Pool raw document counts and span histograms within each reported scope before
+computing fractions or percentiles, rather than averaging document-level ratios.
+
+Define `fallback_source_byte_fraction` as canonical byte-leaf emissions (one
+byte per leaf) divided by `normalized_utf8_bytes`. The per-stratum fallback
+ratio is the candidate fraction divided by the frozen baseline fraction;
+the cap of 1.0 means no increase, not an absolute source-byte fraction cap.
+Aggregate relative reduction is `1 - candidate_fraction / baseline_fraction`;
+the 0.1 threshold means a 10% relative reduction, not ten percentage points.
+The p95 fallback-span ratio likewise divides candidate p95 by baseline p95.
+The zero-fallback and empty-histogram rules below apply before these divisions.
+
+For each whitespace and punctuation category separately, the split-run proxy
+is `100 * split_runs / runs` on normalized text. Compare candidate percent minus
+frozen baseline percent in each stratum; a baseline of 20.0% permits at most
+20.5%, not a relative 0.5% increase. Zero runs gives a null proxy and an explicitly
+not-applicable category with its run counts; missing counts block certification.
+Never replace a null proxy with zero.
+
 All following gates are required at every feasible candidate budget:
 
 1. Exact vocabulary/ID/control/byte accounting, finite normalized probabilities,

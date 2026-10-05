@@ -1,652 +1,235 @@
-<p align="center">
-  <img src="assets/banner.jpeg" alt="UniqToken Banner" width="100%">
-</p>
+# UniqToken
 
-<p align="center">
-  <h1 align="center">UniqToken</h1>
-  <p align="center">
-    <strong>Script-Aware, Entropy-Guided Multilingual Subword Tokenizer</strong>
-  </p>
-  <p align="center">
-    Python tokenizer research toolkit with Rust acceleration, byte fallback, and raw-text span tracking.
-  </p>
-</p>
+UniqToken is a Python tokenizer research toolkit with a bundled Rust extension. It supports training Unigram and BPE vocabularies, importing existing tokenizer formats, and tracing token spans back to input text. It is intended for experiments with vocabulary construction, multilingual text, and model integration; a newly trained vocabulary requires a language model trained or adapted for its token IDs.
 
-<p align="center">
-  <a href="https://colab.research.google.com/github/umran666/UniqToken/blob/main/notebooks/quickstart.ipynb"><img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"></a>
-  <a href="https://github.com/umran666/UniqToken/actions/workflows/ci.yml"><img src="https://github.com/umran666/UniqToken/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
-  <a href="https://github.com/umran666/UniqToken/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License"></a>
-  <img src="https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12-blue.svg" alt="Python">
-  <img src="https://img.shields.io/badge/rust-stable-orange.svg" alt="Rust">
-  <img src="https://img.shields.io/badge/version-1.0.0-blue.svg" alt="Version">
-  <img src="https://img.shields.io/badge/dependencies-regex-brightgreen.svg" alt="Dependencies">
-</p>
+![UniqToken banner](assets/banner.jpeg)
 
----
+The current published release is **v1.0.0**: [GitHub release](https://github.com/umran666/UniqToken/releases/tag/v1.0.0), [PyPI package](https://pypi.org/project/uniqtoken-core/1.0.0/), and [release contents and limitations](RELEASE_v1.md). The `main` branch includes subsequent development and research diagnostics; installing v1.0.0 does not include those later changes.
 
-## What UniqToken Implements
-
-UniqToken is a research tokenizer implementation with trainable Unigram and BPE vocabularies, optional CEM/SuperBPE vocabulary extension, byte fallback, Unicode-aware pre-tokenization, and exact raw-text offset tracking. Imported compatibility models preserve their existing token IDs; research models create a new vocabulary and therefore require a model trained for those IDs.
-
-Token counts depend on the vocabulary, training corpus, normalization, and pre-tokenization configuration. This README does not claim lower API cost, better linguistic boundaries, or superiority over production tokenizers. Those questions require held-out, budget-matched experiments with downstream language models.
-
----
-
-## Overview
-
-> **Architecture & Contributor Roadmap**: See [ROADMAP.md](ROADMAP.md) for the eight-stage architecture roadmap and its historical GitHub issue ledger.
-
-UniqToken provides trainable Unigram and BPE models, post-training CEM/SuperBPE vocabulary extension, preprocessing and offset composition, serialization, compatibility importers, and a bundled native Rust extension. Its research-specific mechanisms include script-aware candidate generation and configurable frequency, character-savings, byte-savings, PMI, and boundary-entropy filters. Their empirical effects remain open questions under the protocol below.
-
-### Two Engines, One Core
-
-UniqToken's public API is split into two namespaces that share the tokenizer data model and dispatch supported operations to the bundled native Rust core (`crates/uniqtoken_core`):
-
-| Engine | Namespace | Purpose | Contract |
-|:-|:-|:-|:-|
-| **Compatibility Engine** | `uniqtoken.compat` | Import *existing* models: `from_tiktoken`, `from_huggingface`, `from_sentencepiece` (aliases `TiktokenCompat`, `HuggingFaceCompat`, `SentencePieceCompat`) | Preserve the imported ID space and freeze vocabulary mutation. Unsupported normalization or pre-tokenization details produce explicit warnings. |
-| **Research Engine** | `uniqtoken.train` | Train *new* vocabularies: `UnigramTrainer`, `UnigramLattice`, `SuperBPE`, script-aware `SeedVocabularyBuilder`, `BPETrainer`, `CrossEntropyMerging`, `VocabularyAdapter` | Introduces a new vocabulary and token IDs; dual-offset composition and byte fallback apply end-to-end. |
-
-```python
-# Accelerate an existing model — IDs never change:
-from uniqtoken.compat import from_tiktoken
-
-enc = from_tiktoken("cl100k_base.tiktoken", name="cl100k_base", pattern="cl100k_base")
-
-# Train a new vocabulary — research features:
-from uniqtoken import UnigramTrainer, SuperBPE
-```
-
-### Implementation Contracts
-
-| # | Capability | Implemented Contract |
-|:-:|:---|:---|
-| 1 | **Out-of-vocabulary handling** | With a complete byte-fallback vocabulary, unseen characters can be represented by UTF-8 byte tokens (`<0x00>`–`<0xFF>`). With normalization enabled, the text contract is `decode(encode(x)) == normalize(x)`, subject to separately configured sanitization. NFKC does not preserve original bytes. |
-| 2 | **Span drift** — normalization (NFKC, case folding) changes string length, breaking the character offsets that NER, extractive QA, and citation systems depend on. | **Dual-offset tracking**: sanitization, indentation compression, normalization, and pre-tokenization each produce their own alignment, composed end-to-end by `_compose_alignment()`, so `encode_with_offsets()` returns a `Token.raw_span` containing Python character-index offsets into the original raw text. |
-| 3 | **Digit and script clumping** — numbers and mixed scripts get fused into arbitrary tokens, hurting arithmetic reasoning and URL parsing. | An ordered regex boundary layer isolates URLs, emails, hashtags, emoji (including ZWJ sequences), CJK ideographs, and digit runs before subword segmentation runs. |
-| 4 | **Deterministic brittleness** — a single fixed segmentation makes models fragile to typos and spelling variants. | **FFBS subword regularization** — Forward-Filtering Backward-Sampling over the segmentation lattice — samples stochastic alternative segmentations during training ([Kudo, 2018](#algorithms--base-papers)). |
-| 5 | **Vocabulary freezing** — extending a trained vocabulary normally forces re-indexing, corrupting the model's existing embedding matrix. | **ID-preserving vocabulary growth**: both `VocabularyAdapter` and `CrossEntropyMerging` allocate new IDs above the maximum existing ID, leaving every existing token ID untouched. A downstream model must still resize and initialize new embedding/output rows. |
-
----
-
-## Benchmark Status
-
-UniqToken currently makes no comparative performance or superiority claim. Earlier Phase 14/15 tables, figures, ANOVA results, Pareto analyses, and the pre-integrity matched-budget ledger were produced by harnesses that did not meet the repository's current data-separation and exact-budget contracts. They are retained unchanged under [`benchmarks/legacy/`](benchmarks/legacy/) for provenance and are not valid evidence for the current implementation.
-
-The active benchmark code now enforces these rules:
-
-- tokenizer training documents are disjoint from every document used for measurement;
-- language-model rows identify `model_kind` explicitly and Transformer evaluation fails if PyTorch or a viable training sequence is unavailable;
-- matched trainable tokenizers must reach the exact requested vocabulary size;
-- SuperBPE conditions must learn at least one cross-word merge;
-- invalid tiers, budgets, devices, and incomplete conditions abort the run instead of producing a partial matched ledger;
-- current JSON ledgers carry schema version 3, a full Git commit hash, working-tree dirty status, and a data-split declaration; the matched-budget ledger also records the experiment version. `benchmarks.ledger.load_ledger()` validates these fields and can require an expected commit hash.
-
-Cross-script density uses `tokens_per_unicode_character`: emitted token count divided by the number of raw Unicode code points, including whitespace. This replaces whitespace-based fertility for CJK and mixed-script measurements; it is not a linguistic boundary score. The schema-3 loader rejects ambiguous fertility fields and older schemas rather than interpreting them as current results.
-
-Phase A tokenizer screening and the 18-condition Phase B LM screen are complete. Phase B is exploratory screening evidence only; its official interpretation is frozen in [`benchmarks/PHASE_B_ANALYSIS_REPORT.md`](benchmarks/PHASE_B_ANALYSIS_REPORT.md). The Phase C confirmatory protocol was frozen but **not executed because the required compute exceeded the available free budget**. FLORES-200 devtest remained unopened, and the exploratory 16K byte-matched UT-SuperBPE result is not confirmed. See [`benchmarks/PHASE_C_STATUS.md`](benchmarks/PHASE_C_STATUS.md).
-
-The active entry points are [`benchmarks/run_phase_a.py`](benchmarks/run_phase_a.py) for tokenizer stages and [`benchmarks/run_phase_b_screen.py`](benchmarks/run_phase_b_screen.py) for the completed one-seed LM screen. [`benchmarks/run_phase_c_confirm.py`](benchmarks/run_phase_c_confirm.py) implements the frozen confirmation contract but is not launch authorization. The older generic Phase C path in [`benchmarks/run_research_experiments.py`](benchmarks/run_research_experiments.py) is not authorized for confirmation. Shared ledgers use schema 3; the generic runner uses research schema 5. For cheap tokenizer-only objective comparisons without any LM initialization, [`benchmarks/run_ablation_harness.py`](benchmarks/run_ablation_harness.py) preflights the frozen dataset, runs the full cohort under shared exact-budget and deterministic-seed protections, and publishes a versioned, atomically-committed comparison ledger (`preflight`/`run`/`compare` subcommands). Dataset, artifact, source, extension, configuration, and completion provenance are validated fail-closed. See [`benchmarks/RESEARCH_PROTOCOL.md`](benchmarks/RESEARCH_PROTOCOL.md) for the execution contracts.
-
-[`benchmarks/run_matched_budget_eval.py`](benchmarks/run_matched_budget_eval.py) remains a train/validation diagnostic, not a final research experiment. [`benchmarks/train_toy_transformer.py`](benchmarks/train_toy_transformer.py) provides a small three-way train/validation/test sanity harness. [`benchmarks/downstream_eval.py`](benchmarks/downstream_eval.py) and [`benchmarks/benchmark_suite.py`](benchmarks/benchmark_suite.py) report tokenizer-only held-out measurements; they do not establish downstream model quality.
-
-Throughput results are hardware, build, workload, batch-size, and threading dependent. Cross-tokenizer throughput should be compared using input bytes per second because token counts differ by tokenizer. Tokens per second is suitable for comparing implementations only when they produce the same token stream. No throughput table is presented here until a controlled benchmark is rerun from the current HEAD.
-
-The completed Phase B screen does not establish comparative superiority. A publishable confirmatory comparison still requires execution of the frozen three-seed Phase C protocol, its predeclared analysis, held-out test evaluation, uncertainty estimates, and independent reproduction. [`PAPER_DRAFT.md`](PAPER_DRAFT.md) is a manuscript draft; the versioned files under [`benchmarks/`](benchmarks/) are the authoritative experiment protocols, reports, and status records.
-
----
 ## Features
 
-<table>
-<tr><td>
+Implemented in v1.0.0:
 
-**Tokenization**
-- Two trainable model families, Unigram LM (DAG + Viterbi + EM + FFBS) and BPE, plus CEM/SuperBPE post-training vocabulary extension
-- Native Rust acceleration core (`crates/uniqtoken_core`) with Rayon parallel batching and fused Viterbi dynamic programming
-- Byte-fallback codec for 0% OOV across all Unicode
-- FFBS subword regularization for training-time augmentation
-- PrefixTrie-backed lattice edge mining
-
-</td><td>
-
-**Alignment & Safety**
-- Exact dual-offset span tracking (raw → normalized → token)
-- SecurityShield: control-token injection / delimiter-hijacking defense
-- Indic virama, Arabic harakat, Hebrew niqqud, Hangul jamo cluster protection
-- CJK isolation, emoji ZWJ/variation-selector preservation
-
-</td></tr>
-<tr><td>
-
-**Serving**
-- StreamingDecoder with UTF-8 byte-buffer for real-time generation
-- BatchCollator with padding, attention masks, BOS/EOS injection
-- PyTorch tensor output via `to_torch()`
-- HuggingFace JSON export with warnings for configurations that cannot be represented exactly
-- GGUF v3 binary format export (`export_to_gguf()`) for `llama.cpp`
-
-</td><td>
-
-**Code & Domain**
-- IndentationCompressor: reversible 2/4/8/16-space and tab compression
-- Non-destructive online vocabulary expansion for domain adaptation
-- SuperBPE whitespace-crossing merge mode ([Liu et al., 2025](#algorithms--base-papers))
-- Save/load serialization with full config preservation
-
-</td></tr>
-</table>
-
----
+- Unigram training with expectation-maximization, deterministic Viterbi segmentation, and optional forward-filtering backward-sampling (FFBS) subword regularization.
+- BPE training and ranked merge inference, plus CEM/SuperBPE post-training vocabulary extension with optional cross-word merging.
+- Configurable seed ranking, script balancing, and boundary-entropy filters for vocabulary experiments.
+- Configurable normalization and Unicode-aware pre-tokenization, complete UTF-8 byte fallback when all 256 byte tokens are present, and raw-text character spans.
+- Token strings, integer IDs, batch encoding/decoding, incremental UTF-8 decoding, padding and attention masks, and tokenizer save/load.
+- Compatibility importers for tiktoken ranks, Hugging Face Unigram/ByteLevel BPE JSON, and SentencePiece Unigram models, subject to the limits below.
+- A CLI, Rust acceleration, Hugging Face integration/export, and GGUF export. Integration fidelity depends on the configuration and the tested downstream library versions.
 
 ## Installation
 
+Requires **Python 3.10 or later**. The configured Python CI matrix covers 3.10, 3.11, and 3.12.
+
 ```bash
-pip install uniqtoken-core==1.0.0
+python -m pip install uniqtoken-core==1.0.0
+```
 
-# The distribution exposes the public Python API and native implementation.
-python -c "import uniqtoken, uniqtoken_core; print(uniqtoken.__version__)"
+The single distribution installs both `uniqtoken` (the public Python API) and `uniqtoken_core` (the native extension). Do not install a separate package named `uniqtoken`.
 
-# Source checkout / contributor installation
+```python
+import uniqtoken
+import uniqtoken_core
+
+print(uniqtoken.__version__)  # 1.0.0
+```
+
+The base dependency is `regex`. Published wheels bundle the native extension; a source installation requires a stable Rust toolchain and a platform linker. The build backend is Maturin.
+
+Optional extras include `huggingface` for the Hugging Face adapter, `chat` for Jinja2 chat templates, `progress` for progress displays, `torch` for tensor output, and `tiktoken` for reference comparisons. For example:
+
+```bash
+python -m pip install "uniqtoken-core[huggingface]==1.0.0"
+```
+
+## Quick Start
+
+This small corpus demonstrates the API; it does not produce a production-quality vocabulary.
+
+```python
+from uniqtoken import CustomTokenizer
+
+corpus = [
+    "hello world",
+    "hello tokenizer",
+    "a tokenizer encodes text",
+    "text can include unseen characters",
+]
+tokenizer = CustomTokenizer.train_from_corpus(
+    corpus,
+    target_vocab_size=320,
+    byte_fallback=True,
+    verbose=False,
+)
+
+text = "hello world"
+tokens = tokenizer.encode(text)       # List[str]: token strings
+ids = tokenizer.encode_to_ids(text)   # List[int]: model-specific IDs
+assert tokenizer.decode(ids) == text
+
+print(tokens)
+print(ids)
+print([(token.text, token.raw_span)
+       for token in tokenizer.encode_with_offsets(text)])
+
+tokenizer.save("saved_model")
+restored = CustomTokenizer.load("saved_model")
+assert restored.encode_to_ids(text) == ids
+```
+
+The example's ASCII input survives the default normalization unchanged. For other inputs, decoded text reflects the configured normalization and special-token policy; raw byte preservation is not the default contract.
+
+### CLI
+
+Using the `saved_model` directory created above:
+
+```bash
+uniqtoken --help
+uniqtoken train --help
+uniqtoken encode --model saved_model --input "hello world" --to-ids --json --out token-ids.json
+uniqtoken decode --model saved_model --input token-ids.json
+```
+
+The decode command prints `hello world`. `python -m uniqtoken.cli` is an alternative entry point. CLI training accepts UTF-8 corpus files through `--corpus`, trains Unigram by default, and can add SuperBPE merges with `--superbpe-merges`; BPE training is available through the Python API.
+
+## Supported Tokenization
+
+| Surface | Algorithm or format | Behavior |
+| --- | --- | --- |
+| `CustomTokenizer.train_from_corpus`, `UnigramTrainer` | Unigram | Train a new vocabulary; deterministic segmentation or optional sampling. |
+| `BPETrainer`, `BPEModel` | BPE | Train on pre-tokenized chunks and apply ranked adjacent-symbol merges. |
+| `CrossEntropyMerging`, `SuperBPE` | CEM/SuperBPE | Extend an existing Unigram vocabulary; SuperBPE enables cross-word merges. |
+| `uniqtoken.compat.from_tiktoken` | tiktoken ranks | Preserve imported IDs; supply the matching regex pattern and special-token configuration. |
+| `uniqtoken.compat.from_huggingface` | Unigram or BPE JSON | ByteLevel BPE has a dedicated adapter; other BPE configurations have limited fidelity. WordPiece is unsupported. |
+| `uniqtoken.compat.from_sentencepiece` | SentencePiece Unigram `.model` | Import pieces, scores, and IDs; fidelity depends on representable preprocessing. |
+
+Training classes are also available through `uniqtoken.train`. Compatibility loaders return wrappers that reject vocabulary mutation; use the training surface to create or extend vocabularies. Preserving imported IDs alone does not guarantee identical segmentation for every model.
+
+For BPE, using `corpus` and `text` from the quick start:
+
+```python
+from uniqtoken import BPETrainer, Normalizer, RegexPreTokenizer
+
+normalizer = Normalizer()
+pre_tokenizer = RegexPreTokenizer()
+chunks = [
+    chunk
+    for document in corpus
+    for chunk in pre_tokenizer.pre_tokenize(normalizer.normalize(document))
+]
+bpe = BPETrainer(target_vocab_size=320, byte_fallback=True).train(chunks)
+bpe_ids = bpe.encode_to_ids(normalizer.normalize(text))
+assert bpe.decode(bpe_ids) == text
+```
+
+See the [compatibility exceptions](COMPATIBILITY_EXCEPTIONS.md) and [differential tests](tests/test_differential_compat.py) for tested formats and known divergences. SentencePiece imports respect the model's dummy-prefix flag; unsupported normalization details can still affect parity. Non-ByteLevel Hugging Face BPE imports retain vocabulary/merge data with warnings rather than promising complete tokenizer equivalence.
+
+### Native Execution
+
+The bundled PyO3 extension provides prefix-trie lookup, Viterbi segmentation, forward/backward expectations, n-gram mining, normalization, pre-tokenization, and Rayon batch execution. Supported paths dispatch automatically to Rust; unavailable operations or unsupported configurations use Python implementations.
+
+There is no general `backend=` or `algorithm=` selector on `CustomTokenizer.train_from_corpus`. Choose Unigram or BPE through their respective training APIs. FFBS sampling and nonzero merge dropout use Python paths. Experimental `FastMergeEngine` work on `main` is outside the v1.0.0 release; see the [merge-engine design](docs/MERGE_ENGINE_DESIGN.md).
+
+## Unicode, Byte Fallback, and Alignment
+
+- **Normalization:** NFKC and Unicode-space mapping are enabled by default. Case folding, punctuation mapping, whitespace collapse, and stripping are configurable. Normalization can change characters and length; configure these options explicitly when raw-text reconstruction matters.
+- **Byte fallback:** With `byte_fallback=True` and all 256 `<0x00>` through `<0xFF>` tokens configured, unseen valid UTF-8 text can be represented without replacing it with an unknown token. This does not guarantee useful linguistic segmentation. Invalid UTF-8 byte sequences are rejected during decoding.
+- **Graphemes:** Pre-tokenization snaps boundaries to extended grapheme clusters, with tests for combining marks, Indic scripts, emoji sequences, and related cases. This is a pre-tokenization boundary rule, not a guarantee that each emitted subword is a whole grapheme or morpheme.
+- **Offsets:** `encode_with_offsets` returns `Token` objects with `text`, `id`, and `raw_span=(start, end)`. These are **Python character-index offsets**, with an exclusive end, into the original input. Normalization and sanitization compose their source spans; expansions or byte fallback can give multiple tokens the same or overlapping raw span.
+- **Special tokens:** Configured control-token strings can be allowed, escaped, or rejected. Escaping changes the decoded text. This policy is not a general defense against prompt injection.
+
+## Performance
+
+Throughput depends on the model, input, build, batching, cache state, and thread count. Cross-tokenizer comparisons should use normalized input bytes per second; token throughput is comparable only when the implementations emit the same token stream.
+
+The retained [post-release native performance study](docs/NATIVE_PERFORMANCE_RESULTS.md) compares UniqToken implementations, not competing tokenizer libraries. Across 45 natural-script/vocabulary segmentation cells, the combined decoder (`9e84dc2`) measured **2.45-9.13x median paired speedups** over its internal baseline (`658033b`). Full-batch results had 22 repeatable gains and 26 inconclusive/mixed cells, with no repeatable degradation.
+
+That study used fixed local fixtures on Windows x86-64 (Intel Family 6, Model 154; 16 logical CPUs), Python 3.10.11, Rust 1.98.0, release optimization level 3, LTO, one codegen unit, and one Rayon worker. It used two independent worker rounds with eleven paired repetitions per round; allocation instrumentation was disabled for primary timings. The [report](benchmarks/native_performance/issue96-99/summary/REPORT.md) and [metrics](benchmarks/native_performance/issue96-99/summary/metrics.csv) retain methods, per-cell uncertainty, and exact build identities.
+
+These are segmentation measurements at the named post-release revisions, not v1.0.0 end-to-end speedups or evidence of superiority over SentencePiece/tiktoken. Separate [vocabulary-scaling diagnostics](benchmarks/scaling/issue92/REPORT.md) measured faster SentencePiece training at every completed shared budget in that bounded corpus/configuration; they do not establish encoding-throughput rankings. Benchmark the intended workload before choosing an implementation.
+
+## Research
+
+Engineering functionality and scientific evidence have different scopes:
+
+| Stage | Status | Interpretation |
+| --- | --- | --- |
+| Phase A | Tokenizer screening completed | Controlled tokenizer diagnostics for feasibility and selection; token counts do not establish downstream model quality. |
+| Phase B | All 18 exploratory LM screening conditions completed | One paired seed under FLOP-matched and byte-matched budgets; screening evidence, not confirmation. |
+| Phase C | **Not executed** | The frozen confirmatory design exceeded the available free compute budget; no confirmatory result is claimed. |
+
+In Phase B, UT-SuperBPE's 16K byte-matched result was a candidate for confirmation. SentencePiece Unigram had the lowest FLOP-matched bits per byte (BPB) at all three screened vocabulary sizes. The small model, one seed, and limited training exposure prevent general conclusions about multilingual LM efficiency or normally trained models. BPB comes from validation negative log-likelihood and normalized UTF-8 bytes, not vocabulary size alone.
+
+The held-out FLORES-200 devtest set **remained unopened**. A frozen protocol and implemented runner do not authorize a Phase C launch.
+
+- [Research protocol and provenance requirements](benchmarks/RESEARCH_PROTOCOL.md), including research schema 5 for the generic LM runner.
+- [Phase B analysis and limitations](benchmarks/PHASE_B_ANALYSIS_REPORT.md).
+- [Frozen Phase C protocol](benchmarks/PHASE_C_CONFIRMATORY_PROTOCOL.md) and [unexecuted status](benchmarks/PHASE_C_STATUS.md).
+- Post-release [tokenizer failure analysis](benchmarks/TOKENIZER_FAILURE_ANALYSIS.md), [merge-objective ablations](benchmarks/MERGE_OBJECTIVE_ABLATION.md), and [scope-specific Pareto analysis](benchmarks/TOKENIZER_PARETO.md). These are descriptive diagnostics, not confirmatory LM evidence.
+- [Manuscript draft](PAPER_DRAFT.md); versioned protocols and reports under `benchmarks/` remain the source of truth.
+- [Archived legacy evidence](benchmarks/legacy/README.md), retained for provenance and excluded from current research claims.
+
+The project makes no universal token-efficiency, language-quality, or API-cost reduction claim.
+
+## Limitations
+
+- A new or extended vocabulary is not interchangeable with an existing language model's tokenizer. `VocabularyAdapter` preserves existing IDs and assigns new IDs **above the maximum existing ID**; model embeddings and output layers still need resizing and adaptation.
+- Achievable vocabulary size depends on the corpus and mandatory pieces. A small corpus may underfill a large requested budget; controlled research harnesses reject budget mismatches.
+- Imported/exported tokenizer fidelity and Hugging Face integration are limited to representable configurations and tested library versions. Optional differential tests may skip when reference packages or models are unavailable.
+- Image-tokenization components are experimental and require a trained or loaded visual codebook. No trained visual, audio, or neural codec checkpoint is bundled; audio tokenization is unsupported.
+- The 2026-10-04 local Windows/Python 3.10 hygiene validation did **not** yield a fully green Python suite: a pre-existing tiktoken-adapter timing test and a Torchvision/Transformers environment failure remained. Passing package/import checks do not imply the full suite passed.
+
+## Development
+
+A source checkout requires Python 3.10+, a stable Rust toolchain, and a working platform linker. The following installs the checked-out branch, which can differ from the published release.
+
+```bash
 git clone https://github.com/umran666/UniqToken.git
 cd UniqToken
-pip install -e .
+python -m venv .venv
 ```
 
-**Optional extras** (defined in [`pyproject.toml`](pyproject.toml)):
-
-| Extra | Command | What it adds |
-|:------|:--------|:-------------|
-| PyTorch | `pip install -e ".[torch]"` | `torch>=2.13.0` — tensor output in `BatchCollator` |
-| HuggingFace | `pip install -e ".[huggingface]"` | `tokenizers>=0.22.0`, `transformers>=5.10.4,<6.0.0` — interop & export |
-| Benchmarks | `pip install -e ".[bench]"` | `sentencepiece>=0.1.99`, `tokenizers>=0.22.0` — comparison baselines |
-| Testing | `pip install -e ".[test]"` | Full regression dependencies, including pinned PyTorch, PyArrow, Accelerate, Ruff, and Mypy versions |
-| Everything | `pip install -e ".[all]"` | All of the above |
-
----
-
-## Quickstart
-
-[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/umran666/UniqToken/blob/main/notebooks/quickstart.ipynb)
-*Try UniqToken directly in your browser with our interactive [Google Colab Quickstart Tutorial](https://colab.research.google.com/github/umran666/UniqToken/blob/main/notebooks/quickstart.ipynb) (zero local setup required).*
-
-### Train a Unigram tokenizer
-
-```python
-from uniqtoken import CustomTokenizer
-
-corpus = [...]  # list of training documents
-
-tok = CustomTokenizer.train_from_corpus(
-    corpus,
-    target_vocab_size=32_000,
-    special_tokens=["<|pad|>", "<|unk|>", "<|bos|>", "<|eos|>"],
-    byte_fallback=True,
-)
-
-# Encode → decode roundtrip (this ASCII example is unchanged by normalization)
-ids = tok.encode_to_ids("fix in 2024 at https://site.com")
-text = tok.decode(ids)
-assert text == "fix in 2024 at https://site.com"
-
-# Stochastic subword regularization (training-time augmentation)
-sampled = tok.sample("hello world", alpha=0.5)
-
-# Exact character-span offsets for every token
-for token in tok.encode_with_offsets("fix in 2024"):
-    print(f"{token.text!r:>12}  id={token.id:<5}  raw_span={token.raw_span}")
-```
-
-### Train a BPE tokenizer
-
-```python
-from uniqtoken import BPETrainer
-
-trainer = BPETrainer(target_vocab_size=32_000, byte_fallback=True)
-model = trainer.train(chunks=corpus, verbose=True)
-
-tokens = model.encode("tokenization")
-token_ids = model.encode_to_ids("tokenization")
-text = model.decode(token_ids)
-```
-
-### Extend vocabulary with CEM / SuperBPE
-
-```python
-from uniqtoken import CrossEntropyMerging
-
-# Standard CEM: greedily add merges that minimize cross-entropy increase
-cem = CrossEntropyMerging(max_merges=200, verbose=True)
-extended = cem.optimize(tok.model, chunks=corpus)
-
-# SuperBPE mode: only accept merges that cross whitespace boundaries
-superbpe = CrossEntropyMerging(max_merges=200, cross_word=True)
-superbpe_model = superbpe.optimize(tok.model, chunks=corpus)
-```
-
-### Export to HuggingFace and GGUF format
-
-```python
-# Export to canonical HuggingFace tokenizer.json and tokenizer_config.json
-tok.export_to_huggingface("hf_export/")
-
-# Then load with transformers:
-# from transformers import AutoTokenizer
-# hf_tok = AutoTokenizer.from_pretrained("hf_export/")
-
-# Export to LLaMA.cpp GGUF v3 binary format
-tok.export_to_gguf("model.gguf", model_name="llama")
-```
-
-### Use the native HuggingFace ``PreTrainedTokenizerFast`` adapter
-
-UniqToken ships a ``transformers.PreTrainedTokenizerFast`` adapter covering the
-repository-tested integration surface: ``save_pretrained`` / ``from_pretrained``,
-padding and truncation strategies, ``return_tensors`` (``"np"`` and ``"pt"``),
-batched encoding, and offset mappings. Compatibility outside the tested
-Transformers versions and surfaces is not guaranteed.
-
-```python
-from uniqtoken import CustomTokenizer, UniqTokenizerFast
-from transformers import AutoTokenizer
-
-tok = CustomTokenizer.train_from_corpus(corpus, target_vocab_size=8000, verbose=False)
-
-# Wrap the trained tokenizer as a native HF fast tokenizer.
-hf_tok = UniqTokenizerFast.from_custom_tokenizer(tok)
-
-# save_pretrained writes tokenizer.json + tokenizer_config.json (with the
-# auto_map entry that points back at UniqTokenizerFast), so the repo round-trips
-# through the standard HF loaders on any machine with uniqtoken installed.
-hf_tok.save_pretrained("uniqtok_export/")
-
-# Reload directly, or let AutoTokenizer discover the custom class.
-reloaded = UniqTokenizerFast.from_pretrained("uniqtok_export/")
-auto = AutoTokenizer.from_pretrained("uniqtok_export/")  # -> UniqTokenizerFast
-```
-
-Importing ``uniqtoken.hf_adapter`` (or accessing ``uniqtoken.UniqTokenizerFast``)
-registers the class with ``transformers.AutoTokenizer`` automatically.
-
-### Streaming decode
-
-```python
-decoder = tok.get_streaming_decoder()
-
-output = ""
-for token_id in generated_ids:  # one id at a time from an LLM
-    output += decoder.feed_token_id(token_id)
-output += decoder.flush()
-```
-
-### Sanitize untrusted input
-
-```python
-from uniqtoken import SecurityShield
-
-shield = SecurityShield(special_tokens=["<|endoftext|>", "<|system|>", "<|user|>"])
-safe = shield.sanitize(
-    untrusted_input,
-    allowed_special="none",  # or {"<|user|>"} to whitelist
-    disallowed_special_action="escape",  # "escape" | "raise" | "ignore"
-)
-```
-
-> **Note:** `CustomTokenizer` wires `SecurityShield.sanitize()` into every `encode()`, `sample()`, and `encode_with_offsets()` call automatically (defaults: `allowed_special="none"`, `disallowed_special_action="escape"`), so sanitization is not an opt-in step.
-
-### Compress structured whitespace
-
-```python
-from uniqtoken import IndentationCompressor
-
-compact = IndentationCompressor.compress_indents(source_code)
-restored = IndentationCompressor.decompress_indents(compact)
-assert restored == source_code
-```
-
-### Save and load
-
-```python
-from uniqtoken import CustomTokenizer
-
-tok.save("saved_model/")
-tok2 = CustomTokenizer.load("saved_model/")
-
-assert tok2.encode_to_ids("test") == tok.encode_to_ids("test")
-```
-
----
-
-## Command-Line Interface (CLI)
-
-UniqToken ships with a CLI executable (`uniqtoken`) for training, encoding, decoding, and evaluation:
+Activate the environment with `source .venv/bin/activate` on POSIX shells or `.\.venv\Scripts\Activate.ps1` in PowerShell, then run:
 
 ```bash
-# 1. Train a tokenizer with PMI ranking and SuperBPE optimization
-uniqtoken train --corpus dataset.txt --vocab-size 8000 --ranking-strategy pmi --superbpe-merges 100 --out ./model
-
-# 2. Tokenize text with exact character spans and compression telemetry
-uniqtoken encode --model ./model --input "def forward(x): return self.attn(x)" --with-metrics
-
-# 3. Encode to integer IDs as JSON
-uniqtoken encode --model ./model --input "the quick brown fox" --to-ids --json
-
-# 4. Decode integer IDs to normalized text (NFKC is not raw-byte lossless)
-uniqtoken decode --model ./model --input "[12, 450, 89, 230]"
-
-# 5. Run the empirical multilingual benchmark suite with Markdown/LaTeX export
-uniqtoken benchmark --export-markdown benchmark_report.md --export-latex table.tex
-
-# 6. Evaluate tokenizer-only context-density proxies on held-out text
-uniqtoken eval-downstream --vocab-size 1000
+python -m pip install -e ".[test]"
+python -m unittest discover -s tests -p "test_*.py" -v
+python -m ruff check .
+python -m ruff format --check .
+python -m mypy uniqtoken
+cargo test --manifest-path crates/uniqtoken_core/Cargo.toml --all-targets --locked
+cargo clippy --manifest-path crates/uniqtoken_core/Cargo.toml --all-targets --locked -- -D warnings
 ```
 
----
-
-## Architecture
-
-### End-to-End Pipeline
-
-```mermaid
-flowchart LR
-    A["Raw Text"] --> B["SecurityShield<br/>sanitize + alignment"]
-    B --> C["Normalizer<br/>NFKC + dual-offset"]
-    C --> D["RegexPreTokenizer<br/>ordered boundary patterns"]
-    D --> E1["UnigramLattice<br/>DAG · Viterbi · FFBS"]
-    D --> E2["BPEModel<br/>rank-based merges"]
-    E1 --> F["CEM / SuperBPE<br/>vocabulary extension"]
-    E1 --> G["Token IDs"]
-    E2 --> G
-    F --> G
-    G --> H["BatchCollator<br/>pad · mask · BOS/EOS"]
-    G --> I["StreamingDecoder<br/>byte-buffer aware"]
-    H --> J["PyTorch Tensors"]
-    I --> K["Decoded Text"]
-```
-
-### Project Structure
-
-```
-UniqToken/
-├── uniqtoken/                     # Core Python package
-│   ├── __init__.py                # Public package namespace & lazy exports
-│   ├── cli.py                     # Unified production CLI interface
-│   ├── tokenizer.py               # CustomTokenizer — unified facade + parallel batching
-│   ├── pre_tokenizer.py           # Normalizer + ordered RegexPreTokenizer boundaries
-│   ├── byte_codec.py              # ByteFallbackEngine — UTF-8 ↔ <0xHH> codec
-│   ├── trie.py                    # PrefixTrie — prefix lookup for lattice edge mining
-│   ├── seed_builder.py            # SeedVocabularyBuilder — PMI + script balancing + entropy
-│   ├── unigram_lattice.py         # UnigramLattice — DAG, beam pruning, EM stats, FFBS
-│   ├── unigram_trainer.py         # UnigramTrainer — EM early-stopping + Viterbi memoization
-│   ├── vocab_adapter.py           # VocabularyAdapter — non-destructive vocab expansion
-│   ├── cem_merger.py              # CrossEntropyMerging — CEM / SuperBPE extension
-│   ├── bpe_trainer.py             # BPETrainer — classic greedy pairwise-merge training
-│   ├── bpe_model.py               # BPEModel — rank-based merge inference (tiktoken-style)
-│   ├── batch_collator.py          # BatchCollator — padding, masks, BOS/EOS, to_torch()
-│   ├── streaming_decoder.py       # StreamingDecoder — incremental UTF-8-safe decode
-│   ├── streaming_counter.py       # Disk-backed counter for bounded-memory training
-│   ├── binary_format.py           # Memory-mapped binary model serialization
-│   ├── chat_template.py           # Built-in and custom Jinja2 chat templates
-│   ├── hf_adapter.py              # Native PreTrainedTokenizerFast adapter
-│   ├── hf_exporter.py             # HuggingFaceExporter & GGUFExporter — HF JSON + GGUF v3
-│   ├── hf_importer.py             # HuggingFace tokenizer.json importer (Unigram + ByteLevel BPE)
-│   ├── sentencepiece_importer.py  # Dependency-free SentencePiece .model protobuf importer
-│   ├── tiktoken_adapter.py        # TiktokenEncoding — ranks file loader & exact-ID parity
-│   ├── security_shield.py         # SecurityShield — control-token injection defense
-│   ├── indentation_compressor.py  # IndentationCompressor — reversible whitespace codec
-│   ├── uniqtoken_core.pyi         # Static typing stub for PyO3 native extension
-│   ├── integrations/vllm.py       # vLLM-compatible sync/async adapter
-│   └── multimodal/                # Multimodal tokenization package
-│       ├── __init__.py
-│       ├── multimodal_tokenizer.py  # MultimodalTokenizer — text + image
-│       ├── visual_codebook.py       # VisualCodebook — VQ codebook for image patches
-│       ├── image_patcher.py         # DynamicImagePatcher — grid-based patch extraction
-│       ├── audio_codec.py           # Experimental untrained RVQ utility (not supported API)
-│       └── neural_codecs.py         # Experimental neural codec building blocks (PyTorch)
-│
-├── crates/
-│   └── uniqtoken_core/            # Native Rust acceleration crate (PyO3 C-extension)
-│       ├── Cargo.toml             # Rust package manifest (pyo3, rayon, ahash, regex)
-│       └── src/
-│           ├── lib.rs             # PyO3 module interface
-│           ├── trie.rs            # Native PrefixTrie with AHashMap & prefix search
-│           ├── viterbi.rs         # Dynamic programming Viterbi & EM expectations
-│           ├── normalizer.rs      # Native Unicode normalization & space handling
-│           ├── pipeline.rs        # Fused Rayon batch encoding pipeline
-│           ├── rust_tokenizer.rs  # Standalone RustTokenizer engine
-│           └── seed.rs            # Native n-gram mining & candidate generation
-│
-├── benchmarks/
-│   ├── benchmark_suite.py                 # Held-out tokenizer compression measurements
-│   ├── benchmark_throughput.py            # Byte-normalized implementation throughput
-│   ├── downstream_eval.py                 # Held-out tokenizer context-density metrics
-│   ├── train_toy_transformer.py           # Small held-out Transformer harness
-│   ├── vocab_quality_race.py              # Exact-budget tokenizer comparison harness
-│   ├── run_matched_budget_eval.py         # Train/validation diagnostic
-│   ├── run_phase_a.py                      # Resumable Phase A screening/selection harness
-│   ├── run_phase_b_screen.py               # Frozen-selection Phase B LM screen
-│   ├── run_phase_c_confirm.py              # Frozen Phase C contract (not executed)
-│   ├── run_ablation_harness.py             # Tokenizer-only objective ablation (no LM)
-│   ├── run_research_experiments.py        # Generic accounting/legacy staged interface
-│   ├── flop_counter.py                    # Analytical FLOP calculation utilities
-│   ├── RESEARCH_PROTOCOL.md                # Authoritative execution contracts
-│   ├── PHASE_B_ANALYSIS_REPORT.md          # Frozen exploratory-screen analysis
-│   ├── PHASE_C_STATUS.md                   # NOT EXECUTED — COMPUTE CONSTRAINED
-│   └── legacy/                            # Invalidated historical scripts, ledgers, figures
-│
-├── tests/
-│   ├── test_tokenizer.py              # Core tokenizer/model behavior
-│   ├── test_*compat*.py               # External-format differential compatibility
-│   ├── test_phase_*.py                # Phase A/B/C provenance and fail-closed gates
-│   ├── test_research_experiments.py   # Accounting and research-schema contracts
-│   ├── test_native_*.py               # Rust/Python native pipeline parity
-│   └── fuzz/                           # Property-based tokenizer invariants
-│
-├── assets/banner.jpeg             # Project banner asset
-├── CONTRIBUTING.md                # Developer setup and contribution guidelines
-├── PAPER_DRAFT.md                 # Research manuscript draft
-├── pyproject.toml                 # Package metadata, CLI console_scripts, extras
-└── .github/workflows/ci.yml       # CI: 3 OS × 3 Python versions = 9-cell matrix
-```
-
-### Module Dependency Graph
-
-```mermaid
-graph TD
-    CLI["uniqtoken.cli<br/>CLI Commands"] --> T["uniqtoken.tokenizer<br/>CustomTokenizer"]
-    T --> N["uniqtoken.pre_tokenizer<br/>Normalizer · RegexPreTokenizer"]
-    T --> UL["uniqtoken.unigram_lattice<br/>UnigramLattice"]
-    T --> UT["uniqtoken.unigram_trainer<br/>UnigramTrainer · UnigramModel"]
-    T --> SS["uniqtoken.security_shield<br/>SecurityShield"]
-    T --> IC["uniqtoken.indentation_compressor<br/>IndentationCompressor"]
-    T --> SD["uniqtoken.streaming_decoder<br/>StreamingDecoder"]
-    T --> HF["uniqtoken.hf_exporter<br/>HuggingFaceExporter · GGUFExporter"]
-
-    UT --> UL
-    UT --> SB["uniqtoken.seed_builder<br/>SeedVocabularyBuilder"]
-    UT --> BC["uniqtoken.byte_codec<br/>ByteFallbackEngine"]
-    UT --> TR["uniqtoken.trie<br/>PrefixTrie"]
-    UL --> BC
-    UL --> TR
-    TR -.-> RC["crates/uniqtoken_core<br/>Rust Native Extension"]
-    UL -.-> RC
-    T -.-> RC
-
-    CEM["uniqtoken.cem_merger<br/>CrossEntropyMerging"] --> UT
-    VA["uniqtoken.vocab_adapter<br/>VocabularyAdapter"] --> UT
-
-    BT["uniqtoken.bpe_trainer<br/>BPETrainer"] --> BC
-    BT --> N
-    BM["uniqtoken.bpe_model<br/>BPEModel"] --> BC
-
-    MM["uniqtoken.multimodal<br/>MultimodalTokenizer"] --> T
-```
-
----
-
-## Algorithms & Base Papers
-
-UniqToken is an independent, from-scratch implementation. It does not wrap any paper's reference code. The algorithms are drawn from:
-
-| Algorithm | Module(s) | Reference |
-|:----------|:----------|:----------|
-| Unigram LM segmentation (DAG, Viterbi, EM, FFBS sampling) | `unigram_lattice.py`, `unigram_trainer.py` | Taku Kudo. *"Subword Regularization: Improving Neural Network Translation Models with Multiple Subword Candidates."* ACL 2018. |
-| Byte-Pair Encoding | `bpe_trainer.py`, `bpe_model.py` | Rico Sennrich, Barry Haddow, Alexandra Birch. *"Neural Machine Translation of Rare Words with Subword Units."* ACL 2016. |
-| Cross-Entropy Merging (CEM) | `cem_merger.py` | Leonidas Gee, Leonardo Rigutini, Marco Ernandes, Andrea Zugarini. *"Multi-Word Tokenization for Sequence Compression."* EMNLP 2023 (arXiv:2402.09949). |
-| SuperBPE ("Space Travel") | `cem_merger.py` (`cross_word=True`) | Alisa Liu, Jonathan Hayase, Valentin Hofmann, Sewoong Oh, Noah A. Smith, Yejin Choi. *"SuperBPE: Space Travel for Language Models."* COLM 2025 (arXiv:2503.13423). |
-
----
-
-## Security Model
-
-`SecurityShield` guards against control-token smuggling and delimiter hijacking — e.g., a user injecting a literal `<|endoftext|>` or `<|system|>` string to manipulate a model's context boundary.
-
-| Policy | Behavior |
-|:-------|:---------|
-| `"escape"` | Neutralizes the control sequence in place (default) |
-| `"raise"` | Raises `ValueError`, rejecting the input |
-| `"ignore"` | Passes the sequence through unmodified |
-
-The `allowed_special` parameter accepts `"all"`, `"none"`, or a specific `set` of control tokens to whitelist. Sanitization preserves character-alignment tracking via `sanitize_with_alignment()`.
-
-`CustomTokenizer` integrates this automatically — every `encode()`, `sample()`, and `encode_with_offsets()` call runs through `SecurityShield.sanitize()` first.
-
----
-
-## External-Format Compatibility
-
-### tiktoken ranks importer
-
-UniqToken loads any tiktoken `.tiktoken` rank file (e.g. `cl100k_base.tiktoken`, `o200k_base.tiktoken`, `gpt2` via tiktoken's file dump) and produces **exactly the same integer IDs** as tiktoken — no tiktoken package required, only the lightweight `regex` module for pattern fidelity:
-
-```python
-from uniqtoken import TiktokenEncoding
-
-enc = TiktokenEncoding.from_file(
-    "cl100k_base.tiktoken",
-    pattern="cl100k_base",
-    special_tokens={"<|endoftext|>": 100257, "<|fim_prefix|>": 100258},
-)
-ids = enc.encode("Hello, world!")  # identical to tiktoken.encode()
-text = enc.decode(ids)
-```
-
-`to_uniqtoken_bpe_model()` additionally converts the ranks into UniqToken's native `BPEModel` (IDs preserved) for reuse in training/analysis. CI runs token-for-token differential tests against the real `tiktoken` package on multilingual, emoji/ZWJ, and code inputs.
-
-### HuggingFace tokenizer.json importer
-
-`import_hf_tokenizer()` reads an HF `tokenizer.json` (path, directory, or parsed dict) and dispatches on model type:
-
-- **Unigram** → a native UniqToken `CustomTokenizer` with scores and token IDs preserved exactly (normalizer/pre-tokenizer mapped best-effort with explicit warnings for unrepresentable components).
-- **BPE** → GPT-2-style **ByteLevel** vocabs return a fully functional `HFByteLevelBPE` with exact-ID encode/decode (verified differentially against the real `tokenizers` package); non-byte-level BPE returns vocab/merges/IDs as a `BPEModel` for data reuse.
-- WordPiece is rejected with a clear error (UniqToken has no WordPiece engine).
-
-```python
-from uniqtoken import import_hf_tokenizer
-
-cal = import_hf_tokenizer("path/to/tokenizer.json")  # Unigram -> CustomTokenizer
-gpt2 = import_hf_tokenizer("gpt2/tokenizer.json")  # BPE -> HFByteLevelBPE
-ids = gpt2.encode("Hello, world!")  # same IDs as HF
-```
-
-#### Loading a SentencePiece `.model` (Unigram)
-
-UniqToken can read SentencePiece Unigram models with **zero `protobuf` dependency** (raw wire-format parser) and **byte-for-byte vocab/ID preservation** vs the real `sentencepiece` package. The first word of every encode is subject to a known SPM/UniqToken divergence (SPM's `add_dummy_prefix=True` prepends a metaspace that UniqToken does not); the importer emits a `UserWarning` for it, and the rest of the encode is byte-for-byte identical:
-
-```python
-from uniqtoken import import_sentencepiece
-
-tok = import_sentencepiece("sp.model")  # Unigram -> CustomTokenizer
-ids = tok.encode_to_ids("hello world")  # IDs preserved; leading-word may differ
-```
-
----
-
-## Testing & CI
-
-### Test Suite
-
-The suite covers core Unigram/BPE behavior, byte fallback, Unicode and offset invariants, native Rust/Python parity, external-format compatibility, CLI/package behavior, property fuzzing, and the fail-closed Phase A/B/C research contracts. Test counts are intentionally not hard-coded here because parametrization and regression coverage change frequently. Use `pytest --collect-only -q` for the current collected count and `pytest` for the current pass/skip result.
-
-| Area | Representative suites |
-|:-----|:----------------------|
-| Core tokenizer and models | `test_tokenizer.py`, `test_bpe_trainer.py`, `test_subword_regularization.py`, `test_unicode_graphemes.py` |
-| Compatibility and integrations | `test_differential_compat.py`, `test_hf_adapter.py`, `test_sentencepiece_importer.py`, `test_tiktoken_adapter.py`, `test_vllm_integration.py` |
-| Native execution | `test_native_pipeline.py`, `test_native_batch_pipeline.py`, `test_rust_parity.py`, `test_zero_copy_batch.py` |
-| Research integrity | `test_benchmark_research_integrity.py`, `test_research_experiments.py`, `test_phase_a_*.py`, `test_phase_b_*.py`, `test_phase_c_*.py` |
-| Robustness and fuzzing | `test_adversarial_stress.py`, `test_fuzz_properties.py`, `fuzz/test_hypothesis_tokenizer.py` |
-
-### CI Pipeline
-
-The GitHub Actions [workflow](.github/workflows/ci.yml) runs on every push and PR across a **9-cell matrix** (3 OS × 3 Python versions):
-
-| | Ubuntu | Windows | macOS |
-|:---|:---:|:---:|:---:|
-| Python 3.10 | ✓ | ✓ | ✓ |
-| Python 3.11 | ✓ | ✓ | ✓ |
-| Python 3.12 | ✓ | ✓ | ✓ |
-
-Each cell runs:
-1. **Ruff** lint + format check
-2. **Mypy** static type checking
-3. **Full test suite** (unit, adversarial stress, CLI, property fuzzing)
-4. **Benchmark suite** smoke test
-5. **Package build** verification (`python -m build`)
-
-### Running locally
+The editable install builds the native extension through Maturin. For a distributable wheel:
 
 ```bash
-pip install -e ".[test]"
-
-pytest                                          # full test suite
-ruff check . && ruff format --check .           # lint + format
-mypy uniqtoken                                  # type check
-coverage run -m pytest && coverage report       # coverage
-python benchmarks/benchmark_suite.py            # benchmark suite
-python benchmarks/downstream_eval.py            # held-out tokenizer-only measurements
+python -m pip install "maturin>=1.15,<2.0"
+maturin build --release --locked --out dist
 ```
 
----
+The [CI workflow](.github/workflows/ci.yml) configures a **9-cell matrix** across Ubuntu, macOS, Windows, and Python 3.10-3.12, plus Rust checks, native-wheel verification, source-distribution builds, and tag-triggered PyPI publishing. Push triggers are restricted to the branch/tag patterns in the workflow; pull requests target `main` or `master`. This describes the configuration, not a claim that every current check is green.
 
-## Multimodal
+Repository layout:
 
-The `multimodal/` package provides experimental text-and-image composition
-through `MultimodalTokenizer`. Image token IDs are meaningful only after its
-visual codebook is trained or a trained codebook is loaded; no trained visual or
-neural codec checkpoint is bundled. Audio tokenization is unsupported because
-this distribution does not include a trained audio codebook.
+| Path | Purpose |
+| --- | --- |
+| `uniqtoken/` | Public Python API, training, compatibility, and integration modules. |
+| `uniqtoken_core/` | Native extension package and type stubs. |
+| `crates/uniqtoken_core/` | Rust core, C ABI, and optional WebAssembly bindings. |
+| `tests/` | Core, compatibility, native-parity, packaging, and research-integrity tests. |
+| `benchmarks/` | Benchmark code, frozen research contracts, reports, and provenance. |
+| `docs/`, `examples/`, `notebooks/` | Design documents, integration examples, and tutorials. |
 
-| Module | Purpose |
-|:-------|:--------|
-| `multimodal_tokenizer.py` | `MultimodalTokenizer` — unified text + image tokenization with cross-modal token interleaving |
-| `visual_codebook.py` | `VisualCodebook` — vector-quantized codebook for mapping image patches to discrete tokens |
-| `image_patcher.py` | `DynamicImagePatcher` — grid-based patch extraction from pixel arrays |
-| `audio_codec.py` | Experimental random-initialized RVQ utility; excluded from the supported tokenizer API |
-| `neural_codecs.py` | Experimental neural codec building blocks; no trained checkpoint is bundled |
-
----
+Generated builds, local caches, and `publish-dist/` are ignored. Preserved research/release artifacts are intentional repository contents.
 
 ## Contributing
 
-1. Fork the repository and create a feature branch.
-2. Install the dev toolchain:
-   ```bash
-   pip install -e ".[test]"
-   ```
-3. Keep new code within the `ruff` (line-length 120, target `py310`) and `mypy` configuration.
-4. Add or update tests in `test_tokenizer.py` / `test_fuzz_properties.py` for any behavioral change.
-5. Verify before opening a PR:
-   ```bash
-   pytest && ruff check . && mypy uniqtoken
-   ```
+Read [CONTRIBUTING.md](CONTRIBUTING.md) and use the [issue tracker](https://github.com/umran666/UniqToken/issues) for current work; [ROADMAP.md](ROADMAP.md) provides architecture and historical context. Keep PRs focused, add tests appropriate to behavioral changes, and report actual validation results and skips.
 
----
+Research changes must preserve frozen protocols, manifests, receipts, and held-out protections. Routine development does not authorize new research runs or test-set access.
 
 ## License
 
-Released under the [MIT License](LICENSE).
-
----
-
-<p align="center">
-  Maintained by <a href="https://github.com/umran666">@umran666</a>
-</p>
+[MIT](LICENSE).

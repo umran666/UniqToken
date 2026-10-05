@@ -21,6 +21,21 @@
   "candidate": {"reserve": 64, "atomic_limit": 16, "minimum_atomic_frequency": 2, "fallback_weight": 0, "max_subword_len": 16, "byte_prefix_admission": false},
   "negative_control_fallback_weight": 5,
   "known_unavailable": [{"tokenizer": "sp_unigram", "budget": 131072, "status": "budget_not_reached", "fixed_configuration_maximum": 79552}],
+  "gate_definitions": {
+    "baseline": "uniq_superbpe_r64 at the same total budget, validation stratum, source assignments and normalization; freeze its model SHA-256 and measured counts before evaluating the candidate",
+    "aggregation": "pool raw counts and span histograms across documents in each reported scope before computing fractions or percentiles",
+    "fallback_source_byte_fraction": {
+      "numerator": "canonical byte-leaf emissions, each representing one byte",
+      "denominator": "normalized_utf8_bytes",
+      "unit": "fraction"
+    },
+    "per_stratum_maximum_fallback_source_byte_ratio": "candidate fallback_source_byte_fraction / baseline fallback_source_byte_fraction",
+    "per_stratum_maximum_p95_fallback_span_ratio": "candidate p95 fallback-byte span / baseline p95 fallback-byte span",
+    "split_run_percent": "100 * split_runs / runs, separately for whitespace and punctuation runs in normalized text",
+    "per_stratum_maximum_fragmentation_increase_percentage_points": "candidate split_run_percent - baseline split_run_percent, separately for each category",
+    "minimum_aggregate_fallback_source_byte_reduction": "1 - (candidate aggregate fallback_source_byte_fraction / baseline aggregate fallback_source_byte_fraction)",
+    "undefined_split_run_percent": "zero runs gives null and an explicitly not-applicable category with run counts; missing counts block certification; never replace null with zero"
+  },
   "gates": {
     "per_stratum_minimum_bpt_ratio": 0.99,
     "per_stratum_maximum_fallback_source_byte_ratio": 1.0,

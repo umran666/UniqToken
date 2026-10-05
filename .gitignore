@@ -35,6 +35,7 @@ refresh-token.json
 # Build & packaging artifacts
 build/
 dist/
+/publish-dist/
 *.egg-info/
 *.whl
 *.pyd
