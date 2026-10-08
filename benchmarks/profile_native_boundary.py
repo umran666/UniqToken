@@ -211,7 +211,11 @@ def run_worker(path, args, stages=False):
     ]
     if stages:
         command.append("--stages")
-    return json.loads(subprocess.check_output(command, cwd=ROOT))
+    payload = json.loads(subprocess.check_output(command, cwd=ROOT))
+    if args.raw_workers:
+        with args.raw_workers.open("a", encoding="utf-8") as log:
+            log.write(json.dumps({"stages": stages, "payload": payload}) + "\n")
+    return payload
 
 
 def compare_runs(runs):
@@ -258,6 +262,7 @@ def main():
     parser.add_argument("--profile-native", type=Path)
     parser.add_argument("--baseline-commit")
     parser.add_argument("--output", type=Path)
+    parser.add_argument("--raw-workers", type=Path, help="optional new local file retaining each completed worker")
     parser.add_argument("--repetitions", type=int, default=21)
     parser.add_argument("--warmup", type=int, default=3)
     parser.add_argument("--threads", type=int, default=1)
@@ -275,6 +280,11 @@ def main():
         parser.error("output exists; evidence cannot be overwritten")
     if git_value("status", "--porcelain", "--untracked-files=no"):
         parser.error("commit tracked source before recording evidence")
+    compiler_version = tool_version("rustc", "--version")
+    if args.raw_workers:
+        args.raw_workers.parent.mkdir(parents=True, exist_ok=True)
+        with args.raw_workers.open("x", encoding="utf-8"):
+            pass
     runs = []
     for variant in ("before", "after", "after", "before"):
         print(f"Measuring default release: {variant}", flush=True)
@@ -291,7 +301,7 @@ def main():
         "baseline_commit": git_value("rev-parse", args.baseline_commit),
         "platform": platform.platform(),
         "python": platform.python_version(),
-        "rustc": tool_version(["rustc", "--version"]),
+        "rustc": compiler_version,
         "build": "maturin develop --release; profiler adds --features allocation-profile; abi3-py39 unchanged",
         "threads": args.threads,
         "warmup": args.warmup,

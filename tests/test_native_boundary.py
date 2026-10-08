@@ -2,6 +2,10 @@
 
 import json
 import copy
+from pathlib import Path
+import sys
+import tempfile
+from unittest.mock import patch
 import unittest
 
 from benchmarks import profile_native_boundary as profiler
@@ -108,6 +112,65 @@ class NativeBoundaryTests(unittest.TestCase):
         changed["rows"][0]["output_sha256"] = "different"
         with self.assertRaisesRegex(AssertionError, "output or crossing"):
             profiler.compare_runs([("before", run), ("after", changed)])
+
+    def test_evidence_writer_completes_and_refuses_overwrite(self):
+        payload = {
+            "native_sha256": "a" * 64,
+            "model_sha256": "b" * 64,
+            "parity": [],
+            "public_native_signatures": {},
+            "rows": [
+                {
+                    "workload": "short_single",
+                    "api": "tokens",
+                    "samples_ms": [1.0],
+                    "native_calls": {},
+                    "output_sha256": "same",
+                    "python_heap": {},
+                    "process_peak_rss_bytes": 1,
+                    "normalized_utf8_bytes": 1,
+                }
+            ],
+        }
+
+        def version(*command):
+            self.assertEqual(command, ("rustc", "--version"))
+            return "rustc fixture"
+
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "new-evidence"
+            argv = [
+                "profiler",
+                "--before-native",
+                "before.so",
+                "--after-native",
+                "after.so",
+                "--profile-native",
+                "profile.so",
+                "--baseline-commit",
+                "baseline",
+                "--output",
+                str(output),
+            ]
+            with (
+                patch.object(sys, "argv", argv),
+                patch.object(profiler, "tool_version", side_effect=version),
+                patch.object(profiler, "git_value", side_effect=lambda *args: "" if args[0] == "status" else "c" * 40),
+                patch.object(profiler, "source_sha256", return_value="d" * 64),
+                patch.object(
+                    profiler, "run_worker", side_effect=lambda *args, **kwargs: copy.deepcopy(payload)
+                ) as worker,
+            ):
+                profiler.main()
+                self.assertEqual(worker.call_count, 5)
+                metadata = json.loads((output / "metadata.json").read_bytes())
+                self.assertEqual(metadata["rustc"], "rustc fixture")
+                manifest = json.loads((output / "manifest.json").read_bytes())
+                for name, expected in manifest.items():
+                    self.assertEqual(profiler.sha256(output / name), expected)
+                with self.assertRaises(SystemExit):
+                    profiler.main()
+                self.assertEqual(worker.call_count, 5)
 
 
 if __name__ == "__main__":
