@@ -1,0 +1,197 @@
+{
+  "schema_version": 1,
+  "issue": 101,
+  "timestamp_utc": "2026-10-08T02:05:35.139170+00:00",
+  "source_commit": "d22bc9ad1cc45fa53db7ff4017f6bc544a64dad0",
+  "baseline_commit": "a0fd66636051dbf03b83525a8557da335949c39b",
+  "platform": "Windows-10-10.0.26300-SP0",
+  "python": "3.10.11",
+  "rustc": "rustc 1.98.0 (88d9e12ae 2026-08-18)",
+  "build": "maturin develop --release; profiler adds --features allocation-profile; abi3-py39 unchanged",
+  "threads": 1,
+  "warmup": 3,
+  "repetitions_per_process": 11,
+  "process_order": [
+    "before",
+    "after",
+    "after",
+    "before"
+  ],
+  "fixture_sha256": "e55caa2429f1f52cbefe23a963d12dc5ea5d0b1203cad82d2ae22faee13f82d5",
+  "model_sha256": "e53620eb23ce44a930b0679562252a6386ec793dd20c52322f5564bba26e381f",
+  "parity": [
+    {
+      "name": "short",
+      "input_sha256": "e28a5b14d8cebb85821eb0c25b561bf07c36b01bb202059399df7a162bf33736",
+      "output_sha256": "60be48198a530f8a3144cbad95eae6b7bf3e5121492af5a4a18869d7a28da48d"
+    },
+    {
+      "name": "medium",
+      "input_sha256": "e5d4331e49306aa9d4ec023f5ef893ebce6ac5b97a9bbe780f4b54223b446abc",
+      "output_sha256": "8fd4b1169e4bb7b5aecd730b7bff4bd5b1525e285405ca9ac2c8adb64afae853"
+    },
+    {
+      "name": "long",
+      "input_sha256": "b44676c4b24f127c02d9ed79036cef7d480bcbb196ae395273206386235f62a2",
+      "output_sha256": "394408e4102f5704966e038791a26f5fd1b885e0687f0cbef946982d0665c96e"
+    },
+    {
+      "name": "multilingual",
+      "input_sha256": "c36acf79565873628bf7f7609c16952b31d7eea7bbe6e7cd6daf529149f70f36",
+      "output_sha256": "704ca3099a27e55479e1dad4e127340088e015b11a54e8f556d1dbc3e543da00"
+    },
+    {
+      "name": "source_code",
+      "input_sha256": "95824159d83ceba0716db9c9647a7886e96104ff3191d4a3931bea23eabd1ad2",
+      "output_sha256": "0965c77465247571f2a30ad5d4c13a1b25253b975376e3d5578f7fa9e2064556"
+    },
+    {
+      "name": "security_0_escape",
+      "input_sha256": "b487bdf61fc8ed41da9b997e614ed6807122c3df76b83f2abf9fcdc215a3b784",
+      "output_sha256": "2324360c053ac21c93427ce4f4b957cd0444c557e2f2ec2265a61445aa1b41ab"
+    },
+    {
+      "name": "security_0_raise",
+      "input_sha256": "b487bdf61fc8ed41da9b997e614ed6807122c3df76b83f2abf9fcdc215a3b784",
+      "output_sha256": "283a486ab7397f525ad277dd92569b54975c8ef0c7815816bb9952974853aed8"
+    },
+    {
+      "name": "security_0_ignore",
+      "input_sha256": "b487bdf61fc8ed41da9b997e614ed6807122c3df76b83f2abf9fcdc215a3b784",
+      "output_sha256": "1bd5812632bd384a6f967ffb4abf0f7a4fe82b2c027d3d803554838486bfba2e"
+    },
+    {
+      "name": "security_0_allowed",
+      "input_sha256": "b487bdf61fc8ed41da9b997e614ed6807122c3df76b83f2abf9fcdc215a3b784",
+      "output_sha256": "a0fb92f07c588a593bd68b3291f80107c896cfa56016f9acc5768cc13aef192d"
+    },
+    {
+      "name": "security_1_escape",
+      "input_sha256": "d9e21980ade0eea8efe2a0cc5523c148d98d637f738b02fa7a349df57c3558bd",
+      "output_sha256": "6c311eb57f731470ecea0d34751e5b476f599454cecf63e046175b5cb3abcc4b"
+    },
+    {
+      "name": "security_1_raise",
+      "input_sha256": "d9e21980ade0eea8efe2a0cc5523c148d98d637f738b02fa7a349df57c3558bd",
+      "output_sha256": "283a486ab7397f525ad277dd92569b54975c8ef0c7815816bb9952974853aed8"
+    },
+    {
+      "name": "security_1_ignore",
+      "input_sha256": "d9e21980ade0eea8efe2a0cc5523c148d98d637f738b02fa7a349df57c3558bd",
+      "output_sha256": "9ca727d035dd08060ce89e26ecb1059d490913cf989c912934c4cc653dcbf1a0"
+    },
+    {
+      "name": "security_1_allowed",
+      "input_sha256": "d9e21980ade0eea8efe2a0cc5523c148d98d637f738b02fa7a349df57c3558bd",
+      "output_sha256": "c2fd10086a041de701759176b55693b0071908a9d5255ceed3174579e288658c"
+    },
+    {
+      "name": "security_2_escape",
+      "input_sha256": "05ab4202cb2d11d0027f7e64234721c0b6cde7a007c1cdf5ed0761165c26556d",
+      "output_sha256": "308a7a5869efee562c35f68595958570d33c3622c5d00de812e35e937e3d2c3b"
+    },
+    {
+      "name": "security_2_raise",
+      "input_sha256": "05ab4202cb2d11d0027f7e64234721c0b6cde7a007c1cdf5ed0761165c26556d",
+      "output_sha256": "308a7a5869efee562c35f68595958570d33c3622c5d00de812e35e937e3d2c3b"
+    },
+    {
+      "name": "security_2_ignore",
+      "input_sha256": "05ab4202cb2d11d0027f7e64234721c0b6cde7a007c1cdf5ed0761165c26556d",
+      "output_sha256": "308a7a5869efee562c35f68595958570d33c3622c5d00de812e35e937e3d2c3b"
+    },
+    {
+      "name": "security_2_allowed",
+      "input_sha256": "05ab4202cb2d11d0027f7e64234721c0b6cde7a007c1cdf5ed0761165c26556d",
+      "output_sha256": "308a7a5869efee562c35f68595958570d33c3622c5d00de812e35e937e3d2c3b"
+    },
+    {
+      "name": "security_3_escape",
+      "input_sha256": "4a56f1cd5a9fa607147db0445071293f7bcacd6134b5faefa2000317b84b04d8",
+      "output_sha256": "1fc27ec9beeee83369f1bf0fbf963fdfdb2c48d9cf59c72d73ae771a72199cbe"
+    },
+    {
+      "name": "security_3_raise",
+      "input_sha256": "4a56f1cd5a9fa607147db0445071293f7bcacd6134b5faefa2000317b84b04d8",
+      "output_sha256": "1fc27ec9beeee83369f1bf0fbf963fdfdb2c48d9cf59c72d73ae771a72199cbe"
+    },
+    {
+      "name": "security_3_ignore",
+      "input_sha256": "4a56f1cd5a9fa607147db0445071293f7bcacd6134b5faefa2000317b84b04d8",
+      "output_sha256": "1fc27ec9beeee83369f1bf0fbf963fdfdb2c48d9cf59c72d73ae771a72199cbe"
+    },
+    {
+      "name": "security_3_allowed",
+      "input_sha256": "4a56f1cd5a9fa607147db0445071293f7bcacd6134b5faefa2000317b84b04d8",
+      "output_sha256": "1fc27ec9beeee83369f1bf0fbf963fdfdb2c48d9cf59c72d73ae771a72199cbe"
+    },
+    {
+      "name": "security_4_escape",
+      "input_sha256": "bbcfc169adf38915c0e5beb4477ef49fe565f30fb9daf6510ed6cc943fae36a8",
+      "output_sha256": "1be2a202b4d888014d0c058649a7bb67e4a6476885aa9f307b4a6b51c5ffa3f4"
+    },
+    {
+      "name": "security_4_raise",
+      "input_sha256": "bbcfc169adf38915c0e5beb4477ef49fe565f30fb9daf6510ed6cc943fae36a8",
+      "output_sha256": "1be2a202b4d888014d0c058649a7bb67e4a6476885aa9f307b4a6b51c5ffa3f4"
+    },
+    {
+      "name": "security_4_ignore",
+      "input_sha256": "bbcfc169adf38915c0e5beb4477ef49fe565f30fb9daf6510ed6cc943fae36a8",
+      "output_sha256": "1be2a202b4d888014d0c058649a7bb67e4a6476885aa9f307b4a6b51c5ffa3f4"
+    },
+    {
+      "name": "security_4_allowed",
+      "input_sha256": "bbcfc169adf38915c0e5beb4477ef49fe565f30fb9daf6510ed6cc943fae36a8",
+      "output_sha256": "1be2a202b4d888014d0c058649a7bb67e4a6476885aa9f307b4a6b51c5ffa3f4"
+    },
+    {
+      "name": "security_5_escape",
+      "input_sha256": "98cc986ef9247dfaf6c261b1975b4a01010cbd19c2d2679fc85d4a9a3135ab10",
+      "output_sha256": "2c0951a4edcc120814f75d08f1c7a5e16624c411d2e93f0f49c57ffea10e30e5"
+    },
+    {
+      "name": "security_5_raise",
+      "input_sha256": "98cc986ef9247dfaf6c261b1975b4a01010cbd19c2d2679fc85d4a9a3135ab10",
+      "output_sha256": "2c0951a4edcc120814f75d08f1c7a5e16624c411d2e93f0f49c57ffea10e30e5"
+    },
+    {
+      "name": "security_5_ignore",
+      "input_sha256": "98cc986ef9247dfaf6c261b1975b4a01010cbd19c2d2679fc85d4a9a3135ab10",
+      "output_sha256": "2c0951a4edcc120814f75d08f1c7a5e16624c411d2e93f0f49c57ffea10e30e5"
+    },
+    {
+      "name": "security_5_allowed",
+      "input_sha256": "98cc986ef9247dfaf6c261b1975b4a01010cbd19c2d2679fc85d4a9a3135ab10",
+      "output_sha256": "2c0951a4edcc120814f75d08f1c7a5e16624c411d2e93f0f49c57ffea10e30e5"
+    }
+  ],
+  "public_native_signatures": {
+    "rust_encode_text_native": "(text, trie, byte_fallback=True, space_char='\\u{2581}', normalize_unicode=True, normalize_unicode_spaces=True, normalize_punctuation=False, lowercase=False, collapse_whitespaces=False, strip_whitespace=False)",
+    "rust_encode_text_native_batch": "(texts, trie, byte_fallback=True, space_char='\\u{2581}', normalize_unicode=True, normalize_unicode_spaces=True, normalize_punctuation=False, lowercase=False, collapse_whitespaces=False, strip_whitespace=False)",
+    "rust_encode_text_native_ids": "(text, trie, byte_fallback=True, space_char='\\u{2581}', normalize_unicode=True, normalize_unicode_spaces=True, normalize_punctuation=False, lowercase=False, collapse_whitespaces=False, strip_whitespace=False)",
+    "rust_encode_text_native_ids_batch": "(texts, trie, byte_fallback=True, space_char='\\u{2581}', normalize_unicode=True, normalize_unicode_spaces=True, normalize_punctuation=False, lowercase=False, collapse_whitespaces=False, strip_whitespace=False)"
+  },
+  "native_sha256": {
+    "before": "e03fa4673a237507d7bc84156afb43e1aa6900498387661fd40c349a53716a71",
+    "after": "4790876ea166c0468aa0851300bef867aba9ecd90d9f1279ad0fb975f36709c4",
+    "profile": "09be112241b0169b00698108da050fbe2dc960d7f49af6fa20a1a474d306be08"
+  },
+  "source_sha256": {
+    "benchmarks/profile_native_boundary.py": "9a5fad5116759cbd4bc503276a989ada842059e1b84e345467dd9865837f8efd",
+    "benchmarks/profile_hot_paths.py": "45414936e7b7b028857aec5ef5e60e20f27194b7a488154cbb3cf6f1667af9c8",
+    "benchmarks/profile_residual_native.py": "c6de44939874160947b085f43e28c63c51e397f8113c2c2c4cb03bec00f2dd86",
+    "benchmarks/profile_boundary_overhead.py": "4c70112bdf05d352cd5d3181ffdd38938ca1519b5e7075e31debe4b1313001af",
+    "crates/uniqtoken_core/src/pipeline.rs": "ea19565ee8fdb7acc3ff77a2e9a72a12b11c88bba508ed00f93203e91c92d404",
+    "crates/uniqtoken_core/src/boundary_profile.rs": "4669b224ed97666f730df54282b8c9bf013c1c9e958038c0af8be40a4eec24bf",
+    "crates/uniqtoken_core/src/lib.rs": "2e4a157e81a70e56b98b547936667b2e88619721cd2a9a1578e46db259f2c6a6",
+    "crates/uniqtoken_core/Cargo.toml": "3d0be32a622f81cb11e5d634523cebd07015c7874cfa0d060594e20b99cdabba",
+    "crates/uniqtoken_core/Cargo.lock": "0d8799fb6cec936731ea0c78e2f22364672be4cca0cce438ca6da68a153d2737"
+  },
+  "baseline_source_sha256": {
+    "crates/uniqtoken_core/src/pipeline.rs": "58fecc7236881b167798fb25e60a2ee95eab95c1b985b5576f5e9fa5edbfa64b",
+    "crates/uniqtoken_core/src/lib.rs": "8ba06f586900c8e270f5bc79e1c9bf3812681d609798208f9e1abbe720be4dae",
+    "crates/uniqtoken_core/Cargo.toml": "3d0be32a622f81cb11e5d634523cebd07015c7874cfa0d060594e20b99cdabba",
+    "crates/uniqtoken_core/Cargo.lock": "0d8799fb6cec936731ea0c78e2f22364672be4cca0cce438ca6da68a153d2737"
+  }
+}

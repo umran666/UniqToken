@@ -5,6 +5,8 @@ import copy
 from pathlib import Path
 import sys
 import tempfile
+import subprocess
+from types import SimpleNamespace
 from unittest.mock import patch
 import unittest
 
@@ -89,6 +91,33 @@ class NativeBoundaryTests(unittest.TestCase):
             self.assertEqual(before["output_sha256"], after["output_sha256"])
             self.assertEqual(before["native_calls"], after["native_calls"])
             self.assertEqual(len(before["latency"]["samples_ms"]), len(after["latency"]["samples_ms"]))
+        metadata = json.loads((directory / "metadata.json").read_bytes())
+        paired_meta = json.loads((directory / "paired/metadata.json").read_bytes())
+        self.assertEqual(metadata["model_sha256"], paired_meta["model_sha256"])
+        self.assertEqual(metadata["fixture_sha256"], paired_meta["fixture_sha256"])
+        self.assertEqual({v: metadata["native_sha256"][v] for v in ("before", "after")}, paired_meta["native_sha256"])
+        pairs = [json.loads(line) for line in (directory / "paired/results.jsonl").read_text().splitlines()]
+        self.assertEqual(len(pairs), 20)
+        for row in pairs:
+            self.assertEqual(row["native_calls"]["before"], row["native_calls"]["after"])
+            self.assertEqual(len(row["paired_speed_ratios"]), paired_meta["repetitions"])
+        # Compare historical Git blobs rather than future checkout contents.
+        if (
+            subprocess.run(
+                ["git", "cat-file", "-e", f"{metadata['source_commit']}^{{commit}}"],
+                cwd=profiler.ROOT,
+                capture_output=True,
+            ).returncode
+            == 0
+        ):
+            for name, expected in metadata["source_sha256"].items():
+                self.assertEqual(profiler.source_sha256(name, metadata["source_commit"]), expected)
+
+    def test_public_timing_rejects_allocator_instrumented_builds(self):
+        native = SimpleNamespace(rust_allocation_profile_native_batch=None)
+        with patch.object(profiler, "select_native", return_value=native):
+            with self.assertRaisesRegex(RuntimeError, "default build"):
+                profiler.worker(SimpleNamespace(native=Path("unused"), stages=False))
 
     def test_before_after_comparison_rejects_output_drift(self):
         run = {

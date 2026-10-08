@@ -1,0 +1,13 @@
+{
+  "source_commit": "575da394ff54b2d08d17806009d826bf5ba4351d",
+  "source_sha256": "1d1d01f6227918f78e68aab6968ce4c6026e0f21549cab05f741c0d395e00698",
+  "model_sha256": "e53620eb23ce44a930b0679562252a6386ec793dd20c52322f5564bba26e381f",
+  "fixture_sha256": "e55caa2429f1f52cbefe23a963d12dc5ea5d0b1203cad82d2ae22faee13f82d5",
+  "threads": 1,
+  "repetitions": 21,
+  "warmup": 3,
+  "native_sha256": {
+    "before": "e03fa4673a237507d7bc84156afb43e1aa6900498387661fd40c349a53716a71",
+    "after": "4790876ea166c0468aa0851300bef867aba9ecd90d9f1279ad0fb975f36709c4"
+  }
+}
