@@ -10,7 +10,6 @@ from collections import Counter
 from contextlib import ExitStack
 from datetime import datetime, timezone
 import json
-import inspect
 import logging
 import os
 from pathlib import Path
@@ -181,7 +180,9 @@ def worker(args):
         "model_sha256": digest(sorted((t, p, tok.model.token_to_id[t]) for t, p in tok.model.vocab.items())),
         "parity": run_exact_parity_gate(tok),
         "public_native_signatures": {
-            name: str(inspect.signature(getattr(native, name)))
+            # PyO3's existing Unicode char default is not parsed by Python 3.10
+            # inspect.signature. Preserve and compare the actual binding text.
+            name: getattr(native, name).__text_signature__
             for name in (
                 "rust_encode_text_native",
                 "rust_encode_text_native_batch",
