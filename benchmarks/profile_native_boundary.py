@@ -36,12 +36,69 @@ STAGES = ("input_utf8_access", "native_compute", "result_materialization", "inpu
 def select_native(path):
     """Replace every loaded package alias before training or constructing tries."""
     native = load_native(path)
+    bind_native(native)
+    return native
+
+
+def bind_native(native):
     for name, module in list(sys.modules.items()):
         if name.startswith("uniqtoken."):
             for alias in ("_native_core", "uniqtoken_core", "_uniqtoken_core"):
                 if hasattr(module, alias):
                     setattr(module, alias, native)
-    return native
+
+
+def paired_tokens(before_path, after_path, repetitions, warmup):
+    """Alternate default builds within each trial; IDs provide an unchanged control."""
+    variants = {}
+    for variant, path in (("before", before_path), ("after", after_path)):
+        native = select_native(path)
+        if hasattr(native, "rust_allocation_profile_native_batch"):
+            raise RuntimeError("paired timings require default builds")
+        tok = make_tokenizer()
+        tok.model._get_rust_trie()
+        variants[variant] = native, tok
+    models = [
+        digest(sorted((t, p, tok.model.token_to_id[t]) for t, p in tok.model.vocab.items()))
+        for _, tok in variants.values()
+    ]
+    if models[0] != models[1]:
+        raise AssertionError("paired models differ")
+    records = []
+    for workload, texts in workload_cases():
+        for api in ("tokens", "ids"):
+            samples, calls, counts, outputs = {}, {}, {}, {}
+            for variant, (native, tok) in variants.items():
+                bind_native(native)
+                calls[variant] = api_calls(tok, texts, workload.endswith("_single"))[api]
+                counts[variant], value = observed_calls(native, calls[variant])
+                outputs[variant] = digest(value)
+                for _ in range(warmup):
+                    calls[variant]()
+                samples[variant] = []
+            if outputs["before"] != outputs["after"] or counts["before"] != counts["after"]:
+                raise AssertionError("paired output or crossing drift")
+            for trial in range(repetitions):
+                for variant in ("before", "after") if trial % 2 == 0 else ("after", "before"):
+                    bind_native(variants[variant][0])
+                    start = time.perf_counter_ns()
+                    value = calls[variant]()
+                    samples[variant].append((time.perf_counter_ns() - start) / 1e6)
+                    del value
+            size = sum(len(variants["after"][1].normalizer.normalize(t).encode()) for t in texts)
+            latency = {v: timing_summary(values) for v, values in samples.items()}
+            records.append(
+                {
+                    "workload": workload,
+                    "api": api,
+                    "latency": latency,
+                    "normalized_MB_per_s": {v: size / s["p50_ms"] / 1000 for v, s in latency.items()},
+                    "native_calls": counts,
+                    "output_sha256": outputs["after"],
+                    "paired_speed_ratios": [b / a for b, a in zip(samples["before"], samples["after"])],
+                }
+            )
+    return records, models[0]
 
 
 def observed_calls(native, call):
@@ -263,6 +320,9 @@ def main():
     parser.add_argument("--baseline-commit")
     parser.add_argument("--output", type=Path)
     parser.add_argument("--raw-workers", type=Path, help="optional new local file retaining each completed worker")
+    parser.add_argument(
+        "--paired-output", type=Path, help="new directory for paired default-build token/IDs confirmation"
+    )
     parser.add_argument("--repetitions", type=int, default=21)
     parser.add_argument("--warmup", type=int, default=3)
     parser.add_argument("--threads", type=int, default=1)
@@ -271,6 +331,36 @@ def main():
         parser.error("repetitions >= 3, warmup >= 0, threads >= 1 required")
     os.environ["RAYON_NUM_THREADS"] = str(args.threads)
     logging.getLogger("uniqtoken").setLevel(logging.ERROR)
+    if args.paired_output:
+        if not args.before_native or not args.after_native or args.paired_output.exists():
+            parser.error("paired confirmation requires two default binaries and a new directory")
+        if git_value("status", "--porcelain", "--untracked-files=no"):
+            parser.error("commit tracked source before paired confirmation")
+        rows, model_hash = paired_tokens(args.before_native, args.after_native, args.repetitions, args.warmup)
+        args.paired_output.mkdir(parents=True)
+        (args.paired_output / "results.jsonl").write_bytes(
+            "".join(json.dumps(r, separators=(",", ":")) + "\n" for r in rows).encode()
+        )
+        metadata = {
+            "source_commit": git_value("rev-parse", "HEAD"),
+            "source_sha256": source_sha256("benchmarks/profile_native_boundary.py"),
+            "model_sha256": model_hash,
+            "fixture_sha256": digest(FIXTURES),
+            "threads": args.threads,
+            "repetitions": args.repetitions,
+            "warmup": args.warmup,
+            "native_sha256": {v: sha256(getattr(args, f"{v}_native")) for v in ("before", "after")},
+        }
+        (args.paired_output / "metadata.json").write_bytes((json.dumps(metadata, indent=2) + "\n").encode())
+        (args.paired_output / "manifest.json").write_bytes(
+            (
+                json.dumps(
+                    {name: sha256(args.paired_output / name) for name in ("results.jsonl", "metadata.json")}, indent=2
+                )
+                + "\n"
+            ).encode()
+        )
+        return
     if args.worker:
         print(json.dumps(worker(args)))
         return
