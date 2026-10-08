@@ -3,7 +3,7 @@
 #[cfg(feature = "python")]
 use crate::error::{core_error, CoreError, CoreResult};
 #[cfg(feature = "python")]
-use crate::normalizer::normalize_inner;
+use crate::normalizer::{nfkc_cow, normalize_inner};
 #[cfg(feature = "python")]
 use crate::trie::RustPrefixTrie;
 #[cfg(feature = "python")]
@@ -22,8 +22,6 @@ use std::collections::HashSet;
 #[cfg(feature = "python")]
 use std::time::Instant;
 use std::sync::OnceLock;
-#[cfg(feature = "python")]
-use unicode_normalization::UnicodeNormalization;
 #[cfg(feature = "python")]
 use unicode_segmentation::UnicodeSegmentation;
 
@@ -364,7 +362,7 @@ fn is_python_unicode_space(ch: char) -> bool {
 #[cfg(feature = "python")]
 pub fn normalize_string_native(text: &str, space_char: char) -> String {
     let mut normalized = String::with_capacity(text.len() + 8);
-    let nfkc: String = text.nfkc().collect();
+    let nfkc = nfkc_cow(text);
     for ch in nfkc.chars() {
         if ch == ' ' || is_python_unicode_space(ch) {
             normalized.push(space_char);
@@ -455,9 +453,9 @@ fn native_security_gate(text: &str) -> CoreResult<()> {
     }
     // NFKC can synthesize '<' or '|' from fullwidth/compatibility chars
     // (e.g. '＜' U+FF1C -> '<', '｜' U+FF5C -> '|'), so the check must run
-    // on the canonical form. NFKC is idempotent; the second pass inside
-    // rust_normalize is negligible.
-    let canonical: String = text.nfkc().collect();
+    // on the canonical form, even when normalizer.normalize_unicode is false.
+    // The ASCII fast path returns that identical canonical text.
+    let canonical = nfkc_cow(text);
     if canonical.contains("<|") {
         return core_error("text contains control-token syntax after NFKC; use the Python pipeline");
     }

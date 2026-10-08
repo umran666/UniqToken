@@ -1,10 +1,22 @@
 use crate::error::{core_error, CoreResult};
 #[cfg(feature = "python")]
 use pyo3::prelude::*;
+use std::borrow::Cow;
 use unicode_normalization::UnicodeNormalization;
 
 const ESCAPE_PREFIX: char = '\u{E000}';
 const ESCAPED_METASPACE: char = '\u{E001}';
+
+/// ASCII is already NFKC: no decomposition, reordering or composition applies.
+/// Borrow only that proven subset; every non-ASCII input retains the full path.
+/// All subsequent normalization and security steps must still run.
+pub(crate) fn nfkc_cow(text: &str) -> Cow<'_, str> {
+    if text.is_ascii() {
+        Cow::Borrowed(text)
+    } else {
+        Cow::Owned(text.nfkc().collect())
+    }
+}
 
 fn punct_map(c: char) -> Option<&'static str> {
     match c {
@@ -76,7 +88,7 @@ pub(crate) fn normalize_inner(
     validate_space_char(space_char)?;
     // token-only path — no alignment, ~1.33× faster than with_alignment for ASCII
     let mut s = if normalize_unicode {
-        text.nfkc().collect()
+        nfkc_cow(text).into_owned()
     } else {
         text.to_string()
     };
@@ -154,7 +166,7 @@ pub fn rust_normalize_with_alignment(
     let mut units: Vec<(char, (usize, usize))> = Vec::with_capacity(n + 8);
 
     if normalize_unicode {
-        let normalized: String = text.nfkc().collect();
+        let normalized = nfkc_cow(text);
         if normalized == text {
             units.extend(chars.iter().enumerate().map(|(i, &ch)| (ch, (i, i + 1))));
         } else {
@@ -289,6 +301,43 @@ pub fn rust_normalize_with_alignment(
 #[cfg(all(test, feature = "python"))]
 mod tests {
     use super::*;
+
+    #[test]
+    fn nfkc_ascii_domain() {
+        let check = |text: &str| {
+            let actual = nfkc_cow(text);
+            assert!(matches!(actual, Cow::Borrowed(_)));
+            assert_eq!(actual, text.nfkc().collect::<String>());
+        };
+        check("");
+        for first in 0..=127u8 {
+            check(std::str::from_utf8(&[first]).unwrap());
+            for second in 0..=127u8 {
+                check(std::str::from_utf8(&[first, second]).unwrap());
+            }
+        }
+    }
+
+    #[test]
+    fn nfkc_all_scalar_contexts() {
+        let mut count = 0;
+        for ch in (0..=0x10ffff).filter_map(char::from_u32) {
+            for text in [
+                ch.to_string(),
+                format!("A{ch}\u{030a}"),
+                format!("<{ch}|"),
+                format!("{ch}\r\n"),
+                format!("\u{1f469}\u{200d}{ch}"),
+            ] {
+                let actual = nfkc_cow(&text);
+                assert_eq!(actual, text.nfkc().collect::<String>(), "input: {text:?}");
+                assert_eq!(matches!(actual, Cow::Borrowed(_)), text.is_ascii());
+                count += 1;
+            }
+        }
+        assert_eq!(count, 5_560_320);
+    }
+
     #[test]
     fn nfkc_ligature() {
         let (s, a) = rust_normalize_with_alignment("ﬁ", '\u{2581}', true, true, false, false, false, false).unwrap();

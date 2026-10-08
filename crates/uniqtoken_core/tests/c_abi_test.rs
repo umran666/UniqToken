@@ -152,17 +152,27 @@ fn test_tokenizer_encode_edge_cases() {
     let guard = create_test_tokenizer();
     let mut ids: *mut u32 = ptr::null_mut();
     let mut len: usize = 0;
-    let lone_byte = [0xFFu8];
-    let status = unsafe {
-        uniqtoken_encode(
-            guard.handle,
-            lone_byte.as_ptr() as *const std::os::raw::c_char,
-            lone_byte.len(),
-            &mut ids,
-            &mut len,
-        )
-    };
-    assert_eq!(status, UNIQTOKEN_ERR_INVALID_UTF8);
+    for malformed in [
+        &[0xFFu8][..],                 // invalid leading byte
+        &[0x80][..],                   // lone continuation
+        &[0xC0, 0x80][..],             // overlong ASCII
+        &[0xED, 0xA0, 0x80][..],       // surrogate
+        &[0xE2, 0x82][..],             // truncated sequence
+        &[0xF4, 0x90, 0x80, 0x80][..], // above U+10FFFF
+    ] {
+        let status = unsafe {
+            uniqtoken_encode(
+                guard.handle,
+                malformed.as_ptr() as *const std::os::raw::c_char,
+                malformed.len(),
+                &mut ids,
+                &mut len,
+            )
+        };
+        assert_eq!(status, UNIQTOKEN_ERR_INVALID_UTF8);
+        assert!(ids.is_null());
+        assert_eq!(len, 0);
+    }
     let status = unsafe {
         uniqtoken_encode(
             guard.handle,
