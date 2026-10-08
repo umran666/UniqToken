@@ -1,6 +1,7 @@
 """NFKC fast-path contract, including transforms that must not be skipped."""
 
 import itertools
+import hashlib
 import json
 from pathlib import Path
 import unittest
@@ -61,6 +62,11 @@ class NfkcFastPathTests(unittest.TestCase):
 
 
 class NfkcEvidenceTests(unittest.TestCase):
+    def test_receipt_format_preserves_nested_values(self):
+        value = {"samples": [0.001, 1e-20, -1.5, 42], "rows": [{"name": "[1, 2]", "interval": [0.9, 1.1]}]}
+        self.assertEqual(json.loads(profiler.json_text(value)), value)
+        self.assertIn('"interval": [0.9,1.1]', profiler.json_text(value))
+
     def test_published_fixture_and_parity_receipt(self):
         path = Path(__file__).resolve().parents[1] / "benchmarks/profiles/issue102/results.json"
         if not path.exists():
@@ -70,6 +76,13 @@ class NfkcEvidenceTests(unittest.TestCase):
         self.assertEqual(receipt["parity"]["misses"], 0)
         self.assertEqual(receipt["parity"]["configurations"], 64)
         self.assertEqual(receipt["parity"]["texts"], len(profiler.TEXTS))
+        manifest = json.loads(path.with_name("manifest.json").read_text(encoding="utf-8"))
+        self.assertEqual({item["path"] for item in manifest["artifacts"]}, {"REPORT.md", "SAFETY.md", "results.json"})
+        for item in manifest["artifacts"]:
+            contents = path.with_name(item["path"]).read_bytes().replace(b"\r\n", b"\n")
+            self.assertEqual(hashlib.sha256(contents).hexdigest(), item["sha256"])
+        for variant in ("baseline", "optimized"):
+            self.assertEqual(manifest["native_execution"][variant], {"single_cases": 10, "batch_cases": 10})
         expected = {f"{name}_{batch}" for name in profiler.fixtures() for batch in (1, 32)}
         self.assertEqual({row["name"] for row in receipt["workloads"]}, expected)
         for row in receipt["workloads"]:

@@ -10,6 +10,7 @@ import json
 import os
 from pathlib import Path
 import platform
+import re
 import statistics
 import subprocess
 import sys
@@ -69,6 +70,15 @@ def load_native(path):
     native = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(native)
     return native
+
+
+def json_text(value):
+    # Keep raw numeric trials on one line per array, without dropping samples.
+    pretty = json.dumps(value, indent=2, ensure_ascii=True)
+    compact = re.sub(r"\[\n([ \t\d.,eE+\-\r\n]+)\n[ \t]*\]", lambda m: "[" + "".join(m[1].split()) + "]", pretty)
+    if json.loads(compact) != value:
+        raise AssertionError("receipt formatting changed its contents")
+    return compact + "\n"
 
 
 def bind(native):
@@ -245,7 +255,7 @@ def run(args):
     metadata["parity"] = parity(variants)
     metadata["workloads"] = measure(variants, args.repetitions, args.iterations, args.warmup)
     args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(json.dumps(metadata, indent=2, ensure_ascii=True) + "\n", encoding="utf-8")
+    args.output.write_text(json_text(metadata), encoding="utf-8")
     print(json.dumps({"output": str(args.output), "parity": metadata["parity"]}))
 
 

@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "issue": 102,
+  "source_commit": "8253f15e4ec5aa435eac425421c202716a8041ed",
+  "baseline_commit": "a0fd66636051dbf03b83525a8557da335949c39b",
+  "hash_format": "SHA-256 of UTF-8 text with CRLF normalized to LF (Git blob bytes)",
+  "native_execution": {
+    "baseline": {
+      "single_cases": 10,
+      "batch_cases": 10
+    },
+    "optimized": {
+      "single_cases": 10,
+      "batch_cases": 10
+    }
+  },
+  "artifacts": [
+    {
+      "path": "REPORT.md",
+      "sha256": "188be2277496d5a597cad971f02504b32b32bf9a98baebc2a2f73165f33879f3"
+    },
+    {
+      "path": "SAFETY.md",
+      "sha256": "c8323675470877bc9fcaae395d5f4d37461e769b94cf8d349affc98ab375df31"
+    },
+    {
+      "path": "results.json",
+      "sha256": "ff6e8c21f87eb29f4cebcef7b94f51fbb9af2a93194ec0d8c9a4661e2e88252e"
+    }
+  ]
+}

@@ -58,8 +58,9 @@ QuickCheck `Maybe` as normalized.
    characters and security delimiter cases. Include custom and invalid
    space characters and unsupported Python inputs.
 3. Before/after public API: tokens, IDs, source offsets, pretokenization,
-   single/batch paths, decoding and security policies on those same text
-   cases. Existing Unicode, native, byte-fallback, security and C ABI tests
+   single/batch paths and decoding on those same text cases. Security-policy
+   variants cover the four final control/surrogate cases in the harness.
+   Existing Unicode, native, byte-fallback, security and C ABI tests
    remain part of validation, including malformed UTF-8 at the C boundary.
 
 The proof is reviewed against each call site and backed by this bounded,
