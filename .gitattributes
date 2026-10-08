@@ -11,3 +11,4 @@
 /benchmarks/scheduling/issue100/** -text whitespace=cr-at-eol
 /benchmarks/decode_optimization/issue103/** -text whitespace=cr-at-eol
 /benchmarks/memory/issue104/** -text whitespace=cr-at-eol
+/benchmarks/canonical/issue105/** -text whitespace=cr-at-eol
