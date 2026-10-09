@@ -11,6 +11,8 @@ pub mod trie;
 pub mod viterbi;
 #[cfg(feature = "allocation-profile")]
 mod allocation_profile;
+#[cfg(all(feature = "python", feature = "allocation-profile"))]
+mod boundary_profile;
 #[cfg(feature = "wasm")]
 pub mod wasm;
 
@@ -18,7 +20,7 @@ pub mod wasm;
 use normalizer::{rust_normalize, rust_normalize_with_alignment};
 #[cfg(feature = "python")]
 use pipeline::{
-    rust_encode_text_batch, rust_encode_text_native, rust_encode_text_native_batch, rust_encode_text_native_ids,
+    rust_encode_text_batch, python_encode_text_native, python_encode_text_native_batch, rust_encode_text_native_ids,
     rust_encode_text_native_ids_batch, rust_pre_tokenize,
     rust_profile_native_batch,
 };
@@ -49,8 +51,8 @@ fn uniqtoken_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(rust_encode_tokens_batch, m)?)?;
     m.add_function(wrap_pyfunction!(rust_encode_ids_batch, m)?)?;
     m.add_function(wrap_pyfunction!(rust_encode_text_batch, m)?)?;
-    m.add_function(wrap_pyfunction!(rust_encode_text_native, m)?)?;
-    m.add_function(wrap_pyfunction!(rust_encode_text_native_batch, m)?)?;
+    m.add_function(wrap_pyfunction!(python_encode_text_native, m)?)?;
+    m.add_function(wrap_pyfunction!(python_encode_text_native_batch, m)?)?;
     m.add_function(wrap_pyfunction!(rust_encode_text_native_ids, m)?)?;
     m.add_function(wrap_pyfunction!(rust_encode_text_native_ids_batch, m)?)?;
     m.add_function(wrap_pyfunction!(rust_profile_native_batch, m)?)?;
@@ -58,6 +60,8 @@ fn uniqtoken_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(pipeline::rust_allocation_profile_native_batch, m)?)?;
     #[cfg(feature = "allocation-profile")]
     m.add_function(wrap_pyfunction!(viterbi::rust_allocation_profile_viterbi, m)?)?;
+    #[cfg(feature = "allocation-profile")]
+    m.add_function(wrap_pyfunction!(boundary_profile::rust_profile_boundary, m)?)?;
     m.add_function(wrap_pyfunction!(rust_forward_backward_expectations, m)?)?;
     m.add_function(wrap_pyfunction!(rust_normalize, m)?)?;
     m.add_function(wrap_pyfunction!(rust_normalize_with_alignment, m)?)?;

@@ -5,7 +5,7 @@ use crate::error::{core_error, CoreError, CoreResult};
 #[cfg(feature = "python")]
 use crate::normalizer::normalize_inner;
 #[cfg(feature = "python")]
-use crate::trie::RustPrefixTrie;
+use crate::trie::{CachedSegmentation, RustPrefixTrie};
 #[cfg(feature = "python")]
 use crate::viterbi::decode_cached;
 #[cfg(feature = "python")]
@@ -478,6 +478,68 @@ fn encode_text_native_inner(
     collapse_whitespaces: bool,
     strip_whitespace: bool,
 ) -> CoreResult<Vec<String>> {
+    Ok(encode_text_native_segments(
+        text, trie, byte_fallback, space_char, normalize_unicode,
+        normalize_unicode_spaces, normalize_punctuation, lowercase,
+        collapse_whitespaces, strip_whitespace,
+    )?.iter().map(str::to_owned).collect())
+}
+
+/// Own the segmentation Arcs until PyO3 finishes constructing Python strings.
+/// No reference into a cache entry or Python input escapes this owner.
+#[cfg(feature = "python")]
+pub(crate) struct NativeTokens(pub(crate) Vec<CachedSegmentation>);
+
+#[cfg(feature = "python")]
+struct ExactTokens<I> {
+    inner: I,
+    remaining: usize,
+}
+
+#[cfg(feature = "python")]
+impl<'a, I: Iterator<Item = &'a str>> Iterator for ExactTokens<I> {
+    type Item = &'a str;
+    fn next(&mut self) -> Option<Self::Item> {
+        let value = self.inner.next()?;
+        self.remaining -= 1;
+        Some(value)
+    }
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        (self.remaining, Some(self.remaining))
+    }
+}
+
+#[cfg(feature = "python")]
+impl<'a, I: Iterator<Item = &'a str>> ExactSizeIterator for ExactTokens<I> {}
+
+#[cfg(feature = "python")]
+impl NativeTokens {
+    pub(crate) fn iter(&self) -> impl ExactSizeIterator<Item = &str> {
+        ExactTokens {
+            inner: self.0.iter().flat_map(|seg| seg.iter().map(|(token, ..)| token.as_str())),
+            remaining: self.0.iter().map(|seg| seg.len()).sum(),
+        }
+    }
+}
+
+#[cfg(feature = "python")]
+impl<'py> IntoPyObject<'py> for NativeTokens {
+    type Target = PyList;
+    type Output = Bound<'py, PyList>;
+    type Error = PyErr;
+    fn into_pyobject(self, py: Python<'py>) -> PyResult<Self::Output> {
+        PyList::new(py, self.iter())
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+#[cfg(feature = "python")]
+pub(crate) fn encode_text_native_segments(
+    text: &str, trie: &RustPrefixTrie, byte_fallback: bool, space_char: char,
+    normalize_unicode: bool, normalize_unicode_spaces: bool,
+    normalize_punctuation: bool, lowercase: bool,
+    collapse_whitespaces: bool, strip_whitespace: bool,
+) -> CoreResult<NativeTokens> {
     native_security_gate(text)?;
     let normalized = normalize_inner(
         text,
@@ -490,12 +552,12 @@ fn encode_text_native_inner(
         strip_whitespace,
     )?;
     let re = get_full_pretok_regex();
-    let mut tokens: Vec<String> = Vec::new();
+    let mut segments = Vec::new();
     for chunk in snapped_pretokens(&normalized, re) {
         let seg = decode_cached(chunk.as_str(), trie, byte_fallback).map_err(CoreError)?;
-        tokens.extend(seg.iter().map(|(token, ..)| token.clone()));
+        segments.push(seg);
     }
-    Ok(tokens)
+    Ok(NativeTokens(segments))
 }
 
 /// Fused single-text encode: normalize + full pre-tokenizer regex + Viterbi in
@@ -531,6 +593,61 @@ pub fn rust_encode_text_native(
         collapse_whitespaces,
         strip_whitespace,
     )
+}
+
+/// Python-only adapter; the existing Vec<String> Rust API remains available.
+#[cfg(feature = "python")]
+#[pyfunction(name = "rust_encode_text_native")]
+#[allow(clippy::too_many_arguments)]
+#[pyo3(signature = (text, trie, byte_fallback=true, space_char='\u{2581}', normalize_unicode=true, normalize_unicode_spaces=true, normalize_punctuation=false, lowercase=false, collapse_whitespaces=false, strip_whitespace=false))]
+pub(crate) fn python_encode_text_native(
+    text: &str, trie: &RustPrefixTrie, byte_fallback: bool, space_char: char,
+    normalize_unicode: bool, normalize_unicode_spaces: bool,
+    normalize_punctuation: bool, lowercase: bool,
+    collapse_whitespaces: bool, strip_whitespace: bool,
+) -> CoreResult<NativeTokens> {
+    encode_text_native_segments(
+        text, trie, byte_fallback, space_char, normalize_unicode,
+        normalize_unicode_spaces, normalize_punctuation, lowercase,
+        collapse_whitespaces, strip_whitespace,
+    )
+}
+
+#[cfg(feature = "python")]
+#[pyfunction(name = "rust_encode_text_native_batch")]
+#[allow(clippy::too_many_arguments)]
+#[pyo3(signature = (texts, trie, byte_fallback=true, space_char='\u{2581}', normalize_unicode=true, normalize_unicode_spaces=true, normalize_punctuation=false, lowercase=false, collapse_whitespaces=false, strip_whitespace=false))]
+pub(crate) fn python_encode_text_native_batch<'py>(
+    py: Python<'py>, texts: &Bound<'py, PyAny>, trie: &RustPrefixTrie,
+    byte_fallback: bool, space_char: char, normalize_unicode: bool,
+    normalize_unicode_spaces: bool, normalize_punctuation: bool,
+    lowercase: bool, collapse_whitespaces: bool, strip_whitespace: bool,
+) -> CoreResult<Vec<NativeTokens>> {
+    let borrowed = extract_borrowed_strings(texts)?;
+    encode_native_segments_batch(
+        py, &borrowed, trie, byte_fallback, space_char, normalize_unicode,
+        normalize_unicode_spaces, normalize_punctuation, lowercase,
+        collapse_whitespaces, strip_whitespace,
+    )
+}
+
+#[cfg(feature = "python")]
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn encode_native_segments_batch(
+    py: Python<'_>, borrowed: &[PyBackedStr], trie: &RustPrefixTrie,
+    byte_fallback: bool, space_char: char, normalize_unicode: bool,
+    normalize_unicode_spaces: bool, normalize_punctuation: bool,
+    lowercase: bool, collapse_whitespaces: bool, strip_whitespace: bool,
+) -> CoreResult<Vec<NativeTokens>> {
+    let run = |text: &PyBackedStr| encode_text_native_segments(
+        text.as_ref(), trie, byte_fallback, space_char, normalize_unicode,
+        normalize_unicode_spaces, normalize_punctuation, lowercase,
+        collapse_whitespaces, strip_whitespace,
+    );
+    if borrowed.len() < 32 {
+        return borrowed.iter().map(run).collect();
+    }
+    py.detach(|| borrowed.par_iter().map(run).collect())
 }
 
 /// Fused batch encode: one FFI + Rayon across texts. On any per-text rejection
@@ -732,8 +849,8 @@ type NativeProfileRow = (Vec<String>, Vec<u32>, [u64; 6]);
 #[cfg(all(feature = "python", feature = "allocation-profile"))]
 type AllocationProfileRow = (Option<Vec<Vec<String>>>, Option<Vec<Vec<u32>>>, crate::allocation_profile::Counts);
 
-/// Count Rust heap requests around the ordinary fused batch API. Run in an
-/// isolated process; concurrent unrelated Rust calls would share the counter.
+/// Count Rust input/computation requests in an isolated process. Token output
+/// conversion is outside this counter; use rust_profile_boundary to isolate it.
 #[cfg(all(feature = "python", feature = "allocation-profile"))]
 #[pyfunction]
 #[allow(clippy::too_many_arguments)]
@@ -753,12 +870,13 @@ pub fn rust_allocation_profile_native_batch<'py>(
         ))?;
         Ok((None, Some(result?), counts))
     } else {
-        let (result, counts) = crate::allocation_profile::measure(|| rust_encode_text_native_batch(
+        let (result, counts) = crate::allocation_profile::measure(|| python_encode_text_native_batch(
             py, texts, trie, byte_fallback, space_char, normalize_unicode,
             normalize_unicode_spaces, normalize_punctuation, lowercase,
             collapse_whitespaces, strip_whitespace,
         ))?;
-        Ok((Some(result?), None, counts))
+        let strings = result?.iter().map(|row| row.iter().map(str::to_owned).collect()).collect();
+        Ok((Some(strings), None, counts))
     }
 }
 
@@ -846,6 +964,19 @@ pub fn rust_profile_native_batch<'py>(
 #[cfg(all(test, feature = "python"))]
 mod tests {
     use super::*;
+
+    #[test]
+    fn token_iterator_has_exact_size_across_empty_and_retained_segments() {
+        use std::sync::Arc;
+        let segment = Arc::new(vec![("hello".to_owned(), Some(1), 0, 5), ("!".to_owned(), Some(2), 5, 6)]);
+        let tokens = NativeTokens(vec![Arc::new(Vec::new()), segment.clone(), Arc::new(Vec::new()), segment]);
+        let mut iter = tokens.iter();
+        assert_eq!(iter.len(), 4);
+        assert_eq!(iter.next(), Some("hello"));
+        assert_eq!(iter.len(), 3);
+        assert_eq!(iter.collect::<Vec<_>>(), vec!["!", "hello", "!"]);
+        assert_eq!(NativeTokens(Vec::new()).iter().len(), 0);
+    }
 
     #[test]
     fn security_gate_refuses_nfkc_synthesized_control_syntax() {
