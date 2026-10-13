@@ -75,6 +75,7 @@ chat = [
 ]
 bench = [
     "numpy>=1.23",
+    "psutil>=5.9",
     "scipy>=1.9",
     "matplotlib>=3.6",
     "torch>=2.13.0",

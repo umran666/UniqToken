@@ -73,3 +73,6 @@ saved_model/
 *.swp
 *.swo
 .DS_Store
+
+# Performance gate local/CI run outputs (comparison artifacts are uploaded)
+/perf-gate/

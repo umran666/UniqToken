@@ -1,0 +1,105 @@
+name: Tokenizer Correctness & Performance Gates (#106)
+
+on:
+  pull_request:
+    branches: [main, master]
+    paths:
+      - "crates/**"
+      - "uniqtoken/**"
+      - "benchmarks/**"
+      - "tests/**"
+      - "pyproject.toml"
+  schedule:
+    # Weekly advisory trend measurement on main (never merge-blocking).
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
+    inputs:
+      enforce:
+        description: "Enforce statistically significant regressions as merge-blocking (controlled, fingerprint-matched hardware only)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  tokenizer-parity:
+    name: Correctness gate (deterministic exact parity, hard)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install package (native core built from source)
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e .
+
+      - name: Run deterministic exact-parity gate (authoritative)
+        run: |
+          python -m unittest tests.test_canonical_benchmark.CanonicalBenchmarkTests.test_parity_gate_passes_on_canonical_model -v
+
+  performance-gate:
+    name: Performance gate (advisory unless enforced)
+    needs: tokenizer-parity
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install package and benchmark dependencies
+        run: |
+          python -m pip install --upgrade pip maturin
+          python -m pip install -e . "psutil>=5.9" "sentencepiece>=0.1.99" "tokenizers>=0.22.0"
+
+      - name: Validate performance gate decision logic
+        run: |
+          python -m unittest tests.test_canonical_gate -v
+
+      - name: Run canonical benchmark (repeated measurements, #105 schema)
+        run: |
+          python -m benchmarks.canonical_benchmark --output perf-gate/current
+
+      - name: Compare against versioned baseline (advisory on shared runners)
+        run: |
+          if [ "${{ github.event.inputs.enforce }}" = "true" ]; then
+            python -m benchmarks.canonical_gate \
+              --results perf-gate/current/results.json \
+              --baseline benchmarks/canonical/gate-baseline.json \
+              --out perf-gate/comparison.json \
+              --enforce
+          else
+            python -m benchmarks.canonical_gate \
+              --results perf-gate/current/results.json \
+              --baseline benchmarks/canonical/gate-baseline.json \
+              --out perf-gate/comparison.json
+          fi
+
+      - name: Upload machine-readable comparison artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: performance-gate-${{ github.run_id }}
+          path: |
+            perf-gate/comparison.json
+            perf-gate/current/results.json
+            perf-gate/current/REPORT.md
+            perf-gate/current/manifest.json
+          if-no-files-found: error
+          retention-days: 30
