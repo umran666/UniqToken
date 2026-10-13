@@ -52,3 +52,7 @@ Located in `benchmarks/canonical/issue105/`:
 - `REPORT.md`: Comprehensive analytical Markdown report with geometric mean table, complete workload matrix, historical optimization ledger, and interpretation rules.
 - `manifest.json`: Cryptographic SHA-256 hashes of `results.json` and `REPORT.md`.
 - `artifacts/`: Serialized model artifacts (`uniqtoken_model/`, `spm.model`, `hf_tokenizer.json`) and training corpus.
+
+## Downstream CI Gate
+
+The performance regression gate built on this schema is documented in `benchmarks/PERF_GATE.md` (issue #106): a separate authoritative exact-parity job plus an advisory performance job comparing repeated measurements against `benchmarks/canonical/gate-baseline.json`.
