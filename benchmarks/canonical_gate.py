@@ -58,18 +58,22 @@ FINGERPRINT_KEYS = (
 
 
 def sha256_file(path: Path) -> str:
+    """Return the SHA-256 hex digest of a file's bytes."""
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 def utc_now() -> datetime:
+    """Return the current time as a timezone-aware UTC datetime."""
     return datetime.now(timezone.utc)
 
 
 def to_iso(moment: datetime) -> str:
+    """Format a UTC datetime as an ISO timestamp with second precision."""
     return moment.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def parse_iso(timestamp: Optional[str]) -> Optional[datetime]:
+    """Parse an ISO timestamp, returning None for missing or invalid values."""
     if not timestamp:
         return None
     try:
@@ -79,14 +83,17 @@ def parse_iso(timestamp: Optional[str]) -> Optional[datetime]:
 
 
 def load_json(path: Path) -> Any:
+    """Read and decode a UTF-8 JSON file."""
     return json.loads(path.read_text(encoding="utf-8"))
 
 
 def cell_key(tokenizer: str, workload: str) -> str:
+    """Return the comparison key for a tokenizer and workload pair."""
     return f"{tokenizer}|{workload}"
 
 
 def fingerprint_from_results(results: Dict[str, Any]) -> Dict[str, Any]:
+    """Extract hardware metadata, rounding total RAM to whole gigabytes."""
     meta = results.get("metadata", {})
     fingerprint = {key: meta.get(key) for key in FINGERPRINT_KEYS}
     ram = fingerprint.get("total_ram_gb")
@@ -97,6 +104,7 @@ def fingerprint_from_results(results: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def fingerprint_differences(baseline_fp: Dict[str, Any], current_fp: Dict[str, Any]) -> List[str]:
+    """Return hardware fingerprint keys whose baseline and current values differ."""
     return [key for key in FINGERPRINT_KEYS if baseline_fp.get(key) != current_fp.get(key)]
 
 
@@ -167,6 +175,11 @@ def throughput_verdict(
     current_cell: Dict[str, Any],
     drop_threshold_pct: float,
 ) -> Dict[str, Any]:
+    """Classify throughput drops using the threshold and uncertainty intervals.
+
+    A drop is significant only when it exceeds the threshold and the current
+    interval's upper bound is below the baseline interval's lower bound.
+    """
     base_value = baseline_cell.get("throughput_mb_s") or 0.0
     current_value = current_cell.get("throughput_mb_s") or 0.0
     drop_pct = ((base_value - current_value) / base_value * 100.0) if base_value > 0 else 0.0
@@ -197,6 +210,7 @@ def memory_verdict(
     current_cell: Dict[str, Any],
     rise_threshold_pct: float,
 ) -> Dict[str, Any]:
+    """Report peak RSS growth and whether it exceeds the percentage threshold."""
     base_value = baseline_cell.get("peak_rss_mb") or 0.0
     current_value = current_cell.get("peak_rss_mb") or 0.0
     rise_pct = ((current_value - base_value) / base_value * 100.0) if base_value > 0 else 0.0
@@ -231,6 +245,7 @@ def evaluate(
     }
 
     def finish(status: str, exit_code: int, note: str) -> Tuple[Dict[str, Any], int]:
+        """Finalize the comparison artifact's status and return it with the exit code."""
         artifact["status"] = status
         artifact["merge_blocking"] = exit_code == 1
         artifact["note"] = note
@@ -379,6 +394,7 @@ def evaluate(
 
 
 def format_summary(artifact: Dict[str, Any]) -> str:
+    """Render a comparison artifact as a concise status and regression summary."""
     lines = [f"Performance gate status: {artifact['status']} (enforced={artifact['enforced']})"]
     summary = artifact.get("summary")
     if summary:
@@ -398,6 +414,7 @@ def format_summary(artifact: Dict[str, Any]) -> str:
 
 
 def main(argv: Optional[List[str]] = None) -> int:
+    """Run baseline recording or comparison from CLI arguments and return an exit code."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--results", type=Path, required=True, help="canonical benchmark results.json to evaluate")
     parser.add_argument("--baseline", type=Path, default=DEFAULT_BASELINE, help="versioned baseline artifact")
