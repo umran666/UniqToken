@@ -147,6 +147,13 @@ class DecisionLogicTests(unittest.TestCase):
         self.assertFalse(artifact["enforcement_eligible"])
         self.assertEqual(artifact["summary"]["throughput_regressions_outside_range"], ["uniqtoken|short_b1"])
 
+    def test_enforcement_request_is_not_reported_as_active(self) -> None:
+        """Requesting enforcement must not claim an advisory gate is enforcing."""
+        artifact, code = self.evaluate_against(make_results(FINGERPRINT_A), enforce=True)
+        self.assertEqual(code, 0)
+        self.assertTrue(artifact["enforcement_requested"])
+        self.assertFalse(artifact["enforced"])
+
     def test_memory_regression_follows_controlled_environment_rule(self) -> None:
         """A single peak RSS value has no calibrated memory uncertainty."""
         current = make_results(FINGERPRINT_A, rss=56.0)  # +12% peak RSS
