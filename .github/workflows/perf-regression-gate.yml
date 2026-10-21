@@ -15,7 +15,7 @@ on:
   workflow_dispatch:
     inputs:
       enforce:
-        description: "Enforce statistically significant regressions as merge-blocking (controlled, fingerprint-matched hardware only)"
+        description: "Request enforcement (schema 1.0 remains advisory pending statistical calibration)"
         type: boolean
         default: false
 

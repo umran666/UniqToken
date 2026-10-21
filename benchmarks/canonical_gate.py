@@ -7,13 +7,10 @@ statistical performance signals:
 - Tokenizer parity failures are gated authoritatively by the deterministic
   exact-parity gate (a separate CI job; this module never gates timing on its
   own). Any parity failure is a hard failure there.
-- Throughput regressions are only *failed* when repeated measurements establish
-  statistical meaning: the nominal drop must exceed the configured threshold
-  AND the current run's uncertainty interval must not overlap the baseline's.
-  On unsuitable or unverified CI hardware the gate stays advisory by design so
-  that a noisy shared runner cannot block merges on a single timing sample.
-- Memory regressions follow the same controlled-environment rule: they fail
-  only under enforcement on fingerprint-matched hardware.
+- Performance signals remain advisory, including with --enforce: canonical
+  schema 1.0 supplies observed throughput extrema, not calibrated confidence
+  intervals, and supplies no repeated memory uncertainty. Enforcement requires
+  separately reviewed noise evidence and a measurement protocol that supports it.
 
 Usage:
     # Record a baseline from a canonical benchmark receipt:
@@ -27,8 +24,7 @@ Usage:
         --baseline benchmarks/canonical/gate-baseline.json \
         --out perf-gate/comparison.json [--enforce]
 
-Exit codes: 0 pass/advisory/soft-skip, 1 enforced significant regression,
-2 hard usage or input errors.
+Exit codes: 0 pass/advisory/soft-skip, 2 hard usage or input errors.
 """
 
 from __future__ import annotations
@@ -36,6 +32,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -54,6 +51,14 @@ FINGERPRINT_KEYS = (
     "physical_cpus",
     "logical_cpus",
     "total_ram_gb",
+    "build_mode",
+    "python_version",
+    "worker_count",
+    "warmup",
+    "repetitions",
+    "iterations_per_repetition",
+    "baselines",
+    "artifact_hashes",
 )
 
 
@@ -74,10 +79,11 @@ def to_iso(moment: datetime) -> str:
 
 def parse_iso(timestamp: Optional[str]) -> Optional[datetime]:
     """Parse an ISO timestamp, returning None for missing or invalid values."""
-    if not timestamp:
+    if not isinstance(timestamp, str) or not timestamp:
         return None
     try:
-        return datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+        parsed = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+        return parsed if parsed.utcoffset() is not None else None
     except ValueError:
         return None
 
@@ -92,12 +98,63 @@ def cell_key(tokenizer: str, workload: str) -> str:
     return f"{tokenizer}|{workload}"
 
 
+def positive_number(value: Any) -> bool:
+    """Reject booleans, strings, zero and nonfinite measurements."""
+    return type(value) in (int, float) and math.isfinite(value) and value > 0
+
+
+def validate_records(records: Any, keyed: bool = False) -> None:
+    """Validate the measured cells before indexing or performing arithmetic."""
+    if not isinstance(records, dict if keyed else list) or not records:
+        raise ValueError("records must be a nonempty workload collection")
+    seen = set()
+    for key, row in records.items() if keyed else enumerate(records):
+        if not isinstance(row, dict):
+            raise ValueError("each workload record must be an object")
+        if keyed:
+            identity = key
+            if not isinstance(key, str) or key.count("|") != 1:
+                raise ValueError("baseline workload keys must be tokenizer|workload")
+        else:
+            for name in ("tokenizer", "workload", "fixture"):
+                if not isinstance(row.get(name), str) or not row[name] or "|" in row[name]:
+                    raise ValueError(f"missing or invalid {name}")
+            identity = cell_key(row["tokenizer"], row["workload"])
+        if identity in seen:
+            raise ValueError(f"duplicate workload {identity}")
+        seen.add(identity)
+        if type(row.get("batch_size")) is not int or row["batch_size"] < 1:
+            raise ValueError("batch_size must be a positive integer")
+        if not isinstance(row.get("fixture"), str) or not row["fixture"]:
+            raise ValueError("fixture must be a nonempty string")
+        for name in ("throughput_mb_s", "peak_rss_mb"):
+            if not positive_number(row.get(name)):
+                raise ValueError(f"{name} must be positive and finite")
+        bounds = row.get("throughput_ci_95_mb_s")
+        if (
+            not isinstance(bounds, list)
+            or len(bounds) != 2
+            or not all(positive_number(value) for value in bounds)
+            or not bounds[0] <= row["throughput_mb_s"] <= bounds[1]
+        ):
+            raise ValueError("throughput range must be finite, ordered, and contain throughput")
+
+
+def validate_results(results: Any) -> None:
+    """Check the canonical input shape without treating missing evidence as proof."""
+    if not isinstance(results, dict) or not isinstance(results.get("metadata"), dict):
+        raise ValueError("canonical results must contain metadata and records")
+    if results["metadata"].get("schema_version") != "1.0":
+        raise ValueError("canonical results must carry schema_version 1.0")
+    validate_records(results.get("records"))
+
+
 def fingerprint_from_results(results: Dict[str, Any]) -> Dict[str, Any]:
     """Extract hardware metadata, rounding total RAM to whole gigabytes."""
     meta = results.get("metadata", {})
     fingerprint = {key: meta.get(key) for key in FINGERPRINT_KEYS}
     ram = fingerprint.get("total_ram_gb")
-    if isinstance(ram, (int, float)):
+    if positive_number(ram):
         # Total RAM reporting fluctuates between runs; compare at GB granularity.
         fingerprint["total_ram_gb"] = round(ram)
     return fingerprint
@@ -105,7 +162,11 @@ def fingerprint_from_results(results: Dict[str, Any]) -> Dict[str, Any]:
 
 def fingerprint_differences(baseline_fp: Dict[str, Any], current_fp: Dict[str, Any]) -> List[str]:
     """Return hardware fingerprint keys whose baseline and current values differ."""
-    return [key for key in FINGERPRINT_KEYS if baseline_fp.get(key) != current_fp.get(key)]
+    return [
+        key
+        for key in FINGERPRINT_KEYS
+        if baseline_fp.get(key) is None or current_fp.get(key) is None or baseline_fp[key] != current_fp[key]
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -121,7 +182,12 @@ def build_baseline(
     memory_rise_pct: float = DEFAULT_MEMORY_RISE_PCT,
 ) -> Dict[str, Any]:
     """Builds a versioned baseline artifact from a canonical results.json."""
-    meta = results.get("metadata", {})
+    validate_results(results)
+    if type(max_age_days) is not int or max_age_days < 1:
+        raise ValueError("max_age_days must be positive")
+    if not positive_number(throughput_drop_pct) or not positive_number(memory_rise_pct):
+        raise ValueError("threshold percentages must be positive and finite")
+    meta = results["metadata"]
     records = results.get("records", [])
     if meta.get("schema_version") != "1.0" or not records:
         raise ValueError("canonical results.json must carry schema_version 1.0 and workload records")
@@ -161,6 +227,8 @@ def build_baseline(
             "peak_rss_mb": record["peak_rss_mb"],
             "batch_size": record.get("batch_size"),
             "fixture": record.get("fixture"),
+            "repetitions": record.get("repetitions"),
+            "iterations_per_rep": record.get("iterations_per_rep"),
         }
     return baseline
 
@@ -189,18 +257,18 @@ def throughput_verdict(
     current_ci = current_cell.get("throughput_ci_95_mb_s") or []
     significant: Optional[bool] = None
     if len(base_ci) == 2 and len(current_ci) == 2:
-        # Repeated-measurement intervals must not overlap at all for the
-        # regression to count as statistically meaningful.
+        # Schema 1.0 calls these CI bounds, but they are observed min/max.
+        # Non-overlap is a diagnostic heuristic, not statistical significance.
         significant = current_ci[1] < base_ci[0]
     verdict = "pass"
     if breach:
-        verdict = "significant-regression" if significant else "nominal-regression"
+        verdict = "outside-observed-range" if significant else "nominal-regression"
     return {
         "baseline_mb_s": base_value,
         "current_mb_s": current_value,
         "drop_pct": round(drop_pct, 3),
         "breaches_threshold": breach,
-        "uncertainty_overlap": (not significant) if significant is not None else None,
+        "observed_range_overlap": (not significant) if significant is not None else None,
         "verdict": verdict,
     }
 
@@ -232,7 +300,7 @@ def evaluate(
     """Evaluates a canonical run against a baseline.
 
     Returns the machine-readable comparison artifact and the process exit code.
-    Merge-blocking requires ``enforce``; every other outcome is advisory.
+    Schema 1.0 cannot justify performance enforcement, even when requested.
     """
     now = now or utc_now()
     artifact: Dict[str, Any] = {
@@ -240,6 +308,8 @@ def evaluate(
         "gate_issue": 106,
         "generated_at_utc": to_iso(now),
         "enforced": enforce,
+        "enforcement_eligible": False,
+        "enforcement_reason": "schema 1.0 has observed ranges, not calibrated throughput or memory uncertainty",
         "baseline": {"path": baseline_path.as_posix()},
         "results": {"path": results_path.as_posix()},
     }
@@ -247,16 +317,15 @@ def evaluate(
     def finish(status: str, exit_code: int, note: str) -> Tuple[Dict[str, Any], int]:
         """Finalize the comparison artifact's status and return it with the exit code."""
         artifact["status"] = status
-        artifact["merge_blocking"] = exit_code == 1
+        artifact["merge_blocking"] = exit_code != 0
         artifact["note"] = note
         return artifact, exit_code
 
     try:
         results = load_json(results_path)
-    except (OSError, json.JSONDecodeError) as error:
+        validate_results(results)
+    except (OSError, ValueError) as error:
         return finish("results-unavailable", 2, f"cannot read current results.json: {error}")
-    if not isinstance(results, dict) or not results.get("records"):
-        return finish("results-unavailable", 2, "current results.json has no workload records")
 
     if not baseline_path.is_file():
         return finish(
@@ -265,15 +334,24 @@ def evaluate(
 
     try:
         baseline = load_json(baseline_path)
-    except (OSError, json.JSONDecodeError) as error:
+    except (OSError, ValueError) as error:
         return finish("baseline-missing", 0, f"baseline unreadable: {error}")
 
-    if baseline.get("schema_version") != GATE_SCHEMA_VERSION:
+    if not isinstance(baseline, dict) or baseline.get("schema_version") != GATE_SCHEMA_VERSION:
         return finish("baseline-schema-mismatch", 0, "baseline schema_version is incompatible; regenerate the baseline")
 
-    thresholds = baseline.get("thresholds", {})
-    drop_threshold = float(thresholds.get("throughput_drop_pct", DEFAULT_THROUGHPUT_DROP_PCT))
-    memory_threshold = float(thresholds.get("memory_rise_pct", DEFAULT_MEMORY_RISE_PCT))
+    try:
+        validate_records(baseline.get("records"), keyed=True)
+        for name in ("thresholds", "source", "expiry", "fingerprint", "fixture_hashes"):
+            if not isinstance(baseline.get(name), dict):
+                raise ValueError(f"baseline {name} must be an object")
+        thresholds = baseline["thresholds"]
+        drop_threshold = thresholds.get("throughput_drop_pct")
+        memory_threshold = thresholds.get("memory_rise_pct")
+        if not positive_number(drop_threshold) or not positive_number(memory_threshold):
+            raise ValueError("threshold percentages must be positive and finite")
+    except ValueError as error:
+        return finish("baseline-invalid", 0, str(error))
     artifact["thresholds"] = {"throughput_drop_pct": drop_threshold, "memory_rise_pct": memory_threshold}
 
     source = baseline.get("source", {})
@@ -289,8 +367,13 @@ def evaluate(
     )
 
     # Baseline provenance: fail-loud but never merge-blocking on a stale receipt.
-    source_path = Path(source.get("path", ""))
-    if source.get("sha256") and source_path.is_file():
+    artifact["baseline"]["provenance_verified"] = False
+    if not isinstance(source.get("path"), str) or not source["path"]:
+        return finish("baseline-provenance-unavailable", 0, "baseline source receipt path is invalid")
+    source_path = Path(source["path"])
+    if not source.get("sha256") or not source_path.is_file():
+        return finish("baseline-provenance-unavailable", 0, "baseline source receipt or SHA-256 is unavailable")
+    try:
         provenance_ok = sha256_file(source_path) == source["sha256"]
         artifact["baseline"]["provenance_verified"] = provenance_ok
         if not provenance_ok:
@@ -299,17 +382,25 @@ def evaluate(
                 0,
                 f"baseline source {source_path} changed since recording; refresh the baseline",
             )
+        source_results = load_json(source_path)
+        validate_results(source_results)
+        source_cells = {cell_key(row["tokenizer"], row["workload"]): row for row in source_results["records"]}
+        if set(source_cells) != set(baseline["records"]) or any(
+            any(row.get(name) != source_cells[key].get(name) for name in row)
+            for key, row in baseline["records"].items()
+        ):
+            artifact["baseline"]["provenance_verified"] = False
+            return finish("baseline-provenance-mismatch", 0, "baseline workload records differ from the source receipt")
+    except (OSError, ValueError) as error:
+        return finish("baseline-provenance-unavailable", 0, str(error))
 
     anchor = parse_iso(source.get("measured_at")) or parse_iso(source.get("recorded_at"))
     expires_at = parse_iso(expiry.get("expires_at"))
-    if anchor and expires_at:
-        artifact["baseline"]["age_days"] = round((now - anchor).total_seconds() / 86400, 2)
-        if now > expires_at:
-            return finish(
-                "baseline-expired",
-                0,
-                f"baseline expired at {expiry.get('expires_at')}; re-record from a trusted host before trusting comparisons",
-            )
+    if anchor is None or expires_at is None or anchor > now or expires_at <= anchor:
+        return finish("baseline-invalid", 0, "baseline timestamps must define a valid, nonfuture measurement lifetime")
+    artifact["baseline"]["age_days"] = round((now - anchor).total_seconds() / 86400, 2)
+    if now > expires_at:
+        return finish("baseline-expired", 0, f"baseline expired at {expiry.get('expires_at')}; refresh the baseline")
 
     baseline_fp = baseline.get("fingerprint", {})
     current_fp = fingerprint_from_results(results)
@@ -330,7 +421,7 @@ def evaluate(
 
     baseline_fixtures = baseline.get("fixture_hashes", {})
     current_fixtures = results.get("metadata", {}).get("fixture_hashes", {})
-    if baseline_fixtures and current_fixtures and baseline_fixtures != current_fixtures:
+    if not baseline_fixtures or not current_fixtures or baseline_fixtures != current_fixtures:
         return finish(
             "fixture-drift",
             0,
@@ -340,6 +431,30 @@ def evaluate(
     baseline_records = baseline.get("records", {})
     current_records = results.get("records", [])
     current_index = {cell_key(r["tokenizer"], r["workload"]): r for r in current_records}
+    if set(baseline_records) != set(current_index) or any(
+        any(baseline_records[key][name] != current_index[key][name] for name in ("fixture", "batch_size"))
+        for key in set(baseline_records) & set(current_index)
+    ):
+        return finish(
+            "workload-mismatch", 0, "workload identities, fixtures and batch sizes must match the complete baseline"
+        )
+    for rows, meta in ((baseline_records.values(), baseline_fp), (current_records, results["metadata"])):
+        if (
+            type(meta.get("repetitions")) is not int
+            or meta["repetitions"] < 3
+            or type(meta.get("iterations_per_repetition")) is not int
+            or meta["iterations_per_repetition"] < 1
+            or any(
+                type(row.get("repetitions")) is not int
+                or row["repetitions"] != meta["repetitions"]
+                or type(row.get("iterations_per_rep")) is not int
+                or row["iterations_per_rep"] != meta["iterations_per_repetition"]
+                for row in rows
+            )
+        ):
+            return finish(
+                "insufficient-evidence", 0, "matching repeated measurement counts are required for every cell"
+            )
 
     cells: List[Dict[str, Any]] = []
     significant_throughput: List[str] = []
@@ -356,14 +471,16 @@ def evaluate(
         throughput = throughput_verdict(baseline_cell, current_cell, drop_threshold)
         memory = memory_verdict(baseline_cell, current_cell, memory_threshold)
         if throughput["breaches_threshold"]:
-            (significant_throughput if throughput["uncertainty_overlap"] is False else nominal_throughput).append(key)
+            (significant_throughput if throughput["observed_range_overlap"] is False else nominal_throughput).append(
+                key
+            )
         if memory["breaches_threshold"]:
             memory_regressions.append(key)
         cells.append({"key": key, "throughput": throughput, "memory": memory})
 
     artifact["summary"] = {
         "cells_compared": len(cells),
-        "throughput_regressions_significant": significant_throughput,
+        "throughput_regressions_outside_range": significant_throughput,
         "throughput_regressions_nominal": nominal_throughput,
         "memory_regressions": memory_regressions,
         "unmatched_workloads": unmatched,
@@ -371,26 +488,19 @@ def evaluate(
     artifact["cells"] = cells
 
     if significant_throughput or memory_regressions:
-        if enforce:
-            return finish(
-                "fail",
-                1,
-                "statistically meaningful regressions under a controlled, fingerprint-matched runner: "
-                + ", ".join(significant_throughput + memory_regressions),
-            )
         return finish(
             "advisory",
             0,
-            "regressions detected without enforcement or without statistical meaning; see cells for detail",
+            "performance changes require investigation; schema 1.0 cannot support statistical enforcement",
         )
     if nominal_throughput:
         return finish(
             "advisory",
             0,
-            "nominal drops within benchmark noise tolerance (uncertainty intervals overlap): "
+            "nominal drops with overlapping observed ranges; investigate repeated runs: "
             + ", ".join(nominal_throughput),
         )
-    return finish("pass", 0, "no throughput or memory regression beyond thresholds and noise tolerance")
+    return finish("pass", 0, "no nominal throughput or memory threshold breach; no statistical enforcement is implied")
 
 
 def format_summary(artifact: Dict[str, Any]) -> str:
@@ -400,7 +510,7 @@ def format_summary(artifact: Dict[str, Any]) -> str:
     if summary:
         lines.append(
             f"cells={summary['cells_compared']} "
-            f"significant-throughput={len(summary['throughput_regressions_significant'])} "
+            f"outside-range-throughput={len(summary['throughput_regressions_outside_range'])} "
             f"nominal-throughput={len(summary['throughput_regressions_nominal'])} "
             f"memory={len(summary['memory_regressions'])} "
             f"unmatched={len(summary['unmatched_workloads'])}"
@@ -419,7 +529,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--results", type=Path, required=True, help="canonical benchmark results.json to evaluate")
     parser.add_argument("--baseline", type=Path, default=DEFAULT_BASELINE, help="versioned baseline artifact")
     parser.add_argument("--out", type=Path, default=None, help="where to write the comparison artifact")
-    parser.add_argument("--enforce", action="store_true", help="allow merge-blocking failures on controlled hardware")
+    parser.add_argument("--enforce", action="store_true", help="request enforcement (schema 1.0 remains advisory)")
     parser.add_argument(
         "--write-baseline", action="store_true", help="record a new baseline from --results instead of comparing"
     )

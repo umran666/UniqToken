@@ -2,8 +2,8 @@
 
 Verifies:
 - Baseline construction with provenance, expiry, and fingerprint metadata.
-- Pass / advisory / fail decision logic for throughput and memory metrics.
-- Statistical-significance requirement before any merge-blocking failure.
+- Pass / advisory decision logic and hard malformed-input failures.
+- Observed ranges never authorize statistical performance enforcement.
 - Soft-skip behavior for missing, expired, provenance-broken, or
   hardware-mismatched baselines and drifted fixtures.
 """
@@ -25,6 +25,14 @@ FINGERPRINT_A = {
     "physical_cpus": 8,
     "logical_cpus": 12,
     "total_ram_gb": 7.65,
+    "build_mode": "release",
+    "python_version": "test-python",
+    "worker_count": 1,
+    "warmup": 3,
+    "repetitions": 7,
+    "iterations_per_repetition": 5,
+    "baselines": {"uniqtoken": {"available": True, "version": "1.0.0", "engine": "test-native"}},
+    "artifact_hashes": {"corpus": "fixture-corpus", "uniqtoken_binary": "fixture-model"},
 }
 FINGERPRINT_A_STORED = dict(FINGERPRINT_A, total_ram_gb=8)  # RAM compared at GB granularity
 FINGERPRINT_B = dict(FINGERPRINT_A, platform="Linux-6.8.0-x86_64", physical_cpus=4, logical_cpus=4)
@@ -33,7 +41,7 @@ FINGERPRINT_B = dict(FINGERPRINT_A, platform="Linux-6.8.0-x86_64", physical_cpus
 def make_results(
     fingerprint: dict,
     throughput: float = 100.0,
-    ci: tuple = (90.0, 110.0),
+    ci: tuple | None = None,
     rss: float = 50.0,
     fixtures: dict | None = None,
     timestamp: str = "2026-10-08T00:00:00Z",
@@ -54,8 +62,10 @@ def make_results(
                 "batch_size": 1,
                 "fixture": "short",
                 "throughput_mb_s": throughput,
-                "throughput_ci_95_mb_s": list(ci),
+                "throughput_ci_95_mb_s": list(ci) if ci is not None else [throughput * 0.9, throughput * 1.1],
                 "peak_rss_mb": rss,
+                "repetitions": 7,
+                "iterations_per_rep": 5,
             }
         ],
     }
@@ -125,25 +135,26 @@ class DecisionLogicTests(unittest.TestCase):
         self.assertEqual(artifact["summary"]["throughput_regressions_nominal"], ["uniqtoken|short_b1"])
         self.assertFalse(artifact["merge_blocking"])
 
-    def test_significant_drop_fails_only_under_enforcement(self) -> None:
-        """Verify a significant throughput drop blocks merging only with enforcement."""
+    def test_observed_range_separation_never_proves_significance(self) -> None:
+        """Canonical extrema do not provide calibrated confidence, even with --enforce."""
         current = make_results(FINGERPRINT_A, throughput=80.0, ci=(70.0, 85.0))
         artifact, code = self.evaluate_against(current, enforce=False)
         self.assertEqual((artifact["status"], code), ("advisory", 0))
 
         artifact, code = self.evaluate_against(current, enforce=True)
-        self.assertEqual((artifact["status"], code), ("fail", 1))
-        self.assertTrue(artifact["merge_blocking"])
-        self.assertEqual(artifact["summary"]["throughput_regressions_significant"], ["uniqtoken|short_b1"])
+        self.assertEqual((artifact["status"], code), ("advisory", 0))
+        self.assertFalse(artifact["merge_blocking"])
+        self.assertFalse(artifact["enforcement_eligible"])
+        self.assertEqual(artifact["summary"]["throughput_regressions_outside_range"], ["uniqtoken|short_b1"])
 
     def test_memory_regression_follows_controlled_environment_rule(self) -> None:
-        """Verify peak RSS regression on matching hardware fails only with enforcement."""
+        """A single peak RSS value has no calibrated memory uncertainty."""
         current = make_results(FINGERPRINT_A, rss=56.0)  # +12% peak RSS
         artifact, code = self.evaluate_against(current, enforce=False)
         self.assertEqual((artifact["status"], code), ("advisory", 0))
 
         artifact, code = self.evaluate_against(current, enforce=True)
-        self.assertEqual((artifact["status"], code), ("fail", 1))
+        self.assertEqual((artifact["status"], code), ("advisory", 0))
         self.assertEqual(artifact["summary"]["memory_regressions"], ["uniqtoken|short_b1"])
 
     def test_drop_exactly_at_threshold_is_not_a_breach(self) -> None:
@@ -206,6 +217,105 @@ class DecisionLogicTests(unittest.TestCase):
         current.write_text("not json", encoding="utf-8")
         artifact, code = evaluate(self.baseline_path, current)
         self.assertEqual((artifact["status"], code), ("results-unavailable", 2))
+
+    def test_malformed_or_nonfinite_records_produce_input_artifact(self) -> None:
+        """Bad measurements must not crash or silently count as passing cells."""
+        for record in ({}, None, {"tokenizer": "uniqtoken"}):
+            with self.subTest(record=record):
+                current = make_results(FINGERPRINT_A)
+                current["records"] = [record]
+                artifact, code = self.evaluate_against(current, enforce=True)
+                self.assertEqual((artifact["status"], code), ("results-unavailable", 2))
+        for field in ("throughput_mb_s", "peak_rss_mb"):
+            for value in (float("nan"), float("inf"), -1, 0, True, "100"):
+                with self.subTest(field=field, value=value):
+                    current = make_results(FINGERPRINT_A)
+                    current["records"][0][field] = value
+                    artifact, code = self.evaluate_against(current, enforce=True)
+                    self.assertEqual((artifact["status"], code), ("results-unavailable", 2))
+
+    def test_duplicate_or_missing_workloads_cannot_pass(self) -> None:
+        """Repeated cells and partial matrices must remain visible failures."""
+        current = make_results(FINGERPRINT_A)
+        current["records"].append(dict(current["records"][0]))
+        artifact, code = self.evaluate_against(current)
+        self.assertEqual((artifact["status"], code), ("results-unavailable", 2))
+        current["records"] = [dict(current["records"][0], workload="medium_b1", fixture="medium")]
+        artifact, code = self.evaluate_against(current)
+        self.assertEqual((artifact["status"], code), ("workload-mismatch", 0))
+
+    def test_missing_provenance_cannot_enforce(self) -> None:
+        """A missing baseline source must not authorize a blocking comparison."""
+        self.source.unlink()
+        artifact, code = self.evaluate_against(make_results(FINGERPRINT_A, throughput=1, ci=(1, 1)), enforce=True)
+        self.assertEqual((artifact["status"], code), ("baseline-provenance-unavailable", 0))
+
+    def test_software_and_measurement_mismatch_cannot_be_controlled(self) -> None:
+        """Same hardware does not make a different runtime or protocol comparable."""
+        for key, value in (("build_mode", "debug"), ("python_version", "0.0"), ("worker_count", 32)):
+            with self.subTest(key=key):
+                current = make_results(FINGERPRINT_A)
+                current["metadata"][key] = value
+                artifact, code = self.evaluate_against(current, enforce=True)
+                self.assertEqual((artifact["status"], code), ("hardware-mismatch", 0))
+                self.assertFalse(artifact["fingerprint"]["controlled_match"])
+
+    def test_missing_repetition_evidence_cannot_pass(self) -> None:
+        """One observation must not qualify as a repeated performance check."""
+        current = make_results(FINGERPRINT_A)
+        current["metadata"]["repetitions"] = 1
+        current["records"][0]["repetitions"] = 1
+        artifact, code = self.evaluate_against(current, enforce=True)
+        self.assertEqual(code, 0)
+        self.assertNotEqual(artifact["status"], "pass")
+
+    def test_cli_writes_comparison_for_invalid_records(self) -> None:
+        """CI must retain a structured diagnostic even when a current cell is invalid."""
+        current = make_results(FINGERPRINT_A)
+        current["records"] = [{}]
+        path = write_json(self.root / "invalid.json", current)
+        output = self.root / "comparison.json"
+        code = main(["--results", str(path), "--baseline", str(self.baseline_path), "--out", str(output)])
+        self.assertEqual(code, 2)
+        self.assertEqual(json.loads(output.read_text())["status"], "results-unavailable")
+
+    def test_invalid_ranges_and_schemas_cannot_pass(self) -> None:
+        """Malformed ranges and unsupported result schemas must produce diagnostics."""
+        for bounds in (None, [], [110, 90], [0, 110], [float("nan"), 110], [90, "110"], [90, 95]):
+            with self.subTest(bounds=bounds):
+                current = make_results(FINGERPRINT_A)
+                current["records"][0]["throughput_ci_95_mb_s"] = bounds
+                artifact, code = self.evaluate_against(current)
+                self.assertEqual((artifact["status"], code), ("results-unavailable", 2))
+        current = make_results(FINGERPRINT_A)
+        current["metadata"]["schema_version"] = "unknown"
+        artifact, code = self.evaluate_against(current)
+        self.assertEqual((artifact["status"], code), ("results-unavailable", 2))
+
+    def test_malformed_provenance_is_advisory(self) -> None:
+        """Bad source paths cannot bypass verification or crash the CLI."""
+        baseline = json.loads(self.baseline_path.read_text())
+        for path in (None, [], {}):
+            with self.subTest(path=path):
+                baseline["source"]["path"] = path
+                write_json(self.baseline_path, baseline)
+                artifact, code = self.evaluate_against(make_results(FINGERPRINT_A), enforce=True)
+                self.assertEqual((artifact["status"], code), ("baseline-provenance-unavailable", 0))
+
+    def test_altered_baseline_cells_do_not_match_source_provenance(self) -> None:
+        """Hashing the source does not authenticate hand-edited derivative records."""
+        baseline = json.loads(self.baseline_path.read_text())
+        baseline["records"]["uniqtoken|short_b1"]["throughput_mb_s"] = 101.0
+        write_json(self.baseline_path, baseline)
+        artifact, code = self.evaluate_against(make_results(FINGERPRINT_A), enforce=True)
+        self.assertEqual((artifact["status"], code), ("baseline-provenance-mismatch", 0))
+
+    def test_per_cell_repetitions_must_match_metadata(self) -> None:
+        """Metadata must not conceal a workload measured only once."""
+        current = make_results(FINGERPRINT_A)
+        current["records"][0]["repetitions"] = 1
+        artifact, code = self.evaluate_against(current, enforce=True)
+        self.assertEqual((artifact["status"], code), ("insufficient-evidence", 0))
 
 
 if __name__ == "__main__":
