@@ -227,7 +227,7 @@ class DecisionLogicTests(unittest.TestCase):
                 artifact, code = self.evaluate_against(current, enforce=True)
                 self.assertEqual((artifact["status"], code), ("results-unavailable", 2))
         for field in ("throughput_mb_s", "peak_rss_mb"):
-            for value in (float("nan"), float("inf"), -1, 0, True, "100"):
+            for value in (float("nan"), float("inf"), 10**400, -1, 0, True, "100"):
                 with self.subTest(field=field, value=value):
                     current = make_results(FINGERPRINT_A)
                     current["records"][0][field] = value
@@ -309,6 +309,25 @@ class DecisionLogicTests(unittest.TestCase):
         write_json(self.baseline_path, baseline)
         artifact, code = self.evaluate_against(make_results(FINGERPRINT_A), enforce=True)
         self.assertEqual((artifact["status"], code), ("baseline-provenance-mismatch", 0))
+
+    def test_source_metadata_cannot_be_rewritten_in_baseline(self) -> None:
+        """Changing copied metadata cannot authenticate a different environment or date."""
+        baseline = json.loads(self.baseline_path.read_text())
+        for section, key, value in (
+            ("fingerprint", "build_mode", "debug"),
+            ("source", "measured_at", "2026-10-20T00:00:00Z"),
+            ("source", "git_commit", "b" * 40),
+            ("fixture_hashes", "short", "changed"),
+        ):
+            with self.subTest(section=section, key=key):
+                changed = json.loads(json.dumps(baseline))
+                changed[section][key] = value
+                write_json(self.baseline_path, changed)
+                current = make_results(FINGERPRINT_A)
+                if section == "fingerprint":
+                    current["metadata"][key] = value
+                artifact, code = self.evaluate_against(current, enforce=True)
+                self.assertEqual((artifact["status"], code), ("baseline-provenance-mismatch", 0))
 
     def test_per_cell_repetitions_must_match_metadata(self) -> None:
         """Metadata must not conceal a workload measured only once."""

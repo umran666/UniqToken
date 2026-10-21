@@ -100,7 +100,10 @@ def cell_key(tokenizer: str, workload: str) -> str:
 
 def positive_number(value: Any) -> bool:
     """Reject booleans, strings, zero and nonfinite measurements."""
-    return type(value) in (int, float) and math.isfinite(value) and value > 0
+    try:
+        return type(value) in (int, float) and math.isfinite(value) and value > 0
+    except OverflowError:
+        return False
 
 
 def validate_records(records: Any, keyed: bool = False) -> None:
@@ -385,12 +388,23 @@ def evaluate(
         source_results = load_json(source_path)
         validate_results(source_results)
         source_cells = {cell_key(row["tokenizer"], row["workload"]): row for row in source_results["records"]}
-        if set(source_cells) != set(baseline["records"]) or any(
-            any(row.get(name) != source_cells[key].get(name) for name in row)
-            for key, row in baseline["records"].items()
+        source_meta = source_results["metadata"]
+        source_fingerprint = fingerprint_from_results(source_results)
+        if (
+            set(source_cells) != set(baseline["records"])
+            or any(
+                any(row.get(name) != source_cells[key].get(name) for name in row)
+                for key, row in baseline["records"].items()
+            )
+            or any(value != source_fingerprint.get(key) for key, value in baseline["fingerprint"].items())
+            or baseline["fixture_hashes"] != source_meta.get("fixture_hashes")
+            or source.get("measured_at") != source_meta.get("timestamp_utc")
+            or source.get("git_commit") != source_meta.get("git_commit")
         ):
             artifact["baseline"]["provenance_verified"] = False
-            return finish("baseline-provenance-mismatch", 0, "baseline workload records differ from the source receipt")
+            return finish(
+                "baseline-provenance-mismatch", 0, "baseline records or metadata differ from the source receipt"
+            )
     except (OSError, ValueError) as error:
         return finish("baseline-provenance-unavailable", 0, str(error))
 
