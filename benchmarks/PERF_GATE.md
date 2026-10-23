@@ -52,10 +52,12 @@ and recording timestamps are timezone-aware; the default lifetime is 30 days.
 
 Comparability includes platform, processor, physical/logical CPUs, RAM (rounded
 to GB), Python, build mode, worker count, warmups, repetitions, iterations and
-package/backend identities. Candidate Git commits may differ. Artifact hashes
-stay recorded in the source receipt for provenance but are not comparability
-keys: SentencePiece shuffles its training corpus, so a retrained canonical
-artifact does not reproduce the same model bytes. All workloads must retain
+package/backend identities and the training-corpus SHA-256 from the authenticated
+source receipt. A missing or changed training-corpus hash prevents comparison,
+even when evaluation fixture hashes match. Candidate Git commits may differ.
+Trained-model hashes stay recorded for provenance but are not comparability keys:
+SentencePiece shuffles its training corpus, so a retrained canonical artifact
+does not reproduce the same model bytes. All workloads must retain
 consistent repeated-measurement counts; at least three observations are
 required as an evidence sanity check, which alone supplies no statistical
 calibration. Missing fingerprint fields are not considered a controlled match,

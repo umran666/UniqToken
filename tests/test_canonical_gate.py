@@ -52,6 +52,7 @@ def make_results(
             "timestamp_utc": timestamp,
             "git_commit": "a" * 40,
             **fingerprint,
+            "artifact_hashes": {"corpus": "training-corpus-digest", "sentencepiece_model": "model-digest"},
             "fixture_hashes": fixtures if fixtures is not None else {"short": "h1", "medium": "h2"},
         },
         "records": [
@@ -187,10 +188,40 @@ class DecisionLogicTests(unittest.TestCase):
     def test_nondeterministic_artifact_hashes_do_not_break_comparability(self) -> None:
         """SentencePiece training shuffles its corpus, so artifact hashes vary per run."""
         current = make_results(FINGERPRINT_A)
-        current["metadata"]["artifact_hashes"] = {"sentencepiece_model": "different-run-digest"}
+        current["metadata"]["artifact_hashes"]["sentencepiece_model"] = "different-run-digest"
         artifact, code = self.evaluate_against(current)
         self.assertTrue(artifact["fingerprint"]["controlled_match"])
         self.assertEqual((artifact["status"], code), ("pass", 0))
+
+    def test_training_corpus_drift_blocks_comparison(self) -> None:
+        """Identical evaluation text cannot authenticate a changed training corpus."""
+        current = make_results(FINGERPRINT_A)
+        current["metadata"]["artifact_hashes"]["corpus"] = "different-training-corpus"
+        artifact, code = self.evaluate_against(current, enforce=True)
+        self.assertFalse(artifact["fingerprint"]["controlled_match"])
+        self.assertEqual((artifact["status"], code), ("hardware-mismatch", 0))
+        self.assertIn("training_corpus_sha256", artifact["fingerprint"]["differences"])
+        self.assertNotIn("cells", artifact)
+
+    def test_missing_training_corpus_evidence_cannot_match(self) -> None:
+        """Absent or malformed training identity is not evidence of the same corpus."""
+        for hashes in (None, {}, [], {"corpus": None}, {"corpus": ""}, {"corpus": 123}):
+            with self.subTest(hashes=hashes):
+                current = make_results(FINGERPRINT_A)
+                current["metadata"]["artifact_hashes"] = hashes
+                artifact, code = self.evaluate_against(current)
+                self.assertFalse(artifact["fingerprint"]["controlled_match"])
+                self.assertEqual((artifact["status"], code), ("hardware-mismatch", 0))
+
+    def test_missing_baseline_training_corpus_cannot_match(self) -> None:
+        """Two missing training identities must not become a controlled match."""
+        current = make_results(FINGERPRINT_A)
+        del current["metadata"]["artifact_hashes"]["corpus"]
+        write_json(self.source, current)
+        write_json(self.baseline_path, build_baseline(current, self.source))
+        artifact, code = self.evaluate_against(current)
+        self.assertFalse(artifact["fingerprint"]["controlled_match"])
+        self.assertEqual((artifact["status"], code), ("hardware-mismatch", 0))
 
     def test_fixture_drift_blocks_comparison(self) -> None:
         """Verify changed fixture hashes soft-skip comparison even under enforcement."""

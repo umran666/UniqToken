@@ -162,6 +162,13 @@ def fingerprint_from_results(results: Dict[str, Any]) -> Dict[str, Any]:
     return fingerprint
 
 
+def training_corpus_hash(results: Dict[str, Any]) -> Optional[str]:
+    """Read training identity separately from nondeterministic trained-model hashes."""
+    hashes = results["metadata"].get("artifact_hashes")
+    corpus = hashes.get("corpus") if isinstance(hashes, dict) else None
+    return corpus if isinstance(corpus, str) and corpus else None
+
+
 def fingerprint_differences(baseline_fp: Dict[str, Any], current_fp: Dict[str, Any]) -> List[str]:
     """Return hardware fingerprint keys whose baseline and current values differ."""
     return [
@@ -419,11 +426,17 @@ def evaluate(
     baseline_fp = baseline.get("fingerprint", {})
     current_fp = fingerprint_from_results(results)
     differences = fingerprint_differences(baseline_fp, current_fp)
+    # Use the authenticated receipt, preserving existing derived baseline bytes.
+    baseline_corpus = training_corpus_hash(source_results)
+    current_corpus = training_corpus_hash(results)
+    if baseline_corpus is None or current_corpus is None or baseline_corpus != current_corpus:
+        differences.append("training_corpus_sha256")
     artifact["fingerprint"] = {
         "baseline": baseline_fp,
         "current": current_fp,
         "controlled_match": not differences,
         "differences": differences,
+        "training_corpus_sha256": {"baseline": baseline_corpus, "current": current_corpus},
     }
     if differences:
         return finish(
