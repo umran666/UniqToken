@@ -9,6 +9,8 @@ pub mod rust_tokenizer;
 pub mod seed;
 pub mod trie;
 pub mod viterbi;
+#[cfg(any(feature = "python", test))]
+mod merge_engine;
 #[cfg(feature = "allocation-profile")]
 mod allocation_profile;
 #[cfg(all(feature = "python", feature = "allocation-profile"))]
@@ -42,6 +44,8 @@ use pyo3::prelude::*;
 #[cfg(feature = "python")]
 #[pymodule]
 fn uniqtoken_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    // Keep the research binding out of PyO3's public __all__ and package exports.
+    m.setattr("_experimental_merge_plan", wrap_pyfunction!(merge_engine::_experimental_merge_plan, m)?)?;
     m.add_class::<RustPrefixTrie>()?;
     m.add_class::<RustTokenizer>()?;
     m.add_class::<ViterbiSpan>()?;

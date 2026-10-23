@@ -6,6 +6,7 @@ across diverse sequence lengths and merge densities with warm-up and statistical
 
 from __future__ import annotations
 
+import argparse
 import json
 import math
 import random
@@ -17,6 +18,7 @@ from typing import Any, Dict, List, Sequence
 from uniqtoken.merge_engine import (
     FastMergeEngine,
     MembershipMergeTable,
+    MergeEngine,
     MergeConstraints,
     ReferenceMergeEngine,
     SemanticProfile,
@@ -95,9 +97,18 @@ def build_synthetic_benchmark_fixture(
     return pieces, table, tok
 
 
-def run_benchmark() -> List[Dict[str, Any]]:
+def run_benchmark(*, engine: str = "fast") -> List[Dict[str, Any]]:
     ref_engine = ReferenceMergeEngine()
-    fast_engine = FastMergeEngine()
+    fast_engine: MergeEngine
+    if engine == "native":
+        from uniqtoken.native_merge_engine import NativeFastMergeEngine
+
+        fast_engine = NativeFastMergeEngine()
+        print("Experimental native prototype; exploratory timings, not production/adoption evidence.")
+    elif engine == "fast":
+        fast_engine = FastMergeEngine()
+    else:
+        raise ValueError(f"unknown benchmark engine: {engine!r}")
 
     test_configs = [
         # (seq_len, regime, iterations, warmup_iters)
@@ -137,12 +148,12 @@ def run_benchmark() -> List[Dict[str, Any]]:
         fast_out, fast_plan = apply_engine_to_pieces(fast_engine, pieces, table, constraints, None)
         prod_out = tok._apply_cross_word_merges(list(pieces), 0.0)
 
-        # Validate tokenizer integration path with merge_engine="fast"
-        tok.set_merge_engine("fast")
+        # Select explicitly for this synthetic benchmark; defaults are unchanged.
+        tok.set_merge_engine(fast_engine)
         tok_fast_out = tok._apply_cross_word_merges(list(pieces), 0.0)
         tok.set_merge_engine("default")
 
-        parity = ref_out == fast_out == prod_out == tok_fast_out and ref_plan.applied_merges == fast_plan.applied_merges
+        parity = ref_out == fast_out == prod_out == tok_fast_out and ref_plan == fast_plan
         if not parity:
             raise RuntimeError(f"Parity mismatch on {seq_len}, {regime}")
 
@@ -177,6 +188,7 @@ def run_benchmark() -> List[Dict[str, Any]]:
         speedup = ref_mean / max(fast_mean, 1e-6)
 
         record = {
+            "candidate_engine": fast_engine.name,
             "sequence_length": seq_len,
             "regime": regime,
             "applied_merges": ref_plan.applied_merges,
@@ -206,8 +218,14 @@ def run_benchmark() -> List[Dict[str, Any]]:
 
 
 if __name__ == "__main__":
-    benchmark_records = run_benchmark()
-    output_path = Path(__file__).parent / "fast_merge_engine_results.json"
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--engine", choices=("fast", "native"), default="fast")
+    parser.add_argument("--out", type=Path)
+    args = parser.parse_args()
+    if args.engine == "native" and args.out is None:
+        parser.error("--engine native requires --out to avoid overwriting existing benchmark evidence")
+    benchmark_records = run_benchmark(engine=args.engine)
+    output_path = args.out if args.out is not None else Path(__file__).parent / "fast_merge_engine_results.json"
     with open(output_path, "w", encoding="utf-8") as f:
         json.dump(benchmark_records, f, indent=2)
         f.write("\n")
