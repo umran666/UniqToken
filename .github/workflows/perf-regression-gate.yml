@@ -77,19 +77,14 @@ jobs:
           python -m benchmarks.canonical_benchmark --output perf-gate/current
 
       - name: Compare against versioned baseline (advisory on shared runners)
+        env:
+          ENFORCE: ${{ github.event.inputs.enforce }}
         run: |
-          if [ "${{ github.event.inputs.enforce }}" = "true" ]; then
-            python -m benchmarks.canonical_gate \
-              --results perf-gate/current/results.json \
-              --baseline benchmarks/canonical/gate-baseline.json \
-              --out perf-gate/comparison.json \
-              --enforce
-          else
-            python -m benchmarks.canonical_gate \
-              --results perf-gate/current/results.json \
-              --baseline benchmarks/canonical/gate-baseline.json \
-              --out perf-gate/comparison.json
+          args=(--results perf-gate/current/results.json --baseline benchmarks/canonical/gate-baseline.json --out perf-gate/comparison.json)
+          if [ "$ENFORCE" = "true" ]; then
+            args+=(--enforce)
           fi
+          python -m benchmarks.canonical_gate "${args[@]}"
 
       - name: Upload machine-readable comparison artifacts
         if: always()

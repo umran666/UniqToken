@@ -51,16 +51,20 @@ metadata, invalid lifetime or expired evidence prevents comparison. Measurement
 and recording timestamps are timezone-aware; the default lifetime is 30 days.
 
 Comparability includes platform, processor, physical/logical CPUs, RAM (rounded
-to GB), Python, build mode, worker count, warmups, repetitions, iterations,
-package/backend identities and tokenizer artifact hashes. Candidate Git commits
-may differ. All workloads must retain consistent repeated-measurement counts;
-at least three observations are required as an evidence sanity check, which
-alone supplies no statistical calibration. Missing fingerprint fields are not
-considered a controlled match, even when absent on both sides.
+to GB), Python, build mode, worker count, warmups, repetitions, iterations and
+package/backend identities. Candidate Git commits may differ. Artifact hashes
+stay recorded in the source receipt for provenance but are not comparability
+keys: SentencePiece shuffles its training corpus, so a retrained canonical
+artifact does not reproduce the same model bytes. All workloads must retain
+consistent repeated-measurement counts; at least three observations are
+required as an evidence sanity check, which alone supplies no statistical
+calibration. Missing fingerprint fields are not considered a controlled match,
+even when absent on both sides.
 
-The historical committed baseline lacks newer comparison fields. It remains
-unchanged and is advisory until regenerated from reviewed evidence. Do not
-hand-edit it or invent metadata for an old measurement.
+The committed baseline is derived deterministically with `--write-baseline`
+from the reviewed #105 receipt; no measurement value is hand-edited or invented.
+Its 30-day lifetime is anchored at the source measurement time. Regenerate it
+only from a reviewed receipt.
 
 ## Commands and triage
 

@@ -6,7 +6,7 @@
     "sha256": "9515f5b2bf3fbef4193ac19c0eb6436a2264210abf61f77aac6e3fe798040120",
     "git_commit": "a0fd66636051dbf03b83525a8557da335949c39b",
     "measured_at": "2026-10-08T05:53:41Z",
-    "recorded_at": "2026-10-13T16:09:32Z"
+    "recorded_at": "2026-10-23T06:56:45Z"
   },
   "expiry": {
     "anchor": "source.measured_at when available, else source.recorded_at",
@@ -19,7 +19,30 @@
     "processor": "Intel64 Family 6 Model 154 Stepping 3, GenuineIntel",
     "physical_cpus": 8,
     "logical_cpus": 12,
-    "total_ram_gb": 8
+    "total_ram_gb": 8,
+    "build_mode": "release",
+    "python_version": "3.13.1 (tags/v3.13.1:0671451, Dec  3 2024, 19:06:28) [MSC v.1942 64 bit (AMD64)]",
+    "worker_count": 1,
+    "warmup": 3,
+    "repetitions": 7,
+    "iterations_per_repetition": 5,
+    "baselines": {
+      "uniqtoken": {
+        "available": true,
+        "version": "1.0.0",
+        "engine": "Python (native core uncompiled on Windows MSVC without link.exe)"
+      },
+      "sentencepiece": {
+        "available": true,
+        "version": "0.2.2",
+        "engine": "SentencePiece C++ runtime"
+      },
+      "tokenizers": {
+        "available": true,
+        "version": "0.23.2",
+        "engine": "Tokenizers Rust runtime"
+      }
+    }
   },
   "thresholds": {
     "throughput_drop_pct": 5.0,
@@ -45,7 +68,9 @@
       ],
       "peak_rss_mb": 31.37,
       "batch_size": 1,
-      "fixture": "short"
+      "fixture": "short",
+      "repetitions": 7,
+      "iterations_per_rep": 5
     },
     "sentencepiece|short_b1": {
       "throughput_mb_s": 10.233,
@@ -55,7 +80,9 @@
       ],
       "peak_rss_mb": 32.8,
       "batch_size": 1,
-      "fixture": "short"
+      "fixture": "short",
+      "repetitions": 7,
+      "iterations_per_rep": 5
     },
     "tokenizers|short_b1": {
       "throughput_mb_s": 2.638,
@@ -65,7 +92,9 @@
       ],
       "peak_rss_mb": 32.84,
       "batch_size": 1,
-      "fixture": "short"
+      "fixture": "short",
+      "repetitions": 7,
+      "iterations_per_rep": 5
     },
     "uniqtoken|short_b8": {
       "throughput_mb_s": 0.349,
@@ -75,7 +104,9 @@
       ],
       "peak_rss_mb": 31.3,
       "batch_size": 8,
-      "fixture": "short"
+      "fixture": "short",
+      "repetitions": 7,
+      "iterations_per_rep": 5
     },
     "sentencepiece|short_b8": {
       "throughput_mb_s": 0.518,
@@ -85,7 +116,9 @@
       ],
       "peak_rss_mb": 33.14,
       "batch_size": 8,
-      "fixture": "short"
+      "fixture": "short",
+      "repetitions": 7,
+      "iterations_per_rep": 5
     },
     "tokenizers|short_b8": {
       "throughput_mb_s": 2.922,
@@ -95,7 +128,9 @@
       ],
       "peak_rss_mb": 34.31,
       "batch_size": 8,
-      "fixture": "short"
+      "fixture": "short",
+      "repetitions": 7,
+      "iterations_per_rep": 5
     },
     "uniqtoken|short_b32": {
       "throughput_mb_s": 0.449,
@@ -105,7 +140,9 @@
       ],
       "peak_rss_mb": 31.41,
       "batch_size": 32,
-      "fixture": "short"
+      "fixture": "short",
+      "repetitions": 7,
+      "iterations_per_rep": 5
     },
     "sentencepiece|short_b32": {
       "throughput_mb_s": 1.793,
@@ -115,7 +152,9 @@
       ],
       "peak_rss_mb": 33.54,
       "batch_size": 32,
-      "fixture": "short"
+      "fixture": "short",
+      "repetitions": 7,
+      "iterations_per_rep": 5
     },
     "tokenizers|short_b32": {
       "throughput_mb_s": 5.29,
@@ -125,7 +164,9 @@
       ],
       "peak_rss_mb": 34.95,
       "batch_size": 32,
-      "fixture": "short"
+      "fixture": "short",
+      "repetitions": 7,
+      "iterations_per_rep": 5
     },
     "uniqtoken|short_b128": {
       "throughput_mb_s": 0.204,
@@ -135,7 +176,9 @@
       ],
       "peak_rss_mb": 32.08,
       "batch_size": 128,
-      "fixture": "short"
+      "fixture": "short",
+      "repetitions": 7,
+      "iterations_per_rep": 5
     },
     "sentencepiece|short_b128": {
       "throughput_mb_s": 7.583,
@@ -145,7 +188,9 @@
       ],
       "peak_rss_mb": 33.84,
       "batch_size": 128,
-      "fixture": "short"
+      "fixture": "short",
+      "repetitions": 7,
+      "iterations_per_rep": 5
     },
     "tokenizers|short_b128": {
       "throughput_mb_s": 7.468,
@@ -155,7 +200,9 @@
       ],
       "peak_rss_mb": 35.89,
       "batch_size": 128,
-      "fixture": "short"
+      "fixture": "short",
+      "repetitions": 7,
+      "iterations_per_rep": 5
     },
     "uniqtoken|medium_b1": {
       "throughput_mb_s": 1.418,
@@ -165,7 +212,9 @@
       ],
       "peak_rss_mb": 31.67,
       "batch_size": 1,
-      "fixture": "medium"
+      "fixture": "medium",
+      "repetitions": 7,
+      "iterations_per_rep": 5
     },
     "sentencepiece|medium_b1": {
       "throughput_mb_s": 20.833,
@@ -175,7 +224,9 @@
       ],
       "peak_rss_mb": 32.77,
       "batch_size": 1,
-      "fixture": "medium"
+      "fixture": "medium",
+      "repetitions": 7,
+      "iterations_per_rep": 5
     },
     "tokenizers|medium_b1": {
       "throughput_mb_s": 5.236,
@@ -185,7 +236,9 @@
       ],
       "peak_rss_mb": 33.5,
       "batch_size": 1,
-      "fixture": "medium"
+      "fixture": "medium",
+      "repetitions": 7,
+      "iterations_per_rep": 5
     },
     "uniqtoken|medium_b8": {
       "throughput_mb_s": 1.52,
@@ -195,7 +248,9 @@
       ],
       "peak_rss_mb": 31.72,
       "batch_size": 8,
-      "fixture": "medium"
+      "fixture": "medium",
+      "repetitions": 7,
+      "iterations_per_rep": 5
     },
     "sentencepiece|medium_b8": {
       "throughput_mb_s": 8.529,
@@ -205,7 +260,9 @@
       ],
       "peak_rss_mb": 34.86,
       "batch_size": 8,
-      "fixture": "medium"
+      "fixture": "medium",
+      "repetitions": 7,
+      "iterations_per_rep": 5
     },
     "tokenizers|medium_b8": {
       "throughput_mb_s": 6.916,
@@ -215,7 +272,9 @@
       ],
       "peak_rss_mb": 39.33,
       "batch_size": 8,
-      "fixture": "medium"
+      "fixture": "medium",
+      "repetitions": 7,
+      "iterations_per_rep": 5
     },
     "uniqtoken|medium_b32": {
       "throughput_mb_s": 1.569,
@@ -225,7 +284,9 @@
       ],
       "peak_rss_mb": 31.64,
       "batch_size": 32,
-      "fixture": "medium"
+      "fixture": "medium",
+      "repetitions": 7,
+      "iterations_per_rep": 5
     },
     "sentencepiece|medium_b32": {
       "throughput_mb_s": 23.335,
@@ -235,7 +296,9 @@
       ],
       "peak_rss_mb": 37.38,
       "batch_size": 32,
-      "fixture": "medium"
+      "fixture": "medium",
+      "repetitions": 7,
+      "iterations_per_rep": 5
     },
     "tokenizers|medium_b32": {
       "throughput_mb_s": 9.936,
@@ -245,7 +308,9 @@
       ],
       "peak_rss_mb": 41.75,
       "batch_size": 32,
-      "fixture": "medium"
+      "fixture": "medium",
+      "repetitions": 7,
+      "iterations_per_rep": 5
     },
     "uniqtoken|medium_b128": {
       "throughput_mb_s": 0.835,
@@ -255,7 +320,9 @@
       ],
       "peak_rss_mb": 33.08,
       "batch_size": 128,
-      "fixture": "medium"
+      "fixture": "medium",
+      "repetitions": 7,
+      "iterations_per_rep": 5
     },
     "sentencepiece|medium_b128": {
       "throughput_mb_s": 33.229,
@@ -265,7 +332,9 @@
       ],
       "peak_rss_mb": 43.49,
       "batch_size": 128,
-      "fixture": "medium"
+      "fixture": "medium",
+      "repetitions": 7,
+      "iterations_per_rep": 5
     },
     "tokenizers|medium_b128": {
       "throughput_mb_s": 14.906,
@@ -275,7 +344,9 @@
       ],
       "peak_rss_mb": 48.63,
       "batch_size": 128,
-      "fixture": "medium"
+      "fixture": "medium",
+      "repetitions": 7,
+      "iterations_per_rep": 5
     },
     "uniqtoken|long_b1": {
       "throughput_mb_s": 1.725,
@@ -285,7 +356,9 @@
       ],
       "peak_rss_mb": 32.54,
       "batch_size": 1,
-      "fixture": "long"
+      "fixture": "long",
+      "repetitions": 7,
+      "iterations_per_rep": 5
     },
     "sentencepiece|long_b1": {
       "throughput_mb_s": 17.941,
@@ -295,7 +368,9 @@
       ],
       "peak_rss_mb": 33.04,
       "batch_size": 1,
-      "fixture": "long"
+      "fixture": "long",
+      "repetitions": 7,
+      "iterations_per_rep": 5
     },
     "tokenizers|long_b1": {
       "throughput_mb_s": 4.432,
@@ -305,7 +380,9 @@
       ],
       "peak_rss_mb": 34.2,
       "batch_size": 1,
-      "fixture": "long"
+      "fixture": "long",
+      "repetitions": 7,
+      "iterations_per_rep": 5
     },
     "uniqtoken|long_b8": {
       "throughput_mb_s": 1.58,
@@ -315,7 +392,9 @@
       ],
       "peak_rss_mb": 33.22,
       "batch_size": 8,
-      "fixture": "long"
+      "fixture": "long",
+      "repetitions": 7,
+      "iterations_per_rep": 5
     },
     "sentencepiece|long_b8": {
       "throughput_mb_s": 20.234,
@@ -325,7 +404,9 @@
       ],
       "peak_rss_mb": 37.01,
       "batch_size": 8,
-      "fixture": "long"
+      "fixture": "long",
+      "repetitions": 7,
+      "iterations_per_rep": 5
     },
     "tokenizers|long_b8": {
       "throughput_mb_s": 8.518,
@@ -335,7 +416,9 @@
       ],
       "peak_rss_mb": 42.66,
       "batch_size": 8,
-      "fixture": "long"
+      "fixture": "long",
+      "repetitions": 7,
+      "iterations_per_rep": 5
     },
     "uniqtoken|long_b32": {
       "throughput_mb_s": 0.97,
@@ -345,7 +428,9 @@
       ],
       "peak_rss_mb": 33.27,
       "batch_size": 32,
-      "fixture": "long"
+      "fixture": "long",
+      "repetitions": 7,
+      "iterations_per_rep": 5
     },
     "sentencepiece|long_b32": {
       "throughput_mb_s": 24.84,
@@ -355,7 +440,9 @@
       ],
       "peak_rss_mb": 45.83,
       "batch_size": 32,
-      "fixture": "long"
+      "fixture": "long",
+      "repetitions": 7,
+      "iterations_per_rep": 5
     },
     "tokenizers|long_b32": {
       "throughput_mb_s": 13.94,
@@ -365,7 +452,9 @@
       ],
       "peak_rss_mb": 51.52,
       "batch_size": 32,
-      "fixture": "long"
+      "fixture": "long",
+      "repetitions": 7,
+      "iterations_per_rep": 5
     },
     "uniqtoken|long_b128": {
       "throughput_mb_s": 0.928,
@@ -375,7 +464,9 @@
       ],
       "peak_rss_mb": 37.23,
       "batch_size": 128,
-      "fixture": "long"
+      "fixture": "long",
+      "repetitions": 7,
+      "iterations_per_rep": 5
     },
     "sentencepiece|long_b128": {
       "throughput_mb_s": 26.036,
@@ -385,7 +476,9 @@
       ],
       "peak_rss_mb": 75.54,
       "batch_size": 128,
-      "fixture": "long"
+      "fixture": "long",
+      "repetitions": 7,
+      "iterations_per_rep": 5
     },
     "tokenizers|long_b128": {
       "throughput_mb_s": 18.611,
@@ -395,7 +488,9 @@
       ],
       "peak_rss_mb": 73.11,
       "batch_size": 128,
-      "fixture": "long"
+      "fixture": "long",
+      "repetitions": 7,
+      "iterations_per_rep": 5
     },
     "uniqtoken|multilingual_b1": {
       "throughput_mb_s": 0.087,
@@ -405,7 +500,9 @@
       ],
       "peak_rss_mb": 31.86,
       "batch_size": 1,
-      "fixture": "multilingual"
+      "fixture": "multilingual",
+      "repetitions": 7,
+      "iterations_per_rep": 5
     },
     "sentencepiece|multilingual_b1": {
       "throughput_mb_s": 35.74,
@@ -415,7 +512,9 @@
       ],
       "peak_rss_mb": 32.69,
       "batch_size": 1,
-      "fixture": "multilingual"
+      "fixture": "multilingual",
+      "repetitions": 7,
+      "iterations_per_rep": 5
     },
     "tokenizers|multilingual_b1": {
       "throughput_mb_s": 4.296,
@@ -425,7 +524,9 @@
       ],
       "peak_rss_mb": 33.32,
       "batch_size": 1,
-      "fixture": "multilingual"
+      "fixture": "multilingual",
+      "repetitions": 7,
+      "iterations_per_rep": 5
     },
     "uniqtoken|multilingual_b8": {
       "throughput_mb_s": 0.047,
@@ -435,7 +536,9 @@
       ],
       "peak_rss_mb": 31.91,
       "batch_size": 8,
-      "fixture": "multilingual"
+      "fixture": "multilingual",
+      "repetitions": 7,
+      "iterations_per_rep": 5
     },
     "sentencepiece|multilingual_b8": {
       "throughput_mb_s": 7.537,
@@ -445,7 +548,9 @@
       ],
       "peak_rss_mb": 34.21,
       "batch_size": 8,
-      "fixture": "multilingual"
+      "fixture": "multilingual",
+      "repetitions": 7,
+      "iterations_per_rep": 5
     },
     "tokenizers|multilingual_b8": {
       "throughput_mb_s": 6.043,
@@ -455,7 +560,9 @@
       ],
       "peak_rss_mb": 38.58,
       "batch_size": 8,
-      "fixture": "multilingual"
+      "fixture": "multilingual",
+      "repetitions": 7,
+      "iterations_per_rep": 5
     },
     "uniqtoken|multilingual_b32": {
       "throughput_mb_s": 0.045,
@@ -465,7 +572,9 @@
       ],
       "peak_rss_mb": 32.16,
       "batch_size": 32,
-      "fixture": "multilingual"
+      "fixture": "multilingual",
+      "repetitions": 7,
+      "iterations_per_rep": 5
     },
     "sentencepiece|multilingual_b32": {
       "throughput_mb_s": 33.205,
@@ -475,7 +584,9 @@
       ],
       "peak_rss_mb": 35.01,
       "batch_size": 32,
-      "fixture": "multilingual"
+      "fixture": "multilingual",
+      "repetitions": 7,
+      "iterations_per_rep": 5
     },
     "tokenizers|multilingual_b32": {
       "throughput_mb_s": 9.286,
@@ -485,7 +596,9 @@
       ],
       "peak_rss_mb": 41.65,
       "batch_size": 32,
-      "fixture": "multilingual"
+      "fixture": "multilingual",
+      "repetitions": 7,
+      "iterations_per_rep": 5
     },
     "uniqtoken|multilingual_b128": {
       "throughput_mb_s": 0.042,
@@ -495,7 +608,9 @@
       ],
       "peak_rss_mb": 33.75,
       "batch_size": 128,
-      "fixture": "multilingual"
+      "fixture": "multilingual",
+      "repetitions": 7,
+      "iterations_per_rep": 5
     },
     "sentencepiece|multilingual_b128": {
       "throughput_mb_s": 44.481,
@@ -505,7 +620,9 @@
       ],
       "peak_rss_mb": 37.82,
       "batch_size": 128,
-      "fixture": "multilingual"
+      "fixture": "multilingual",
+      "repetitions": 7,
+      "iterations_per_rep": 5
     },
     "tokenizers|multilingual_b128": {
       "throughput_mb_s": 12.609,
@@ -515,7 +632,9 @@
       ],
       "peak_rss_mb": 49.02,
       "batch_size": 128,
-      "fixture": "multilingual"
+      "fixture": "multilingual",
+      "repetitions": 7,
+      "iterations_per_rep": 5
     },
     "uniqtoken|source_code_b1": {
       "throughput_mb_s": 1.097,
@@ -525,7 +644,9 @@
       ],
       "peak_rss_mb": 31.63,
       "batch_size": 1,
-      "fixture": "source_code"
+      "fixture": "source_code",
+      "repetitions": 7,
+      "iterations_per_rep": 5
     },
     "sentencepiece|source_code_b1": {
       "throughput_mb_s": 22.227,
@@ -535,7 +656,9 @@
       ],
       "peak_rss_mb": 32.73,
       "batch_size": 1,
-      "fixture": "source_code"
+      "fixture": "source_code",
+      "repetitions": 7,
+      "iterations_per_rep": 5
     },
     "tokenizers|source_code_b1": {
       "throughput_mb_s": 3.236,
@@ -545,7 +668,9 @@
       ],
       "peak_rss_mb": 33.76,
       "batch_size": 1,
-      "fixture": "source_code"
+      "fixture": "source_code",
+      "repetitions": 7,
+      "iterations_per_rep": 5
     },
     "uniqtoken|source_code_b8": {
       "throughput_mb_s": 1.165,
@@ -555,7 +680,9 @@
       ],
       "peak_rss_mb": 31.74,
       "batch_size": 8,
-      "fixture": "source_code"
+      "fixture": "source_code",
+      "repetitions": 7,
+      "iterations_per_rep": 5
     },
     "sentencepiece|source_code_b8": {
       "throughput_mb_s": 12.469,
@@ -565,7 +692,9 @@
       ],
       "peak_rss_mb": 34.63,
       "batch_size": 8,
-      "fixture": "source_code"
+      "fixture": "source_code",
+      "repetitions": 7,
+      "iterations_per_rep": 5
     },
     "tokenizers|source_code_b8": {
       "throughput_mb_s": 6.319,
@@ -575,7 +704,9 @@
       ],
       "peak_rss_mb": 39.09,
       "batch_size": 8,
-      "fixture": "source_code"
+      "fixture": "source_code",
+      "repetitions": 7,
+      "iterations_per_rep": 5
     },
     "uniqtoken|source_code_b32": {
       "throughput_mb_s": 1.144,
@@ -585,7 +716,9 @@
       ],
       "peak_rss_mb": 31.92,
       "batch_size": 32,
-      "fixture": "source_code"
+      "fixture": "source_code",
+      "repetitions": 7,
+      "iterations_per_rep": 5
     },
     "sentencepiece|source_code_b32": {
       "throughput_mb_s": 24.663,
@@ -595,7 +728,9 @@
       ],
       "peak_rss_mb": 38.02,
       "batch_size": 32,
-      "fixture": "source_code"
+      "fixture": "source_code",
+      "repetitions": 7,
+      "iterations_per_rep": 5
     },
     "tokenizers|source_code_b32": {
       "throughput_mb_s": 7.628,
@@ -605,7 +740,9 @@
       ],
       "peak_rss_mb": 42.8,
       "batch_size": 32,
-      "fixture": "source_code"
+      "fixture": "source_code",
+      "repetitions": 7,
+      "iterations_per_rep": 5
     },
     "uniqtoken|source_code_b128": {
       "throughput_mb_s": 0.554,
@@ -615,7 +752,9 @@
       ],
       "peak_rss_mb": 34.0,
       "batch_size": 128,
-      "fixture": "source_code"
+      "fixture": "source_code",
+      "repetitions": 7,
+      "iterations_per_rep": 5
     },
     "sentencepiece|source_code_b128": {
       "throughput_mb_s": 35.49,
@@ -625,7 +764,9 @@
       ],
       "peak_rss_mb": 42.6,
       "batch_size": 128,
-      "fixture": "source_code"
+      "fixture": "source_code",
+      "repetitions": 7,
+      "iterations_per_rep": 5
     },
     "tokenizers|source_code_b128": {
       "throughput_mb_s": 9.665,
@@ -635,7 +776,9 @@
       ],
       "peak_rss_mb": 52.74,
       "batch_size": 128,
-      "fixture": "source_code"
+      "fixture": "source_code",
+      "repetitions": 7,
+      "iterations_per_rep": 5
     }
   }
 }

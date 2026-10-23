@@ -58,7 +58,6 @@ FINGERPRINT_KEYS = (
     "repetitions",
     "iterations_per_repetition",
     "baselines",
-    "artifact_hashes",
 )
 
 

@@ -32,7 +32,6 @@ FINGERPRINT_A = {
     "repetitions": 7,
     "iterations_per_repetition": 5,
     "baselines": {"uniqtoken": {"available": True, "version": "1.0.0", "engine": "test-native"}},
-    "artifact_hashes": {"corpus": "fixture-corpus", "uniqtoken_binary": "fixture-model"},
 }
 FINGERPRINT_A_STORED = dict(FINGERPRINT_A, total_ram_gb=8)  # RAM compared at GB granularity
 FINGERPRINT_B = dict(FINGERPRINT_A, platform="Linux-6.8.0-x86_64", physical_cpus=4, logical_cpus=4)
@@ -184,6 +183,14 @@ class DecisionLogicTests(unittest.TestCase):
         artifact, code = self.evaluate_against(rescaled)
         self.assertTrue(artifact["fingerprint"]["controlled_match"])
         self.assertEqual(artifact["status"], "advisory")
+
+    def test_nondeterministic_artifact_hashes_do_not_break_comparability(self) -> None:
+        """SentencePiece training shuffles its corpus, so artifact hashes vary per run."""
+        current = make_results(FINGERPRINT_A)
+        current["metadata"]["artifact_hashes"] = {"sentencepiece_model": "different-run-digest"}
+        artifact, code = self.evaluate_against(current)
+        self.assertTrue(artifact["fingerprint"]["controlled_match"])
+        self.assertEqual((artifact["status"], code), ("pass", 0))
 
     def test_fixture_drift_blocks_comparison(self) -> None:
         """Verify changed fixture hashes soft-skip comparison even under enforcement."""
