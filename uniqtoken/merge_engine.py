@@ -550,6 +550,10 @@ class FastMergeEngine:
                     if rule is None:
                         u = v
                         continue
+                    if rule.result != pieces[u] + pieces[v]:
+                        raise InvariantViolation(
+                            f"merge result {rule.result!r} is not concatenation of {pieces[u]!r} + {pieces[v]!r}"
+                        )
                     pieces[u] = rule.result
                     ends[u] = ends[v]
                     merged_ids[u] = rule.result_id
@@ -595,6 +599,10 @@ class FastMergeEngine:
                             u = v
                             continue
 
+                    if rule.result != pieces[u] + pieces[v]:
+                        raise InvariantViolation(
+                            f"merge result {rule.result!r} is not concatenation of {pieces[u]!r} + {pieces[v]!r}"
+                        )
                     pieces[u] = rule.result
                     ends[u] = v_end
                     merged_ids[u] = rule.result_id

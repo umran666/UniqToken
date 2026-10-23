@@ -1,0 +1,784 @@
+{
+  "schema_version": "1.0",
+  "gate_issue": 106,
+  "source": {
+    "path": "benchmarks/canonical/issue105/results.json",
+    "sha256": "9515f5b2bf3fbef4193ac19c0eb6436a2264210abf61f77aac6e3fe798040120",
+    "git_commit": "a0fd66636051dbf03b83525a8557da335949c39b",
+    "measured_at": "2026-10-08T05:53:41Z",
+    "recorded_at": "2026-10-23T06:56:45Z"
+  },
+  "expiry": {
+    "anchor": "source.measured_at when available, else source.recorded_at",
+    "max_age_days": 30,
+    "expires_at": "2026-11-07T05:53:41Z"
+  },
+  "fingerprint": {
+    "platform": "Windows-11-10.0.26200-SP0",
+    "machine": "AMD64",
+    "processor": "Intel64 Family 6 Model 154 Stepping 3, GenuineIntel",
+    "physical_cpus": 8,
+    "logical_cpus": 12,
+    "total_ram_gb": 8,
+    "build_mode": "release",
+    "python_version": "3.13.1 (tags/v3.13.1:0671451, Dec  3 2024, 19:06:28) [MSC v.1942 64 bit (AMD64)]",
+    "worker_count": 1,
+    "warmup": 3,
+    "repetitions": 7,
+    "iterations_per_repetition": 5,
+    "baselines": {
+      "uniqtoken": {
+        "available": true,
+        "version": "1.0.0",
+        "engine": "Python (native core uncompiled on Windows MSVC without link.exe)"
+      },
+      "sentencepiece": {
+        "available": true,
+        "version": "0.2.2",
+        "engine": "SentencePiece C++ runtime"
+      },
+      "tokenizers": {
+        "available": true,
+        "version": "0.23.2",
+        "engine": "Tokenizers Rust runtime"
+      }
+    }
+  },
+  "thresholds": {
+    "throughput_drop_pct": 5.0,
+    "memory_rise_pct": 10.0,
+    "metrics": [
+      "throughput_mb_s (primary, decimal MB/s per #105)",
+      "peak_rss_mb"
+    ]
+  },
+  "fixture_hashes": {
+    "short": "9b626e8cef61c37b52f927874b8fe090a184e4fcb0bab5596299fe39cce9ccc4",
+    "medium": "936a2f4a177c013aac7d8942a3f0fc77126e7d3dcdc3f72562784c3cf26a41db",
+    "long": "44696b48a3a96f66108553cf277c08682f9857fcc3bf51f0c77012c3eb49a820",
+    "multilingual": "8186cdfcc8291eb344a624de34e118ff07186fdc2116330ce02139098d6ae36f",
+    "source_code": "8317a6ef247c4b0247ac61ef3c54811a549a5b6057c1ec7c8311d7066d2df744"
+  },
+  "records": {
+    "uniqtoken|short_b1": {
+      "throughput_mb_s": 0.439,
+      "throughput_ci_95_mb_s": [
+        0.303,
+        0.45
+      ],
+      "peak_rss_mb": 31.37,
+      "batch_size": 1,
+      "fixture": "short",
+      "repetitions": 7,
+      "iterations_per_rep": 5
+    },
+    "sentencepiece|short_b1": {
+      "throughput_mb_s": 10.233,
+      "throughput_ci_95_mb_s": [
+        3.537,
+        10.476
+      ],
+      "peak_rss_mb": 32.8,
+      "batch_size": 1,
+      "fixture": "short",
+      "repetitions": 7,
+      "iterations_per_rep": 5
+    },
+    "tokenizers|short_b1": {
+      "throughput_mb_s": 2.638,
+      "throughput_ci_95_mb_s": [
+        1.398,
+        2.67
+      ],
+      "peak_rss_mb": 32.84,
+      "batch_size": 1,
+      "fixture": "short",
+      "repetitions": 7,
+      "iterations_per_rep": 5
+    },
+    "uniqtoken|short_b8": {
+      "throughput_mb_s": 0.349,
+      "throughput_ci_95_mb_s": [
+        0.293,
+        0.421
+      ],
+      "peak_rss_mb": 31.3,
+      "batch_size": 8,
+      "fixture": "short",
+      "repetitions": 7,
+      "iterations_per_rep": 5
+    },
+    "sentencepiece|short_b8": {
+      "throughput_mb_s": 0.518,
+      "throughput_ci_95_mb_s": [
+        0.358,
+        0.596
+      ],
+      "peak_rss_mb": 33.14,
+      "batch_size": 8,
+      "fixture": "short",
+      "repetitions": 7,
+      "iterations_per_rep": 5
+    },
+    "tokenizers|short_b8": {
+      "throughput_mb_s": 2.922,
+      "throughput_ci_95_mb_s": [
+        1.855,
+        3.522
+      ],
+      "peak_rss_mb": 34.31,
+      "batch_size": 8,
+      "fixture": "short",
+      "repetitions": 7,
+      "iterations_per_rep": 5
+    },
+    "uniqtoken|short_b32": {
+      "throughput_mb_s": 0.449,
+      "throughput_ci_95_mb_s": [
+        0.401,
+        0.459
+      ],
+      "peak_rss_mb": 31.41,
+      "batch_size": 32,
+      "fixture": "short",
+      "repetitions": 7,
+      "iterations_per_rep": 5
+    },
+    "sentencepiece|short_b32": {
+      "throughput_mb_s": 1.793,
+      "throughput_ci_95_mb_s": [
+        1.382,
+        2.2
+      ],
+      "peak_rss_mb": 33.54,
+      "batch_size": 32,
+      "fixture": "short",
+      "repetitions": 7,
+      "iterations_per_rep": 5
+    },
+    "tokenizers|short_b32": {
+      "throughput_mb_s": 5.29,
+      "throughput_ci_95_mb_s": [
+        5.122,
+        5.945
+      ],
+      "peak_rss_mb": 34.95,
+      "batch_size": 32,
+      "fixture": "short",
+      "repetitions": 7,
+      "iterations_per_rep": 5
+    },
+    "uniqtoken|short_b128": {
+      "throughput_mb_s": 0.204,
+      "throughput_ci_95_mb_s": [
+        0.195,
+        0.234
+      ],
+      "peak_rss_mb": 32.08,
+      "batch_size": 128,
+      "fixture": "short",
+      "repetitions": 7,
+      "iterations_per_rep": 5
+    },
+    "sentencepiece|short_b128": {
+      "throughput_mb_s": 7.583,
+      "throughput_ci_95_mb_s": [
+        6.838,
+        8.677
+      ],
+      "peak_rss_mb": 33.84,
+      "batch_size": 128,
+      "fixture": "short",
+      "repetitions": 7,
+      "iterations_per_rep": 5
+    },
+    "tokenizers|short_b128": {
+      "throughput_mb_s": 7.468,
+      "throughput_ci_95_mb_s": [
+        7.233,
+        7.725
+      ],
+      "peak_rss_mb": 35.89,
+      "batch_size": 128,
+      "fixture": "short",
+      "repetitions": 7,
+      "iterations_per_rep": 5
+    },
+    "uniqtoken|medium_b1": {
+      "throughput_mb_s": 1.418,
+      "throughput_ci_95_mb_s": [
+        0.922,
+        1.725
+      ],
+      "peak_rss_mb": 31.67,
+      "batch_size": 1,
+      "fixture": "medium",
+      "repetitions": 7,
+      "iterations_per_rep": 5
+    },
+    "sentencepiece|medium_b1": {
+      "throughput_mb_s": 20.833,
+      "throughput_ci_95_mb_s": [
+        16.505,
+        20.927
+      ],
+      "peak_rss_mb": 32.77,
+      "batch_size": 1,
+      "fixture": "medium",
+      "repetitions": 7,
+      "iterations_per_rep": 5
+    },
+    "tokenizers|medium_b1": {
+      "throughput_mb_s": 5.236,
+      "throughput_ci_95_mb_s": [
+        3.974,
+        5.316
+      ],
+      "peak_rss_mb": 33.5,
+      "batch_size": 1,
+      "fixture": "medium",
+      "repetitions": 7,
+      "iterations_per_rep": 5
+    },
+    "uniqtoken|medium_b8": {
+      "throughput_mb_s": 1.52,
+      "throughput_ci_95_mb_s": [
+        1.363,
+        1.628
+      ],
+      "peak_rss_mb": 31.72,
+      "batch_size": 8,
+      "fixture": "medium",
+      "repetitions": 7,
+      "iterations_per_rep": 5
+    },
+    "sentencepiece|medium_b8": {
+      "throughput_mb_s": 8.529,
+      "throughput_ci_95_mb_s": [
+        6.654,
+        13.006
+      ],
+      "peak_rss_mb": 34.86,
+      "batch_size": 8,
+      "fixture": "medium",
+      "repetitions": 7,
+      "iterations_per_rep": 5
+    },
+    "tokenizers|medium_b8": {
+      "throughput_mb_s": 6.916,
+      "throughput_ci_95_mb_s": [
+        5.347,
+        10.009
+      ],
+      "peak_rss_mb": 39.33,
+      "batch_size": 8,
+      "fixture": "medium",
+      "repetitions": 7,
+      "iterations_per_rep": 5
+    },
+    "uniqtoken|medium_b32": {
+      "throughput_mb_s": 1.569,
+      "throughput_ci_95_mb_s": [
+        1.451,
+        1.621
+      ],
+      "peak_rss_mb": 31.64,
+      "batch_size": 32,
+      "fixture": "medium",
+      "repetitions": 7,
+      "iterations_per_rep": 5
+    },
+    "sentencepiece|medium_b32": {
+      "throughput_mb_s": 23.335,
+      "throughput_ci_95_mb_s": [
+        20.656,
+        29.821
+      ],
+      "peak_rss_mb": 37.38,
+      "batch_size": 32,
+      "fixture": "medium",
+      "repetitions": 7,
+      "iterations_per_rep": 5
+    },
+    "tokenizers|medium_b32": {
+      "throughput_mb_s": 9.936,
+      "throughput_ci_95_mb_s": [
+        8.298,
+        11.735
+      ],
+      "peak_rss_mb": 41.75,
+      "batch_size": 32,
+      "fixture": "medium",
+      "repetitions": 7,
+      "iterations_per_rep": 5
+    },
+    "uniqtoken|medium_b128": {
+      "throughput_mb_s": 0.835,
+      "throughput_ci_95_mb_s": [
+        0.677,
+        1.181
+      ],
+      "peak_rss_mb": 33.08,
+      "batch_size": 128,
+      "fixture": "medium",
+      "repetitions": 7,
+      "iterations_per_rep": 5
+    },
+    "sentencepiece|medium_b128": {
+      "throughput_mb_s": 33.229,
+      "throughput_ci_95_mb_s": [
+        29.492,
+        40.802
+      ],
+      "peak_rss_mb": 43.49,
+      "batch_size": 128,
+      "fixture": "medium",
+      "repetitions": 7,
+      "iterations_per_rep": 5
+    },
+    "tokenizers|medium_b128": {
+      "throughput_mb_s": 14.906,
+      "throughput_ci_95_mb_s": [
+        13.687,
+        15.705
+      ],
+      "peak_rss_mb": 48.63,
+      "batch_size": 128,
+      "fixture": "medium",
+      "repetitions": 7,
+      "iterations_per_rep": 5
+    },
+    "uniqtoken|long_b1": {
+      "throughput_mb_s": 1.725,
+      "throughput_ci_95_mb_s": [
+        1.523,
+        1.82
+      ],
+      "peak_rss_mb": 32.54,
+      "batch_size": 1,
+      "fixture": "long",
+      "repetitions": 7,
+      "iterations_per_rep": 5
+    },
+    "sentencepiece|long_b1": {
+      "throughput_mb_s": 17.941,
+      "throughput_ci_95_mb_s": [
+        12.657,
+        18.37
+      ],
+      "peak_rss_mb": 33.04,
+      "batch_size": 1,
+      "fixture": "long",
+      "repetitions": 7,
+      "iterations_per_rep": 5
+    },
+    "tokenizers|long_b1": {
+      "throughput_mb_s": 4.432,
+      "throughput_ci_95_mb_s": [
+        2.58,
+        4.981
+      ],
+      "peak_rss_mb": 34.2,
+      "batch_size": 1,
+      "fixture": "long",
+      "repetitions": 7,
+      "iterations_per_rep": 5
+    },
+    "uniqtoken|long_b8": {
+      "throughput_mb_s": 1.58,
+      "throughput_ci_95_mb_s": [
+        1.444,
+        1.774
+      ],
+      "peak_rss_mb": 33.22,
+      "batch_size": 8,
+      "fixture": "long",
+      "repetitions": 7,
+      "iterations_per_rep": 5
+    },
+    "sentencepiece|long_b8": {
+      "throughput_mb_s": 20.234,
+      "throughput_ci_95_mb_s": [
+        18.448,
+        22.498
+      ],
+      "peak_rss_mb": 37.01,
+      "batch_size": 8,
+      "fixture": "long",
+      "repetitions": 7,
+      "iterations_per_rep": 5
+    },
+    "tokenizers|long_b8": {
+      "throughput_mb_s": 8.518,
+      "throughput_ci_95_mb_s": [
+        6.866,
+        10.574
+      ],
+      "peak_rss_mb": 42.66,
+      "batch_size": 8,
+      "fixture": "long",
+      "repetitions": 7,
+      "iterations_per_rep": 5
+    },
+    "uniqtoken|long_b32": {
+      "throughput_mb_s": 0.97,
+      "throughput_ci_95_mb_s": [
+        0.872,
+        1.488
+      ],
+      "peak_rss_mb": 33.27,
+      "batch_size": 32,
+      "fixture": "long",
+      "repetitions": 7,
+      "iterations_per_rep": 5
+    },
+    "sentencepiece|long_b32": {
+      "throughput_mb_s": 24.84,
+      "throughput_ci_95_mb_s": [
+        18.625,
+        26.425
+      ],
+      "peak_rss_mb": 45.83,
+      "batch_size": 32,
+      "fixture": "long",
+      "repetitions": 7,
+      "iterations_per_rep": 5
+    },
+    "tokenizers|long_b32": {
+      "throughput_mb_s": 13.94,
+      "throughput_ci_95_mb_s": [
+        11.704,
+        17.775
+      ],
+      "peak_rss_mb": 51.52,
+      "batch_size": 32,
+      "fixture": "long",
+      "repetitions": 7,
+      "iterations_per_rep": 5
+    },
+    "uniqtoken|long_b128": {
+      "throughput_mb_s": 0.928,
+      "throughput_ci_95_mb_s": [
+        0.867,
+        0.992
+      ],
+      "peak_rss_mb": 37.23,
+      "batch_size": 128,
+      "fixture": "long",
+      "repetitions": 7,
+      "iterations_per_rep": 5
+    },
+    "sentencepiece|long_b128": {
+      "throughput_mb_s": 26.036,
+      "throughput_ci_95_mb_s": [
+        23.709,
+        29.353
+      ],
+      "peak_rss_mb": 75.54,
+      "batch_size": 128,
+      "fixture": "long",
+      "repetitions": 7,
+      "iterations_per_rep": 5
+    },
+    "tokenizers|long_b128": {
+      "throughput_mb_s": 18.611,
+      "throughput_ci_95_mb_s": [
+        15.256,
+        19.019
+      ],
+      "peak_rss_mb": 73.11,
+      "batch_size": 128,
+      "fixture": "long",
+      "repetitions": 7,
+      "iterations_per_rep": 5
+    },
+    "uniqtoken|multilingual_b1": {
+      "throughput_mb_s": 0.087,
+      "throughput_ci_95_mb_s": [
+        0.083,
+        0.089
+      ],
+      "peak_rss_mb": 31.86,
+      "batch_size": 1,
+      "fixture": "multilingual",
+      "repetitions": 7,
+      "iterations_per_rep": 5
+    },
+    "sentencepiece|multilingual_b1": {
+      "throughput_mb_s": 35.74,
+      "throughput_ci_95_mb_s": [
+        26.866,
+        36.197
+      ],
+      "peak_rss_mb": 32.69,
+      "batch_size": 1,
+      "fixture": "multilingual",
+      "repetitions": 7,
+      "iterations_per_rep": 5
+    },
+    "tokenizers|multilingual_b1": {
+      "throughput_mb_s": 4.296,
+      "throughput_ci_95_mb_s": [
+        3.824,
+        4.372
+      ],
+      "peak_rss_mb": 33.32,
+      "batch_size": 1,
+      "fixture": "multilingual",
+      "repetitions": 7,
+      "iterations_per_rep": 5
+    },
+    "uniqtoken|multilingual_b8": {
+      "throughput_mb_s": 0.047,
+      "throughput_ci_95_mb_s": [
+        0.044,
+        0.082
+      ],
+      "peak_rss_mb": 31.91,
+      "batch_size": 8,
+      "fixture": "multilingual",
+      "repetitions": 7,
+      "iterations_per_rep": 5
+    },
+    "sentencepiece|multilingual_b8": {
+      "throughput_mb_s": 7.537,
+      "throughput_ci_95_mb_s": [
+        5.313,
+        11.029
+      ],
+      "peak_rss_mb": 34.21,
+      "batch_size": 8,
+      "fixture": "multilingual",
+      "repetitions": 7,
+      "iterations_per_rep": 5
+    },
+    "tokenizers|multilingual_b8": {
+      "throughput_mb_s": 6.043,
+      "throughput_ci_95_mb_s": [
+        4.427,
+        7.637
+      ],
+      "peak_rss_mb": 38.58,
+      "batch_size": 8,
+      "fixture": "multilingual",
+      "repetitions": 7,
+      "iterations_per_rep": 5
+    },
+    "uniqtoken|multilingual_b32": {
+      "throughput_mb_s": 0.045,
+      "throughput_ci_95_mb_s": [
+        0.042,
+        0.046
+      ],
+      "peak_rss_mb": 32.16,
+      "batch_size": 32,
+      "fixture": "multilingual",
+      "repetitions": 7,
+      "iterations_per_rep": 5
+    },
+    "sentencepiece|multilingual_b32": {
+      "throughput_mb_s": 33.205,
+      "throughput_ci_95_mb_s": [
+        23.013,
+        35.839
+      ],
+      "peak_rss_mb": 35.01,
+      "batch_size": 32,
+      "fixture": "multilingual",
+      "repetitions": 7,
+      "iterations_per_rep": 5
+    },
+    "tokenizers|multilingual_b32": {
+      "throughput_mb_s": 9.286,
+      "throughput_ci_95_mb_s": [
+        8.446,
+        11.504
+      ],
+      "peak_rss_mb": 41.65,
+      "batch_size": 32,
+      "fixture": "multilingual",
+      "repetitions": 7,
+      "iterations_per_rep": 5
+    },
+    "uniqtoken|multilingual_b128": {
+      "throughput_mb_s": 0.042,
+      "throughput_ci_95_mb_s": [
+        0.041,
+        0.045
+      ],
+      "peak_rss_mb": 33.75,
+      "batch_size": 128,
+      "fixture": "multilingual",
+      "repetitions": 7,
+      "iterations_per_rep": 5
+    },
+    "sentencepiece|multilingual_b128": {
+      "throughput_mb_s": 44.481,
+      "throughput_ci_95_mb_s": [
+        37.352,
+        53.209
+      ],
+      "peak_rss_mb": 37.82,
+      "batch_size": 128,
+      "fixture": "multilingual",
+      "repetitions": 7,
+      "iterations_per_rep": 5
+    },
+    "tokenizers|multilingual_b128": {
+      "throughput_mb_s": 12.609,
+      "throughput_ci_95_mb_s": [
+        10.824,
+        13.369
+      ],
+      "peak_rss_mb": 49.02,
+      "batch_size": 128,
+      "fixture": "multilingual",
+      "repetitions": 7,
+      "iterations_per_rep": 5
+    },
+    "uniqtoken|source_code_b1": {
+      "throughput_mb_s": 1.097,
+      "throughput_ci_95_mb_s": [
+        0.981,
+        1.245
+      ],
+      "peak_rss_mb": 31.63,
+      "batch_size": 1,
+      "fixture": "source_code",
+      "repetitions": 7,
+      "iterations_per_rep": 5
+    },
+    "sentencepiece|source_code_b1": {
+      "throughput_mb_s": 22.227,
+      "throughput_ci_95_mb_s": [
+        18.919,
+        22.321
+      ],
+      "peak_rss_mb": 32.73,
+      "batch_size": 1,
+      "fixture": "source_code",
+      "repetitions": 7,
+      "iterations_per_rep": 5
+    },
+    "tokenizers|source_code_b1": {
+      "throughput_mb_s": 3.236,
+      "throughput_ci_95_mb_s": [
+        2.325,
+        3.291
+      ],
+      "peak_rss_mb": 33.76,
+      "batch_size": 1,
+      "fixture": "source_code",
+      "repetitions": 7,
+      "iterations_per_rep": 5
+    },
+    "uniqtoken|source_code_b8": {
+      "throughput_mb_s": 1.165,
+      "throughput_ci_95_mb_s": [
+        1.131,
+        1.233
+      ],
+      "peak_rss_mb": 31.74,
+      "batch_size": 8,
+      "fixture": "source_code",
+      "repetitions": 7,
+      "iterations_per_rep": 5
+    },
+    "sentencepiece|source_code_b8": {
+      "throughput_mb_s": 12.469,
+      "throughput_ci_95_mb_s": [
+        8.506,
+        12.947
+      ],
+      "peak_rss_mb": 34.63,
+      "batch_size": 8,
+      "fixture": "source_code",
+      "repetitions": 7,
+      "iterations_per_rep": 5
+    },
+    "tokenizers|source_code_b8": {
+      "throughput_mb_s": 6.319,
+      "throughput_ci_95_mb_s": [
+        5.392,
+        6.786
+      ],
+      "peak_rss_mb": 39.09,
+      "batch_size": 8,
+      "fixture": "source_code",
+      "repetitions": 7,
+      "iterations_per_rep": 5
+    },
+    "uniqtoken|source_code_b32": {
+      "throughput_mb_s": 1.144,
+      "throughput_ci_95_mb_s": [
+        1.07,
+        1.177
+      ],
+      "peak_rss_mb": 31.92,
+      "batch_size": 32,
+      "fixture": "source_code",
+      "repetitions": 7,
+      "iterations_per_rep": 5
+    },
+    "sentencepiece|source_code_b32": {
+      "throughput_mb_s": 24.663,
+      "throughput_ci_95_mb_s": [
+        19.246,
+        28.628
+      ],
+      "peak_rss_mb": 38.02,
+      "batch_size": 32,
+      "fixture": "source_code",
+      "repetitions": 7,
+      "iterations_per_rep": 5
+    },
+    "tokenizers|source_code_b32": {
+      "throughput_mb_s": 7.628,
+      "throughput_ci_95_mb_s": [
+        6.418,
+        8.494
+      ],
+      "peak_rss_mb": 42.8,
+      "batch_size": 32,
+      "fixture": "source_code",
+      "repetitions": 7,
+      "iterations_per_rep": 5
+    },
+    "uniqtoken|source_code_b128": {
+      "throughput_mb_s": 0.554,
+      "throughput_ci_95_mb_s": [
+        0.53,
+        0.577
+      ],
+      "peak_rss_mb": 34.0,
+      "batch_size": 128,
+      "fixture": "source_code",
+      "repetitions": 7,
+      "iterations_per_rep": 5
+    },
+    "sentencepiece|source_code_b128": {
+      "throughput_mb_s": 35.49,
+      "throughput_ci_95_mb_s": [
+        21.489,
+        38.581
+      ],
+      "peak_rss_mb": 42.6,
+      "batch_size": 128,
+      "fixture": "source_code",
+      "repetitions": 7,
+      "iterations_per_rep": 5
+    },
+    "tokenizers|source_code_b128": {
+      "throughput_mb_s": 9.665,
+      "throughput_ci_95_mb_s": [
+        9.407,
+        9.882
+      ],
+      "peak_rss_mb": 52.74,
+      "batch_size": 128,
+      "fixture": "source_code",
+      "repetitions": 7,
+      "iterations_per_rep": 5
+    }
+  }
+}

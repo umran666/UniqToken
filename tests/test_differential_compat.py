@@ -14,6 +14,9 @@ when the package is missing or the reference model cannot be downloaded.
 
 The always-runnable :class:`SyntheticFallbackTests` exercises a self-contained
 synthetic ranks file so CI never goes red on missing references.
+
+Run independent fixed-workload performance measurements with
+``python -m benchmarks.canonical_benchmark --output <output-dir>``.
 """
 
 from __future__ import annotations
@@ -23,7 +26,6 @@ import os
 import random
 import shutil
 import tempfile
-import time
 import unittest
 from typing import Any, List, Optional, Tuple
 
@@ -584,23 +586,6 @@ class TiktokenDifferentialTests(unittest.TestCase):
             if adapter_ids != ref_ids:
                 failures.append(f"[{i}] {text[:60]!r}: adapter={adapter_ids[:5]}... ref={ref_ids[:5]}...")
         self.assertEqual(len(failures), 0, f"{len(failures)} o200k mismatches:\n" + "\n".join(failures[:20]))
-
-    def test_performance_50k_benchmark(self):
-        """Assert 50k corpus encodes under 10s locally, or 30s in CI shared runners."""
-        is_ci = bool(os.environ.get("CI") or os.environ.get("GITHUB_ACTIONS"))
-        limit = 30.0 if is_ci else 10.0
-        start = time.time()
-        for text in self.corpus:
-            try:
-                self.adapter_cl100k.encode(text, allowed_special=set())
-            except ValueError:
-                continue
-        elapsed = time.time() - start
-        self.assertLess(
-            elapsed,
-            limit,
-            f"50k encode took {elapsed:.2f}s (limit: {limit:.0f}s, is_ci={is_ci})",
-        )
 
 
 class HuggingFaceDifferentialTests(unittest.TestCase):

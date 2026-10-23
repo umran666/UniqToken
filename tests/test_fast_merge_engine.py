@@ -26,10 +26,12 @@ from uniqtoken.merge_engine import (
     DecisionError,
     FastMergeEngine,
     InvalidConfiguration,
+    InvariantViolation,
     MembershipMergeTable,
     MergeConstraints,
     MergeEngine,
     MergePlan,
+    MergeRule,
     PredicateLegality,
     ReferenceMergeEngine,
     SemanticProfile,
@@ -95,6 +97,15 @@ def _constraints(table: MembershipMergeTable, **kwargs) -> MergeConstraints:
         hard_cuts=frozenset(kwargs.get("hard_cuts", ())),
         legality=kwargs.get("legality", AlwaysAllowLegality()),
     )
+
+
+class _NonConcatenatingMergeTable:
+    vocabulary_identity = object()
+
+    def resolve(self, left: str, right: str) -> MergeRule | None:
+        if (left, right) == (A, B):
+            return MergeRule(result="wrong", result_id=7)
+        return None
 
 
 class FastMergeEngineProtocolTests(unittest.TestCase):
@@ -337,6 +348,55 @@ class FastMergeEngineErrorTests(unittest.TestCase):
         tape = BooleanTapeDecisions([True, False])  # Needs 3 draws, only 2 provided
         with self.assertRaises(DecisionError):
             self.engine.apply(atoms_from_pieces([A, B, C]), table, constraints, tape)
+
+
+class FastMergeEngineMalformedRuleTests(unittest.TestCase):
+    def test_accepted_non_concatenating_result_matches_reference_error(self):
+        table = _NonConcatenatingMergeTable()
+        cases = (
+            ("clean", None, None, 0),
+            ("legality", AlwaysAllowLegality(), None, 0),
+            ("dropout_accepts", None, [False], 1),
+        )
+        for case, legality, tape_values, expected_draws in cases:
+            for engine in (ReferenceMergeEngine(), FastMergeEngine()):
+                with self.subTest(case=case, engine=engine.name):
+                    constraints = MergeConstraints(
+                        semantic_profile=SemanticProfile.SUPER_BPE_PASS_V1,
+                        vocabulary_identity=table.vocabulary_identity,
+                        legality=legality,
+                    )
+                    decisions = BooleanTapeDecisions(tape_values) if tape_values is not None else None
+                    with self.assertRaises(InvariantViolation) as raised:
+                        engine.apply(atoms_from_pieces([A, B]), table, constraints, decisions)
+                    self.assertEqual(
+                        str(raised.exception),
+                        "merge result 'wrong' is not concatenation of 'a' + '\u2581b'",
+                    )
+                    self.assertEqual(decisions.consumed if decisions is not None else 0, expected_draws)
+
+    def test_rejected_non_concatenating_result_preserves_pieces_and_draws(self):
+        table = _NonConcatenatingMergeTable()
+        cases = (
+            ("legality_denies", PredicateLegality(lambda *_args: False), [False], frozenset(), 0),
+            ("hard_cut", None, [False], frozenset({1}), 0),
+            ("dropout_rejects", None, [True], frozenset(), 1),
+        )
+        for case, legality, tape_values, hard_cuts, expected_draws in cases:
+            for engine in (ReferenceMergeEngine(), FastMergeEngine()):
+                with self.subTest(case=case, engine=engine.name):
+                    constraints = MergeConstraints(
+                        semantic_profile=SemanticProfile.SUPER_BPE_PASS_V1,
+                        vocabulary_identity=table.vocabulary_identity,
+                        hard_cuts=hard_cuts,
+                        legality=legality,
+                    )
+                    decisions = BooleanTapeDecisions(tape_values)
+                    plan = engine.apply(atoms_from_pieces([A, B]), table, constraints, decisions)
+                    self.assertEqual(plan_to_pieces(plan), ["a", "\u2581b"])
+                    self.assertEqual(plan.applied_merges, 0)
+                    self.assertEqual(plan.decisions_consumed, expected_draws)
+                    self.assertEqual(decisions.consumed, expected_draws)
 
 
 class FastMergeEngineRandomizedParityTests(unittest.TestCase):
