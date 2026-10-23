@@ -51,6 +51,9 @@ jobs:
 
       - name: Install wasm-pack
         uses: jetli/wasm-pack-action@0d096b08b4e5a7de8c28de67e11e945404e9eefa # pinned v0.4.0
+        env:
+          # The installer renames into Cargo's bin; keep extraction on that filesystem.
+          TMPDIR: ${{ env.CARGO_HOME }}
         with:
           version: v0.15.0
 
