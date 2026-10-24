@@ -562,7 +562,6 @@ class FastMergeEngine:
             # to supplying no legality predicate, so the engine may take the
             # fast path instead of paying a per-pair predicate call (#113).
             legality = None
-        has_legality = legality is not None
         resolve = table.resolve
         # rule.result is the concatenation of the pair by construction for the
         # built-in membership table; custom tables keep the defensive check.
@@ -614,7 +613,7 @@ class FastMergeEngine:
                     continue
                 u_start = starts[u]
                 v_end = ends[v]
-                if has_legality and not legality.allows(pieces[u], pieces[v], rule, (u_start, v_end)):
+                if legality is not None and not legality.allows(pieces[u], pieces[v], rule, (u_start, v_end)):
                     continue
                 b_key: Optional[Tuple[LeafIndex, LeafIndex, LeafIndex]] = None
                 if blocked or decisions is not None:
