@@ -87,8 +87,8 @@ UNICODE_PIECES = [
     "\u0928\u092e\u0938\u094d\u0924\u0947",
     "\u4e16\u754c",
     "\ud55c\uad6d\uc5b4",
-    "\U0001F469\u200D\U0001F4BB",
-    "\u0627\u0644\u0639\u0631\u0628\u064A\u0629",
+    "\U0001f469\u200d\U0001f4bb",
+    "\u0627\u0644\u0639\u0631\u0628\u064a\u0629",
 ]
 
 # Case type: JSON-serializable descriptor of one differential case.
@@ -127,9 +127,7 @@ def _case(
         "expected_error": expected_error,
         "constraints_identity_mismatch": constraints_identity_mismatch,
         "bad_atom": bad_atom,
-        "semantic_profile": (
-            semantic_profile if isinstance(semantic_profile, str) else semantic_profile.value
-        ),
+        "semantic_profile": (semantic_profile if isinstance(semantic_profile, str) else semantic_profile.value),
     }
 
 
@@ -152,9 +150,7 @@ def _build_fixtures(case: Case) -> Tuple[MembershipMergeTable, MergeConstraints,
             )
         elif spec["kind"] == "forbid_left":
             forbidden = str(spec["piece"])
-            legality = PredicateLegality(
-                lambda left, right, rule, leaf_range, _p=forbidden: left != _p
-            )
+            legality = PredicateLegality(lambda left, right, rule, leaf_range, _p=forbidden: left != _p)
         else:  # pragma: no cover - generator only emits known kinds
             raise ValueError(f"unknown legality spec {spec!r}")
     constraints = MergeConstraints(
@@ -213,8 +209,7 @@ def _compare_case(case: Case) -> Tuple[bool, str]:
             return False, f"expected {expected}, got ref_exc={ref_exc} fast_exc={fast_exc}"
         if ref_exc.__name__ != expected or fast_exc.__name__ != expected:
             return False, (
-                f"error classification mismatch: expected {expected}, "
-                f"ref={ref_exc.__name__}, fast={fast_exc.__name__}"
+                f"error classification mismatch: expected {expected}, ref={ref_exc.__name__}, fast={fast_exc.__name__}"
             )
         if ref_consumed is not None and ref_consumed != fast_consumed:
             return False, f"tape consumption mismatch on error path: {ref_consumed} != {fast_consumed}"
@@ -232,9 +227,7 @@ def _compare_case(case: Case) -> Tuple[bool, str]:
     if ref_plan.applied_merges != fast_plan.applied_merges:
         return False, f"applied_merges differ: {ref_plan.applied_merges} != {fast_plan.applied_merges}"
     if ref_plan.decisions_consumed != fast_plan.decisions_consumed:
-        return False, (
-            f"decisions_consumed differ: {ref_plan.decisions_consumed} != {fast_plan.decisions_consumed}"
-        )
+        return False, (f"decisions_consumed differ: {ref_plan.decisions_consumed} != {fast_plan.decisions_consumed}")
     if len(ref_plan.groups) != len(fast_plan.groups):  # pragma: no cover - implied by groups equality
         return False, "output lengths differ"
     return True, ""
@@ -655,8 +648,7 @@ class MergeEngineDifferentialSweepTests(unittest.TestCase):
             [],
             msg=(
                 f"{len(failures)} differential mismatches over {total} cases "
-                f"(artifact: {artifact}); minimal reproducible cases follow:\n"
-                + "\n---\n".join(failures[:5])
+                f"(artifact: {artifact}); minimal reproducible cases follow:\n" + "\n---\n".join(failures[:5])
             ),
         )
         # The artifact must exist, be loadable, and record full case coverage.
