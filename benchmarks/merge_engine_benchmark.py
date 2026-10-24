@@ -133,9 +133,7 @@ def train_superbpe_tokenizer() -> CustomTokenizer:
         special_tokens=["<|endoftext|>"],
     )
     pretok_chunks = [
-        chunk
-        for doc in TRAIN_CORPUS
-        for chunk in base.pre_tokenizer.pre_tokenize(base.normalizer.normalize(doc))
+        chunk for doc in TRAIN_CORPUS for chunk in base.pre_tokenizer.pre_tokenize(base.normalizer.normalize(doc))
     ]
     cem = CrossEntropyMerging(max_merges=30, cross_word=True, verbose=False)
     model = cem.optimize(base.model, chunks=pretok_chunks)
@@ -213,12 +211,8 @@ def run_parity_gate(
     if not (outputs["production_pieces"] == outputs["fast_pieces"] == outputs["reference_pieces"]):
         failures.append("pieces path mismatch")
     for key in ("production_spans", "fast_spans", "reference_spans"):
-        outputs[f"{key}_view"] = [
-            (t.text, t.id, t.raw_span[0], t.raw_span[1]) for t in outputs[key]
-        ]
-    if not (
-        outputs["production_spans_view"] == outputs["fast_spans_view"] == outputs["reference_spans_view"]
-    ):
+        outputs[f"{key}_view"] = [(t.text, t.id, t.raw_span[0], t.raw_span[1]) for t in outputs[key]]
+    if not (outputs["production_spans_view"] == outputs["fast_spans_view"] == outputs["reference_spans_view"]):
         failures.append("span path mismatch")
     if failures:
         raise ParityGateError(f"parity gate failed ({failures}); no timing data may be accepted")
@@ -357,9 +351,7 @@ def run_benchmark(
         parity = run_parity_gate(synth_tok, list(synth_pieces), synth_tokens, synth_table, synth_constraints)
         synth_fns = {
             "production": lambda p=list(synth_pieces), t=synth_tok: _run_production_pieces(t, p),
-            "fast": lambda p=list(synth_pieces): _run_engine_pieces(
-                fast_engine, p, synth_table, synth_constraints
-            ),
+            "fast": lambda p=list(synth_pieces): _run_engine_pieces(fast_engine, p, synth_table, synth_constraints),
             "reference": lambda p=list(synth_pieces): _run_engine_pieces(
                 reference_engine, p, synth_table, synth_constraints
             ),
@@ -377,9 +369,7 @@ def run_benchmark(
                     "input_bytes": input_bytes,
                     "leaf_pieces": len(synth_pieces),
                     "tokens_out": tokens_out,
-                    "throughput_mb_s": (input_bytes / 1e6) / (stats["mean_ms"] / 1e3)
-                    if stats["mean_ms"] > 0
-                    else 0.0,
+                    "throughput_mb_s": (input_bytes / 1e6) / (stats["mean_ms"] / 1e3) if stats["mean_ms"] > 0 else 0.0,
                     "tokens_per_s": tokens_out / (stats["mean_ms"] / 1e3) if stats["mean_ms"] > 0 else 0.0,
                     **{k: v for k, v in stats.items()},
                     **allocs,
@@ -524,15 +514,11 @@ def generate_report(metadata: Dict[str, Any], summaries: Dict[str, Any], records
         cell = by_cell[workload]
         if "production" in cell and "fast" in cell:
             speedup = cell["production"] / cell["fast"] if cell["fast"] > 0 else float("inf")
-            lines.append(
-                f"| {workload} | {cell['production']:.4f} | {cell['fast']:.4f} | {speedup:.3f}x |"
-            )
+            lines.append(f"| {workload} | {cell['production']:.4f} | {cell['fast']:.4f} | {speedup:.3f}x |")
     lines.append("")
     lines.append("## Individual workload records")
     lines.append("")
-    lines.append(
-        "| Workload | Path | Output | MB/s | p50 ms | p95 ms | tokens/s | allocs/call | alloc peak B |"
-    )
+    lines.append("| Workload | Path | Output | MB/s | p50 ms | p95 ms | tokens/s | allocs/call | alloc peak B |")
     lines.append("|---|---|---|---|---|---|---|---|---|")
     for r in records:
         lines.append(
