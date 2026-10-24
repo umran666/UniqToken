@@ -200,9 +200,7 @@ class MembershipMergeTable:
     vocabulary_identity: VocabularyIdentity
     # Optional learned ranks retained as metadata only; SuperBpePassV1 ignores them.
     ranks: Mapping[Tuple[PieceKey, PieceKey], int] = field(default_factory=dict)
-    _pair_rules: Dict[PieceKey, Dict[PieceKey, MergeRule]] = field(
-        init=False, repr=False, compare=False
-    )
+    _pair_rules: Dict[PieceKey, Dict[PieceKey, MergeRule]] = field(init=False, repr=False, compare=False)
 
     def __post_init__(self) -> None:
         index: Dict[PieceKey, Dict[PieceKey, MergeRule]] = {}
