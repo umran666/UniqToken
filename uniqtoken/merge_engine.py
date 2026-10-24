@@ -187,20 +187,47 @@ class MergeEngine(Protocol):
 
 @dataclass(frozen=True)
 class MembershipMergeTable:
-    """Legacy SuperBPE table: pair is eligible iff concatenation is in ``eligible``."""
+    """Legacy SuperBPE table: pair is eligible iff concatenation is in ``eligible``.
+
+    A pair index over every (left, right) split of each eligible result is
+    built once in ``__post_init__`` so :meth:`resolve` costs two dict
+    lookups instead of a string concatenation per visited pair per pass
+    (#113). ``eligible`` / ``ranks`` are treated as immutable snapshots;
+    mutating them after construction leaves the index stale.
+    """
 
     eligible: Mapping[PieceKey, TokenId]
     vocabulary_identity: VocabularyIdentity
     # Optional learned ranks retained as metadata only; SuperBpePassV1 ignores them.
     ranks: Mapping[Tuple[PieceKey, PieceKey], int] = field(default_factory=dict)
+    _pair_rules: Dict[PieceKey, Dict[PieceKey, MergeRule]] = field(
+        init=False, repr=False, compare=False
+    )
+
+    def __post_init__(self) -> None:
+        index: Dict[PieceKey, Dict[PieceKey, MergeRule]] = {}
+        get_rank = self.ranks.get
+        for result, token_id in self.eligible.items():
+            # cut in range(len(result) + 1) also covers the empty-piece
+            # splits ("" + result and result + ""), which are real pairs.
+            for cut in range(len(result) + 1):
+                left, right = result[:cut], result[cut:]
+                right_rules = index.get(left)
+                if right_rules is None:
+                    right_rules = {}
+                    index[left] = right_rules
+                right_rules[right] = MergeRule(
+                    result=result,
+                    result_id=token_id,
+                    learned_rank=get_rank((left, right)),
+                )
+        object.__setattr__(self, "_pair_rules", index)
 
     def resolve(self, left: PieceKey, right: PieceKey) -> Optional[MergeRule]:
-        result = left + right
-        token_id = self.eligible.get(result)
-        if token_id is None:
+        right_rules = self._pair_rules.get(left)
+        if right_rules is None:
             return None
-        rank = self.ranks.get((left, right))
-        return MergeRule(result=result, result_id=token_id, learned_rank=rank)
+        return right_rules.get(right)
 
 
 @dataclass
@@ -520,15 +547,24 @@ class FastMergeEngine:
         pieces: List[str] = [atom.piece for atom in input]
         starts: List[int] = list(range(n))
         ends: List[int] = list(range(1, n + 1))
-        next_idx: List[int] = [i + 1 for i in range(n - 1)] + [-1]
-        prev_idx: List[int] = [-1] + [i - 1 for i in range(1, n)]
+        next_idx: List[int] = list(range(1, n + 1))
+        next_idx[-1] = -1
+        prev_idx: List[int] = list(range(-1, n - 1))
         merged_ids: List[Optional[TokenId]] = [None] * n
 
         hard_cuts = constraints.hard_cuts
         has_cuts = bool(hard_cuts)
         legality = constraints.legality
+        if type(legality) is AlwaysAllowLegality:
+            # Production default: admitting every resolved rule is equivalent
+            # to supplying no legality predicate, so the engine may take the
+            # fast path instead of paying a per-pair predicate call (#113).
+            legality = None
         has_legality = legality is not None
         resolve = table.resolve
+        # rule.result is the concatenation of the pair by construction for the
+        # built-in membership table; custom tables keep the defensive check.
+        check_rule_concat = type(table) is not MembershipMergeTable
 
         blocked: Set[Tuple[LeafIndex, LeafIndex, LeafIndex]] = set()
         decisions_consumed = 0
@@ -550,7 +586,7 @@ class FastMergeEngine:
                     if rule is None:
                         u = v
                         continue
-                    if rule.result != pieces[u] + pieces[v]:
+                    if check_rule_concat and rule.result != pieces[u] + pieces[v]:
                         raise InvariantViolation(
                             f"merge result {rule.result!r} is not concatenation of {pieces[u]!r} + {pieces[v]!r}"
                         )
@@ -599,7 +635,7 @@ class FastMergeEngine:
                             u = v
                             continue
 
-                    if rule.result != pieces[u] + pieces[v]:
+                    if check_rule_concat and rule.result != pieces[u] + pieces[v]:
                         raise InvariantViolation(
                             f"merge result {rule.result!r} is not concatenation of {pieces[u]!r} + {pieces[v]!r}"
                         )
