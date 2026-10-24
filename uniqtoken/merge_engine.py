@@ -187,20 +187,45 @@ class MergeEngine(Protocol):
 
 @dataclass(frozen=True)
 class MembershipMergeTable:
-    """Legacy SuperBPE table: pair is eligible iff concatenation is in ``eligible``."""
+    """Legacy SuperBPE table: pair is eligible iff concatenation is in ``eligible``.
+
+    A pair index over every (left, right) split of each eligible result is
+    built once in ``__post_init__`` so :meth:`resolve` costs two dict
+    lookups instead of a string concatenation per visited pair per pass
+    (#113). ``eligible`` / ``ranks`` are treated as immutable snapshots;
+    mutating them after construction leaves the index stale.
+    """
 
     eligible: Mapping[PieceKey, TokenId]
     vocabulary_identity: VocabularyIdentity
     # Optional learned ranks retained as metadata only; SuperBpePassV1 ignores them.
     ranks: Mapping[Tuple[PieceKey, PieceKey], int] = field(default_factory=dict)
+    _pair_rules: Dict[PieceKey, Dict[PieceKey, MergeRule]] = field(init=False, repr=False, compare=False)
+
+    def __post_init__(self) -> None:
+        index: Dict[PieceKey, Dict[PieceKey, MergeRule]] = {}
+        get_rank = self.ranks.get
+        for result, token_id in self.eligible.items():
+            # cut in range(len(result) + 1) also covers the empty-piece
+            # splits ("" + result and result + ""), which are real pairs.
+            for cut in range(len(result) + 1):
+                left, right = result[:cut], result[cut:]
+                right_rules = index.get(left)
+                if right_rules is None:
+                    right_rules = {}
+                    index[left] = right_rules
+                right_rules[right] = MergeRule(
+                    result=result,
+                    result_id=token_id,
+                    learned_rank=get_rank((left, right)),
+                )
+        object.__setattr__(self, "_pair_rules", index)
 
     def resolve(self, left: PieceKey, right: PieceKey) -> Optional[MergeRule]:
-        result = left + right
-        token_id = self.eligible.get(result)
-        if token_id is None:
+        right_rules = self._pair_rules.get(left)
+        if right_rules is None:
             return None
-        rank = self.ranks.get((left, right))
-        return MergeRule(result=result, result_id=token_id, learned_rank=rank)
+        return right_rules.get(right)
 
 
 @dataclass
@@ -484,7 +509,11 @@ class FastMergeEngine:
 
     Implements the generic ``MergeEngine`` contract using an in-place doubly-linked
     flat array sequence without per-node object allocations or heap overhead.
-    Avoids full-sequence re-scans and allocations across merge passes.
+    Passes are driven by a boundary worklist: after pass 1 (a full scan), each
+    pass visits only the boundaries adjacent to the previous pass's accepted
+    merges, which is exact under the pass barrier and cuts per-call work from
+    O(n * passes) to O(n + merges) while preserving the leftmost-eligible
+    visitation order and the exact dropout draw sequence (#112).
 
     Preserves exact SuperBpePassV1 semantics:
     - Deterministic pass barriers: newly formed merges cannot merge again in
@@ -520,71 +549,76 @@ class FastMergeEngine:
         pieces: List[str] = [atom.piece for atom in input]
         starts: List[int] = list(range(n))
         ends: List[int] = list(range(1, n + 1))
-        next_idx: List[int] = [i + 1 for i in range(n - 1)] + [-1]
-        prev_idx: List[int] = [-1] + [i - 1 for i in range(1, n)]
+        next_idx: List[int] = list(range(1, n + 1))
+        next_idx[-1] = -1
+        prev_idx: List[int] = list(range(-1, n - 1))
         merged_ids: List[Optional[TokenId]] = [None] * n
 
         hard_cuts = constraints.hard_cuts
         has_cuts = bool(hard_cuts)
         legality = constraints.legality
-        has_legality = legality is not None
+        if type(legality) is AlwaysAllowLegality:
+            # Production default: admitting every resolved rule is equivalent
+            # to supplying no legality predicate, so the engine may take the
+            # fast path instead of paying a per-pair predicate call (#113).
+            legality = None
         resolve = table.resolve
+        # rule.result is the concatenation of the pair by construction for the
+        # built-in membership table; custom tables keep the defensive check.
+        check_rule_concat = type(table) is not MembershipMergeTable
 
         blocked: Set[Tuple[LeafIndex, LeafIndex, LeafIndex]] = set()
         decisions_consumed = 0
         total_applied = 0
-        head = 0
+        alive = bytearray(b"\x01" * n)
 
-        # Fast path check for common case without cuts, legality predicates, or dropout
-        is_clean_path = not has_cuts and not has_legality and decisions is None
-
+        # Boundary-worklist scheduling (#112) instead of a full rescan per
+        # pass. Pass 1 visits every boundary; pass k >= 2 visits only the
+        # boundaries whose left or right node changed in pass k - 1. This is
+        # exact under SuperBpePassV1: resolve/legality/cut inputs are
+        # immutable within a call and a dropout block is released only by an
+        # adjacent accept, so a boundary whose constituents are unchanged
+        # re-evaluates to the same outcome and can produce neither a new
+        # merge nor a new dropout draw. Seeding pass k + 1 with the
+        # boundaries adjacent to pass-k accepts (the left-neighbor boundary
+        # and the newly formed right boundary) preserves the leftmost-first
+        # visitation order and the exact RNG draw sequence, including
+        # candidates after dropout.
+        frontier: List[int] = list(range(n))  # pass 1: every boundary, in leaf order
+        use_worklist = False  # pass 1 already scans everything
         while True:
+            if not use_worklist:
+                # Full pass: walk the live nodes left-to-right (linked-list
+                # order, no dedup/sort cost). Optimal when the previous pass
+                # accepted densely, where a rescan visits no more boundaries
+                # than a worklist would.
+                frontier = []
+                walk = 0
+                while walk != -1:
+                    frontier.append(walk)
+                    walk = next_idx[walk]
             accepted = 0
-            u = head
-            if is_clean_path and not blocked:
-                while u != -1:
-                    v = next_idx[u]
-                    if v == -1:
-                        break
-                    rule = resolve(pieces[u], pieces[v])
-                    if rule is None:
-                        u = v
-                        continue
-                    if rule.result != pieces[u] + pieces[v]:
-                        raise InvariantViolation(
-                            f"merge result {rule.result!r} is not concatenation of {pieces[u]!r} + {pieces[v]!r}"
-                        )
-                    pieces[u] = rule.result
-                    ends[u] = ends[v]
-                    merged_ids[u] = rule.result_id
-                    next_v = next_idx[v]
-                    next_idx[u] = next_v
-                    if next_v != -1:
-                        prev_idx[next_v] = u
-                    accepted += 1
-                    total_applied += 1
-                    u = next_v
-            else:
-                while u != -1:
-                    v = next_idx[u]
-                    if v == -1:
-                        break
-                    u_end = ends[u]
-                    if has_cuts and u_end in hard_cuts:
-                        u = v
-                        continue
-                    u_start = starts[u]
-                    v_end = ends[v]
+            seeded: Set[int] = set()
+            for u in frontier:
+                if not alive[u]:
+                    continue
+                v = next_idx[u]
+                if v == -1:
+                    continue
+                u_end = ends[u]
+                if has_cuts and u_end in hard_cuts:
+                    continue
+                rule = resolve(pieces[u], pieces[v])
+                if rule is None:
+                    continue
+                u_start = starts[u]
+                v_end = ends[v]
+                if legality is not None and not legality.allows(pieces[u], pieces[v], rule, (u_start, v_end)):
+                    continue
+                b_key: Optional[Tuple[LeafIndex, LeafIndex, LeafIndex]] = None
+                if blocked or decisions is not None:
                     b_key = (u_start, u_end, v_end)
-                    if blocked and b_key in blocked:
-                        u = v
-                        continue
-                    rule = resolve(pieces[u], pieces[v])
-                    if rule is None:
-                        u = v
-                        continue
-                    if legality is not None and not legality.allows(pieces[u], pieces[v], rule, (u_start, v_end)):
-                        u = v
+                    if b_key in blocked:
                         continue
                     if decisions is not None:
                         try:
@@ -596,36 +630,54 @@ class FastMergeEngine:
                         decisions_consumed += 1
                         if drop:
                             blocked.add(b_key)
-                            u = v
                             continue
 
-                    if rule.result != pieces[u] + pieces[v]:
-                        raise InvariantViolation(
-                            f"merge result {rule.result!r} is not concatenation of {pieces[u]!r} + {pieces[v]!r}"
-                        )
-                    pieces[u] = rule.result
-                    ends[u] = v_end
-                    merged_ids[u] = rule.result_id
-                    next_v = next_idx[v]
-                    next_idx[u] = next_v
+                if check_rule_concat and rule.result != pieces[u] + pieces[v]:
+                    raise InvariantViolation(
+                        f"merge result {rule.result!r} is not concatenation of {pieces[u]!r} + {pieces[v]!r}"
+                    )
+                # Accept: fuse v into u.
+                pieces[u] = rule.result
+                ends[u] = v_end
+                merged_ids[u] = rule.result_id
+                next_v = next_idx[v]
+                next_idx[u] = next_v
+                alive[v] = 0
+                p_u = prev_idx[u]
+                if next_v != -1:
+                    prev_idx[next_v] = u
+                if blocked:
+                    assert b_key is not None  # blocked non-empty implies b_key was built
+                    blocked.discard(b_key)
+                    if p_u != -1:
+                        blocked.discard((starts[p_u], ends[p_u], u_end))
                     if next_v != -1:
-                        prev_idx[next_v] = u
-                    if blocked:
-                        blocked.discard(b_key)
-                        p_u = prev_idx[u]
-                        if p_u != -1:
-                            blocked.discard((starts[p_u], ends[p_u], u_end))
-                        if next_v != -1:
-                            blocked.discard((u_end, ends[v], ends[next_v]))
-                    accepted += 1
-                    total_applied += 1
-                    u = next_v
+                        blocked.discard((u_end, ends[v], ends[next_v]))
+                accepted += 1
+                total_applied += 1
+                # Seed pass k + 1 with the boundaries adjacent to this accept.
+                seeded.add(u)
+                if p_u != -1:
+                    seeded.add(p_u)
 
             if accepted == 0:
                 break
+            # Hybrid scheduling (#112): a pass-k+1 worklist pays off only
+            # when the seeded frontier is sparse relative to the live
+            # sequence; when accepts are dense, a full walk visits no more
+            # boundaries and skips the dedup/sort cost. This keeps dense
+            # collapse chains (pathological workloads) at rescan cost while
+            # multi-pass sparse-tail workloads get the O(merges) tail.
+            live_nodes = n - total_applied
+            use_worklist = 2 * len(seeded) < live_nodes
+            if use_worklist:
+                # Pass k + 1 visits only the boundaries seeded by pass-k
+                # accepts, in leaf order (seeds are deduplicated in the set;
+                # dead entries are skipped by the alive check at visit time).
+                frontier = sorted(seeded, key=starts.__getitem__)
 
         out_groups: List[Group] = []
-        curr = head
+        curr = 0
         while curr != -1:
             out_groups.append(
                 Group(
