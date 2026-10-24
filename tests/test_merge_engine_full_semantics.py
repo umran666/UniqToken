@@ -117,9 +117,7 @@ def _superbpe_tokenizer(merge_engine: Optional[str] = None) -> CustomTokenizer:
             special_tokens=[SPECIAL_TOKEN],
         )
         pretok_chunks = [
-            chunk
-            for doc in TRAIN_CORPUS
-            for chunk in base.pre_tokenizer.pre_tokenize(base.normalizer.normalize(doc))
+            chunk for doc in TRAIN_CORPUS for chunk in base.pre_tokenizer.pre_tokenize(base.normalizer.normalize(doc))
         ]
         cem = CrossEntropyMerging(max_merges=30, cross_word=True, verbose=False)
         sbp_model = cem.optimize(base.model, chunks=pretok_chunks)
@@ -181,9 +179,7 @@ class FullSemanticsEndToEndTests(unittest.TestCase):
         # parity assertion below would vacuously pass.
         cls.cross_tokens = cls.tok_default._cross_word_tokens()
         if len(cls.cross_tokens) == 0:
-            raise AssertionError(
-                "fixture training produced no cross-word tokens; SuperBPE semantics untested"
-            )
+            raise AssertionError("fixture training produced no cross-word tokens; SuperBPE semantics untested")
         cls.texts = [*PLAIN_TEXTS, CODE_TEXT, *MULTILINGUAL_TEXTS, PUNCTUATION_TEXT, EMOJI_TEXT]
 
     def test_end_to_end_parity_encode_ids_offsets(self):
@@ -503,9 +499,7 @@ class FullSemanticsTableBuilderTests(unittest.TestCase):
         for index, text in enumerate(PLAIN_TEXTS):
             pieces = _tok(None).encode(text)
             tape = [random.Random(114 + index).random() < 0.4 for _ in range(512)]
-            report = differential_against_production(
-                tok, pieces, 0.5, decision_tape=tape, engine=FastMergeEngine()
-            )
+            report = differential_against_production(tok, pieces, 0.5, decision_tape=tape, engine=FastMergeEngine())
             with self.subTest(text=text[:30]):
                 self.assertTrue(report["match"], f"engine-level dropout differential failed: {report}")
 
