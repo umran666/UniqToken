@@ -18,19 +18,19 @@ Status: accepted, 2026-10-24.
 | Differential verification | #110 (PR #147), 11,377 cases over 10 categories | zero mismatches, incl. dropout draw-order equality |
 | Full SuperBPE/CEM semantics | #114 (PR #148), end-to-end on a CEM-trained tokenizer | zero drift across `encode`/IDs/offsets/`sample`/batch/decode |
 | Production vs engines benchmark | #111 (PR #149), receipts in `benchmarks/merge_engine/issue111/` | production 7.84 MB/s geomean; fast 1.82 (4.3× slower); reference 1.42 |
-| Engine optimizations | #112/#113 (PR #150), receipts in `benchmarks/merge_engine/issue112-113/` | fast engine +11–19% (best case: no workload regressed; hierarchical +127%); still ~3–4× slower than production in pure Python |
+| Engine optimizations | #112/#113 (PR #150), receipts in `benchmarks/merge_engine/issue112-113/` | fast engine +3–44% best-case latency (no workload regressed; multi-pass synthetic cells +24–44%, hierarchical +44%); still ~3–4× slower than production in pure Python |
 | Native prototype | #109 (PR #146, Rust arena + generation-guarded heap) | demonstrates the ceiling; out of scope for this decision |
 
-All performance numbers are environment-scoped (single Windows 11 laptop,
-noise floor documented in the receipts); the decision rests on the
-*relative* production-vs-engine gap, which is far larger than that noise
-floor on every workload.
+All performance numbers are environment-scoped (single Windows 10 AMD64
+machine, Python 3.10.11; noise floor documented in the receipts); the
+decision rests on the *relative* production-vs-engine gap, which is far
+larger than that noise floor on every workload.
 
 ## Trade-off table
 
 | Dimension | Production inlined loop | FastMergeEngine (after #112/#113) | Assessment |
 |---|---|---|---|
-| Throughput (text workloads, pure Python) | 7.84 MB/s geomean | ~2.2–3.4 MB/s per cell (was 1.8–3.2) | production ~3–4× faster; decisive |
+| Throughput (text workloads, pure Python) | 7.84 MB/s geomean | ~1.2–3.2 MB/s per cell (unchanged scale; +3–44% best-case latency) | production ~3–4× faster; decisive |
 | Latency p50 | lowest on every cell | improved by hybrid worklist but still behind | production wins |
 | Memory | per-pass list + remap dict | flat arrays + frontier; stateless per call | comparable; neither retains memory |
 | Worst-case time | O(n·P) rescans | O(n + merges) hybrid (dense phases rescan-equivalent) | fast engine's asymptotics are better, but constant factors dominate at realistic n |
