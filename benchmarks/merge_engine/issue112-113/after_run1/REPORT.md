@@ -1,108 +1,108 @@
 # Merge-Engine Benchmark Report (Issue #111)
 
-- Generated: 2026-10-24T09:32:23.129730+00:00
-- Commit: `6e6e4d33b969308a0f2770f447667ff9b9add0eb` (dirty=True)
+- Generated: 2026-10-25T02:20:54.019277+00:00
+- Commit: `9614ca63f7239576321c2c3d443a0f6448bb42ff` (dirty=False)
 - Platform: Windows 10 / 3.10.11 / 16 logical CPUs / 16.85 GB
-- Policy: workers=1, warmup=3, repetitions=7, peak RSS 44.99 MB
+- Policy: workers=1, warmup=3, repetitions=7, peak RSS 41.9 MB
 - Parity gate: exact 3-way (production/fast/reference), both output paths, passed before timing.
 
 ## Geometric means over text workloads (pieces path, primary metric)
 
 | Path | Text-workload geomean MB/s | Cells |
 |---|---|---|
-| production | 7.671 | 8 |
-| fast | 1.9355 | 8 |
-| reference | 1.6033 | 8 |
+| production | 8.1191 | 8 |
+| fast | 1.8513 | 8 |
+| reference | 1.3595 | 8 |
 
 ## Fast vs production throughput ratio (pieces path, per workload)
 
 | Workload | production MB/s | fast MB/s | speedup |
 |---|---|---|---|
-| cross_word_heavy | 11.6216 | 2.4759 | 4.694x |
-| long | 15.9106 | 2.5417 | 6.260x |
-| medium | 7.8058 | 3.2634 | 2.392x |
-| multilingual | 14.2666 | 2.9444 | 4.845x |
-| pathological | 7.2076 | 2.5416 | 2.836x |
-| punctuation_heavy | 3.4929 | 0.8064 | 4.331x |
-| short | 4.3812 | 1.3473 | 3.252x |
-| source_code | 5.2790 | 1.1793 | 4.476x |
-| synthetic_1024_dense | 7.9445 | 2.2192 | 3.580x |
-| synthetic_1024_hierarchical | 7.2495 | 3.0649 | 2.365x |
-| synthetic_1024_medium | 7.7789 | 2.9750 | 2.615x |
-| synthetic_1024_sparse | 6.8189 | 2.6684 | 2.555x |
-| synthetic_4096_dense | 3.8414 | 1.3481 | 2.849x |
-| synthetic_4096_sparse | 3.8956 | 1.3501 | 2.885x |
+| cross_word_heavy | 11.9534 | 2.6209 | 4.561x |
+| long | 16.0331 | 3.6966 | 4.337x |
+| medium | 10.8182 | 1.3473 | 8.029x |
+| multilingual | 14.3851 | 3.4100 | 4.218x |
+| pathological | 12.6761 | 2.5004 | 5.070x |
+| punctuation_heavy | 3.6699 | 0.7977 | 4.600x |
+| short | 3.0435 | 1.3012 | 2.339x |
+| source_code | 4.4716 | 1.1944 | 3.744x |
+| synthetic_1024_dense | 8.4413 | 2.7963 | 3.019x |
+| synthetic_1024_hierarchical | 5.6653 | 3.0898 | 1.834x |
+| synthetic_1024_medium | 7.0538 | 2.9026 | 2.430x |
+| synthetic_1024_sparse | 6.7202 | 2.7553 | 2.439x |
+| synthetic_4096_dense | 8.4178 | 2.7936 | 3.013x |
+| synthetic_4096_sparse | 7.9522 | 2.7682 | 2.873x |
 
 ## Individual workload records
 
 | Workload | Path | Output | MB/s | p50 ms | p95 ms | tokens/s | allocs/call | alloc peak B |
 |---|---|---|---|---|---|---|---|---|
-| short | production | pieces | 4.3812 | 0.007 | 0.029 | 995733 | 12 | 3134 |
-| short | fast | pieces | 1.3473 | 0.026 | 0.066 | 306212 | 24 | 7643 |
-| short | reference | pieces | 1.2232 | 0.031 | 0.064 | 277998 | 21 | 7936 |
-| short | production | spans | 4.3750 | 0.007 | 0.026 | 994318 | 10 | 1886 |
-| short | fast | spans | 1.1823 | 0.029 | 0.080 | 268714 | 24 | 7827 |
-| short | reference | spans | 1.0349 | 0.036 | 0.079 | 235215 | 21 | 8120 |
-| medium | production | pieces | 7.8058 | 0.120 | 0.185 | 1201487 | 10 | 10192 |
-| medium | fast | pieces | 3.2634 | 0.299 | 0.390 | 502308 | 29 | 72998 |
-| medium | reference | pieces | 2.4963 | 0.402 | 0.450 | 384239 | 22 | 88256 |
-| medium | production | spans | 12.9700 | 0.073 | 0.110 | 1996367 | 10 | 10192 |
-| medium | fast | spans | 3.0853 | 0.318 | 0.397 | 474894 | 30 | 74486 |
-| medium | reference | spans | 2.3578 | 0.426 | 0.462 | 362922 | 23 | 89744 |
-| long | production | pieces | 15.9106 | 0.290 | 0.344 | 2223450 | 10 | 53160 |
-| long | fast | pieces | 2.5417 | 1.819 | 2.357 | 355188 | 29 | 340442 |
-| long | reference | pieces | 2.7835 | 1.673 | 1.828 | 388980 | 22 | 386100 |
-| long | production | spans | 12.5913 | 0.341 | 0.479 | 1759583 | 10 | 53160 |
-| long | fast | spans | 3.0735 | 1.377 | 1.846 | 429516 | 30 | 345930 |
-| long | reference | spans | 2.3214 | 1.933 | 2.591 | 324410 | 23 | 391588 |
-| multilingual | production | pieces | 14.2666 | 0.050 | 0.083 | 2179619 | 10 | 9904 |
-| multilingual | fast | pieces | 2.9444 | 0.265 | 0.303 | 449838 | 29 | 56930 |
-| multilingual | reference | pieces | 2.5878 | 0.297 | 0.367 | 395351 | 22 | 68472 |
-| multilingual | production | spans | 12.5288 | 0.057 | 0.088 | 1914124 | 10 | 9904 |
-| multilingual | fast | spans | 2.9171 | 0.259 | 0.325 | 445672 | 30 | 58066 |
-| multilingual | reference | spans | 2.4880 | 0.310 | 0.365 | 380110 | 23 | 69608 |
-| source_code | production | pieces | 5.2790 | 0.194 | 0.225 | 2212167 | 10 | 40152 |
-| source_code | fast | pieces | 1.1793 | 0.865 | 1.048 | 494176 | 29 | 218317 |
-| source_code | reference | pieces | 0.9182 | 1.129 | 1.218 | 384755 | 22 | 252884 |
-| source_code | production | spans | 4.7926 | 0.212 | 0.255 | 2008346 | 10 | 40152 |
-| source_code | fast | spans | 1.0758 | 0.959 | 1.040 | 450800 | 30 | 222077 |
-| source_code | reference | spans | 0.4652 | 2.341 | 2.364 | 194932 | 23 | 256644 |
-| punctuation_heavy | production | pieces | 3.4929 | 0.708 | 0.911 | 2184430 | 10 | 198152 |
-| punctuation_heavy | fast | pieces | 0.8064 | 3.167 | 3.250 | 504320 | 29 | 864486 |
-| punctuation_heavy | reference | pieces | 0.6206 | 4.110 | 4.311 | 388090 | 22 | 951932 |
-| punctuation_heavy | production | spans | 3.1917 | 0.787 | 0.868 | 1996082 | 10 | 198152 |
-| punctuation_heavy | fast | spans | 0.7657 | 3.332 | 3.410 | 478878 | 30 | 878902 |
-| punctuation_heavy | reference | spans | 0.5685 | 4.400 | 5.083 | 355514 | 23 | 966348 |
-| cross_word_heavy | production | pieces | 11.6216 | 0.319 | 0.363 | 2216708 | 10 | 92416 |
-| cross_word_heavy | fast | pieces | 2.4759 | 1.508 | 1.717 | 472256 | 29 | 374294 |
-| cross_word_heavy | reference | pieces | 1.9332 | 1.975 | 2.009 | 368731 | 22 | 422068 |
-| cross_word_heavy | production | spans | 10.2905 | 0.360 | 0.417 | 1962820 | 10 | 92416 |
-| cross_word_heavy | fast | spans | 2.4182 | 1.560 | 1.618 | 461246 | 30 | 380486 |
-| cross_word_heavy | reference | spans | 1.6953 | 2.106 | 2.997 | 323354 | 23 | 428260 |
-| pathological | production | pieces | 7.2076 | 1.430 | 1.613 | 1311194 | 10 | 199752 |
-| pathological | fast | pieces | 2.5416 | 3.744 | 5.058 | 462369 | 29 | 975758 |
-| pathological | reference | pieces | 1.8028 | 5.421 | 6.672 | 327964 | 22 | 1074124 |
-| pathological | production | spans | 10.5018 | 0.917 | 1.109 | 1910470 | 10 | 199752 |
-| pathological | fast | spans | 1.7527 | 5.411 | 7.592 | 318857 | 30 | 991998 |
-| pathological | reference | spans | 1.9708 | 4.984 | 5.147 | 358519 | 23 | 1090364 |
-| synthetic_1024_sparse | production | pieces | 6.8189 | 0.814 | 0.909 | 880678 | 10 | 128444 |
-| synthetic_1024_sparse | fast | pieces | 2.6684 | 2.101 | 2.237 | 344629 | 29 | 454637 |
-| synthetic_1024_sparse | reference | pieces | 1.6975 | 3.300 | 3.406 | 219241 | 23 | 477356 |
-| synthetic_1024_medium | production | pieces | 7.7789 | 0.713 | 0.828 | 717219 | 10 | 126402 |
-| synthetic_1024_medium | fast | pieces | 2.9750 | 1.873 | 2.006 | 274294 | 29 | 392597 |
-| synthetic_1024_medium | reference | pieces | 1.6554 | 3.344 | 3.637 | 152628 | 22 | 482980 |
-| synthetic_1024_dense | production | pieces | 7.9445 | 0.694 | 0.757 | 722610 | 10 | 126870 |
-| synthetic_1024_dense | fast | pieces | 2.2192 | 2.596 | 3.029 | 201852 | 29 | 390665 |
-| synthetic_1024_dense | reference | pieces | 1.7027 | 3.322 | 3.427 | 154871 | 22 | 483652 |
-| synthetic_1024_hierarchical | production | pieces | 7.2495 | 0.765 | 0.837 | 329697 | 10 | 126870 |
-| synthetic_1024_hierarchical | fast | pieces | 3.0649 | 1.809 | 2.010 | 139389 | 29 | 357001 |
-| synthetic_1024_hierarchical | reference | pieces | 1.5496 | 3.629 | 3.693 | 70474 | 22 | 469316 |
-| synthetic_4096_sparse | production | pieces | 3.8956 | 5.746 | 6.199 | 358060 | 10 | 544620 |
-| synthetic_4096_sparse | fast | pieces | 1.3501 | 16.554 | 17.729 | 124091 | 29 | 1615877 |
-| synthetic_4096_sparse | reference | pieces | 0.6389 | 30.869 | 50.669 | 58729 | 22 | 1964696 |
-| synthetic_4096_dense | production | pieces | 3.8414 | 5.911 | 5.951 | 348150 | 10 | 546534 |
-| synthetic_4096_dense | fast | pieces | 1.3481 | 16.834 | 17.374 | 122183 | 29 | 1607177 |
-| synthetic_4096_dense | reference | pieces | 0.8083 | 27.413 | 33.306 | 73259 | 22 | 1969104 |
+| short | production | pieces | 3.0435 | 0.009 | 0.045 | 691700 | 12 | 3134 |
+| short | fast | pieces | 1.3012 | 0.026 | 0.074 | 295733 | 24 | 7643 |
+| short | reference | pieces | 0.7056 | 0.047 | 0.141 | 160367 | 21 | 7936 |
+| short | production | spans | 3.7515 | 0.007 | 0.029 | 852619 | 10 | 1886 |
+| short | fast | spans | 1.1579 | 0.029 | 0.067 | 263158 | 24 | 7827 |
+| short | reference | spans | 0.9981 | 0.036 | 0.065 | 226831 | 21 | 8120 |
+| medium | production | pieces | 10.8182 | 0.065 | 0.198 | 1665152 | 10 | 10192 |
+| medium | fast | pieces | 1.3473 | 0.735 | 1.227 | 207382 | 29 | 72998 |
+| medium | reference | pieces | 2.4411 | 0.412 | 0.448 | 375739 | 22 | 88256 |
+| medium | production | spans | 12.8997 | 0.074 | 0.105 | 1985547 | 10 | 10192 |
+| medium | fast | spans | 1.4568 | 0.668 | 0.855 | 224235 | 30 | 74486 |
+| medium | reference | spans | 2.2590 | 0.447 | 0.507 | 347708 | 23 | 89744 |
+| long | production | pieces | 16.0331 | 0.284 | 0.338 | 2240569 | 10 | 53160 |
+| long | fast | pieces | 3.6966 | 1.265 | 1.382 | 516579 | 29 | 340442 |
+| long | reference | pieces | 2.5270 | 1.765 | 2.382 | 353144 | 22 | 386100 |
+| long | production | spans | 14.3788 | 0.325 | 0.371 | 2009380 | 10 | 53160 |
+| long | fast | spans | 3.3755 | 1.398 | 1.479 | 471714 | 30 | 345930 |
+| long | reference | spans | 2.1593 | 2.039 | 2.642 | 301754 | 23 | 391588 |
+| multilingual | production | pieces | 14.3851 | 0.050 | 0.082 | 2197717 | 10 | 9904 |
+| multilingual | fast | pieces | 3.4100 | 0.227 | 0.270 | 520974 | 29 | 56930 |
+| multilingual | reference | pieces | 2.0892 | 0.393 | 0.476 | 319177 | 22 | 68472 |
+| multilingual | production | spans | 11.2866 | 0.059 | 0.124 | 1724349 | 10 | 9904 |
+| multilingual | fast | spans | 3.1054 | 0.248 | 0.310 | 474430 | 30 | 58066 |
+| multilingual | reference | spans | 2.3661 | 0.326 | 0.403 | 361487 | 23 | 69608 |
+| source_code | production | pieces | 4.4716 | 0.208 | 0.325 | 1873821 | 10 | 40152 |
+| source_code | fast | pieces | 1.1944 | 0.867 | 0.966 | 500496 | 29 | 218317 |
+| source_code | reference | pieces | 0.9056 | 1.160 | 1.222 | 379474 | 22 | 252884 |
+| source_code | production | spans | 4.5601 | 0.223 | 0.287 | 1910907 | 10 | 40152 |
+| source_code | fast | spans | 1.0564 | 0.932 | 1.248 | 442688 | 30 | 222077 |
+| source_code | reference | spans | 0.7880 | 1.239 | 1.756 | 330213 | 23 | 256644 |
+| punctuation_heavy | production | pieces | 3.6699 | 0.691 | 0.758 | 2295105 | 10 | 198152 |
+| punctuation_heavy | fast | pieces | 0.7977 | 3.149 | 3.381 | 498903 | 29 | 864486 |
+| punctuation_heavy | reference | pieces | 0.5742 | 4.362 | 4.874 | 359114 | 22 | 951932 |
+| punctuation_heavy | production | spans | 2.9866 | 0.843 | 0.967 | 1867802 | 10 | 198152 |
+| punctuation_heavy | fast | spans | 0.7335 | 3.504 | 3.659 | 458717 | 30 | 878902 |
+| punctuation_heavy | reference | spans | 0.5431 | 4.711 | 4.823 | 339636 | 23 | 966348 |
+| cross_word_heavy | production | pieces | 11.9534 | 0.314 | 0.350 | 2279996 | 10 | 92416 |
+| cross_word_heavy | fast | pieces | 2.6209 | 1.431 | 1.524 | 499921 | 29 | 374294 |
+| cross_word_heavy | reference | pieces | 1.2693 | 3.147 | 3.680 | 242113 | 22 | 422068 |
+| cross_word_heavy | production | spans | 9.5492 | 0.360 | 0.563 | 1821430 | 10 | 92416 |
+| cross_word_heavy | fast | spans | 2.4277 | 1.557 | 1.590 | 463057 | 30 | 380486 |
+| cross_word_heavy | reference | spans | 1.6407 | 2.108 | 3.561 | 312955 | 23 | 428260 |
+| pathological | production | pieces | 12.6761 | 0.741 | 0.991 | 2306018 | 10 | 199752 |
+| pathological | fast | pieces | 2.5004 | 3.873 | 5.062 | 454864 | 29 | 975758 |
+| pathological | reference | pieces | 1.9446 | 5.103 | 5.140 | 353763 | 22 | 1074124 |
+| pathological | production | spans | 9.2195 | 0.919 | 2.018 | 1677199 | 10 | 199752 |
+| pathological | fast | spans | 2.3676 | 4.081 | 4.791 | 430716 | 30 | 991998 |
+| pathological | reference | spans | 1.7813 | 5.521 | 6.611 | 324049 | 23 | 1090364 |
+| synthetic_1024_sparse | production | pieces | 6.7202 | 0.804 | 1.022 | 867926 | 10 | 128444 |
+| synthetic_1024_sparse | fast | pieces | 2.7553 | 2.029 | 2.111 | 355849 | 29 | 454637 |
+| synthetic_1024_sparse | reference | pieces | 1.6249 | 3.433 | 3.695 | 209857 | 23 | 477356 |
+| synthetic_1024_medium | production | pieces | 7.0538 | 0.764 | 0.932 | 650364 | 10 | 126402 |
+| synthetic_1024_medium | fast | pieces | 2.9026 | 1.924 | 2.073 | 267622 | 29 | 392597 |
+| synthetic_1024_medium | reference | pieces | 1.4035 | 3.529 | 5.249 | 129406 | 22 | 482980 |
+| synthetic_1024_dense | production | pieces | 8.4413 | 0.661 | 0.718 | 767797 | 10 | 126870 |
+| synthetic_1024_dense | fast | pieces | 2.7963 | 1.958 | 2.439 | 254345 | 29 | 390665 |
+| synthetic_1024_dense | reference | pieces | 1.5685 | 3.436 | 3.919 | 142670 | 22 | 483652 |
+| synthetic_1024_hierarchical | production | pieces | 5.6653 | 0.802 | 1.913 | 257653 | 10 | 126870 |
+| synthetic_1024_hierarchical | fast | pieces | 3.0898 | 1.786 | 2.068 | 140523 | 29 | 357001 |
+| synthetic_1024_hierarchical | reference | pieces | 1.5244 | 3.667 | 3.893 | 69327 | 22 | 469316 |
+| synthetic_4096_sparse | production | pieces | 7.9522 | 2.792 | 3.127 | 730926 | 10 | 544620 |
+| synthetic_4096_sparse | fast | pieces | 2.7682 | 7.854 | 9.743 | 254442 | 29 | 1615877 |
+| synthetic_4096_sparse | reference | pieces | 1.5204 | 14.072 | 19.473 | 139749 | 22 | 1964696 |
+| synthetic_4096_dense | production | pieces | 8.4178 | 2.654 | 2.849 | 762918 | 10 | 546534 |
+| synthetic_4096_dense | fast | pieces | 2.7936 | 7.861 | 9.387 | 253188 | 29 | 1607177 |
+| synthetic_4096_dense | reference | pieces | 1.5308 | 13.860 | 19.959 | 138739 | 22 | 1969104 |
 
 ## Interpretation rules
 
